@@ -32,6 +32,7 @@ render.experimental.xml
 google-services.json
 
 # Backend local configuration and Python artifacts
+.venv/
 backend/.env
 backend/.venv/
 backend/**/__pycache__/
