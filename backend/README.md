@@ -218,3 +218,48 @@ python -m uvicorn app.main:app --reload --port 8002
 Open Swagger UI at `http://127.0.0.1:8002/docs`. Through the Gateway (port 8000), use the same API paths, for example `http://127.0.0.1:8000/api/v1/time-slots?court_id=1&slot_date=2026-10-23`. Gateway forwards the request body, query string, Authorization header, and upstream status code.
 
 JWT validation and OWNER/ADMIN authorization for all write routes, including checking that the authenticated Owner owns a venue, are pending the S1 Auth contract. Booking Service remains responsible for bookings and does not have its status changed by Court Service time-slot operations.
+
+## Court Service development/demo seed (Step 5)
+
+`scripts/seed_court_demo.py` creates three sports, two clearly named fictitious venues in Ho Chi Minh City, six courts, and five non-overlapping time slots per court for seven consecutive days. It uses the existing SQLAlchemy models/session and targets only `sports_court_db`; it does not create or alter tables.
+
+Before running the seed, confirm an actual OWNER account ID with S1. The repository plan and API examples do not define a confirmed demo Owner ID. Do not use an illustrative ID from the API Contract. Set `DEMO_OWNER_ID` in the ignored local `backend/.env` file, or pass `--owner-id` on the command line. The script has no default Owner ID and exits before connecting to the database if none is supplied. This workspace has no configured `DEMO_OWNER_ID`, so no venue, court, or time-slot demo data has been inserted.
+
+From the repository root, after confirming the Owner ID and configuring `COURT_DATABASE_URL` for `sports_court_db`:
+
+```powershell
+python backend/scripts/seed_court_demo.py
+```
+
+Optionally choose the first schedule date (the script covers that day and the following six days):
+
+```powershell
+python backend/scripts/seed_court_demo.py --start-date 2026-10-24
+```
+
+The command-line `--owner-id` option overrides `DEMO_OWNER_ID`. Re-running with the same Owner ID and start date reuses matching records. Existing records are never updated or deleted; conflicting demo-named venues/courts or overlapping active time slots cause the transaction to roll back. Running on a later date seeds the new seven-day range and retains older rows. This seed is for local development/demo only, not production.
+
+After starting Court Service and the Gateway, verify via either API base URL:
+
+```text
+GET /api/v1/sports
+GET /api/v1/venues
+GET /api/v1/courts
+GET /api/v1/time-slots
+```
+
+Use `?owner_id=<confirmed-id>` for venues, `?venue_id=<venue-id>&sport_id=<sport-id>` for courts, and `?court_id=<court-id>&slot_date=YYYY-MM-DD` for time slots. The Management Web reads through the Gateway; its dashboards, registry, and schedule should reflect these MySQL records. Seed data does not enable API writes, bookings, payment, or QR check-in.
+
+For a direct read-only MySQL check, connect to `sports_court_db` with your local MySQL client and run:
+
+```sql
+SELECT COUNT(*) FROM sports;
+SELECT COUNT(*) FROM venues;
+SELECT COUNT(*) FROM courts;
+SELECT COUNT(*) FROM time_slots;
+SELECT c.name, v.name AS venue, s.name AS sport, c.price_per_hour
+FROM courts AS c
+JOIN venues AS v ON v.id = c.venue_id
+JOIN sports AS s ON s.id = c.sport_id
+ORDER BY v.id, c.id;
+```

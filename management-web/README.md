@@ -33,6 +33,8 @@ The frontend calls the Gateway only. Set the single base URL in `assets/js/confi
 
 The Owner and Admin dashboards, Venue & Court registry, and Schedule read live Sports, Venue, Court, and Time Slot data through the Gateway. Search and catalogue filters use the loaded data; Schedule date and court filters are sent as API query parameters. Detail buttons fetch the selected resource. API loading, empty, and error states are shown with retry controls.
 
+To populate a local demo, follow the Court Service seed instructions in [`backend/README.md`](../backend/README.md#court-service-developmentdemo-seed-step-5). The seed requires an Owner ID confirmed with S1; without one the database should remain unseeded and these screens show empty states.
+
 Displayed slot status reflects only `is_active`; it does not indicate whether a slot is booked or available. Prices are formatted from the API decimal string for display and are not used for payment calculations.
 
 Add, edit, and deactivate controls do not send requests. They display a notice while Court Service write routes await S1 JWT and authorization integration.
