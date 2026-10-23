@@ -1,4 +1,4 @@
-﻿# Owner/Admin Management Web
+# Owner/Admin Management Web
 
 This project uses static HTML, CSS, and JavaScript with the existing Bootstrap CDN assets. No Node build or frontend package installation is required.
 
@@ -37,7 +37,16 @@ To populate a local demo, follow the Court Service seed instructions in [`backen
 
 Displayed slot status reflects only `is_active`; it does not indicate whether a slot is booked or available. Prices are formatted from the API decimal string for display and are not used for payment calculations.
 
-Add, edit, and deactivate controls do not send requests. They display a notice while Court Service write routes await S1 JWT and authorization integration.
+## Owner CRUD preview
+
+On the Owner Dashboard, Venue & Court, and Schedule screens, use the data mode selector:
+
+- **API Mode** is the default. It reads the live Sports, Venue, Court, and Time Slot APIs with GET requests. Add/Edit forms show the API Contract fields and validation constraints for preparation. Save and Delete are disabled until S1 supplies the JWT and authorization contract. No token is fabricated and no write request is sent. Venue forms show `owner_id` only when the API provides it; creating a venue requires an Owner ID supplied by a future authenticated session.
+- **Demo Mode** uses a separate sample dataset kept only in JavaScript memory. Add, edit, and delete (soft deactivation) work for sports, venues, courts, and time slots, with local validation including duplicate sport names and duplicate/overlapping slots. These actions never call the Gateway. Reloading the page restores the starter data. Demo venues have no real Owner ID.
+
+Court forms require an existing Demo venue and sport, and a positive price with up to two decimal places. Time Slot forms require an existing Demo court, a date, and a start time before the end time. API Mode write controls stay disabled; conflict responses such as HTTP 409 cannot be exercised until authenticated writes are integrated.
+
+The older backend-owned seed data remains separate from browser Demo Mode. To seed MySQL, follow the Court Service instructions in [`backend/README.md`](../backend/README.md#court-service-developmentdemo-seed-step-5); it requires an Owner ID confirmed with S1.
 
 ## Demo screens
 

@@ -1,6 +1,10 @@
 (function () {
   "use strict";
   var data = window.BookingMockData;
+  var dataMode = "api";
+  var demoCourtData = window.CourtDemoData.create();
+  var crudFormState = null;
+  var crudFormError = "";
   var courtResources = {
     sports: { status: "idle", data: [], error: "" },
     venues: { status: "idle", data: [], error: "" },
@@ -58,6 +62,32 @@
   function currentRoute() {
     return (location.hash.replace(/^#\/?/, "") || "login").toLowerCase();
   }
+  function currentResources(allowDemo) {
+    if (!allowDemo || dataMode !== "demo") return courtResources;
+    return {
+      sports: { status: "loaded", data: demoCourtData.sports, error: "" },
+      venues: { status: "loaded", data: demoCourtData.venues, error: "" },
+      courts: { status: "loaded", data: demoCourtData.courts, error: "" },
+      slots: { status: "loaded", data: demoCourtData.slots, error: "" }
+    };
+  }
+  function modeToolbar() {
+    var demo = dataMode === "demo";
+    var message = demo
+      ? "Changes stay in this browser tab memory and reset when the page is reloaded. No API request is sent."
+      : "Live GET data from Court Service. Save and deactivate are disabled until JWT integration.";
+    return '<section class="court-mode-bar" aria-label="Court data mode"><div><strong>' +
+      (demo ? "Demo Mode" : "API Mode") + '</strong><small>' + message +
+      '</small></div><label class="small mb-0" for="court-data-mode">Data mode</label><select id="court-data-mode" class="form-select" aria-label="Select data mode"><option value="api" ' +
+      (!demo ? "selected" : "") + '>API Mode — real GET, writes disabled</option><option value="demo" ' +
+      (demo ? "selected" : "") + '>Demo Mode — in-memory sample data</option></select></section>';
+  }
+  function recordsFor(resource) {
+    return demoCourtData[resource];
+  }
+  function nextDemoId(records) {
+    return records.reduce(function (max, item) { return Math.max(max, Number(item.id) || 0); }, 0) + 1;
+  }
   function esc(value) {
     return String(value).replace(/[&<>"']/g, function (ch) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
@@ -108,6 +138,10 @@
     return courtLoadPromise;
   }
   function refreshSchedule() {
+    if (dataMode === "demo") {
+      render();
+      return;
+    }
     var query = resourceQuery({ slot_date: scheduleFilters.date, court_id: scheduleFilters.courtId });
     var path = "/api/v1/time-slots" + (query ? "?" + query : "");
     scheduleState = { status: "loading", data: [], error: "" };
@@ -122,7 +156,10 @@
     return '<button class="btn btn-sm btn-outline-secondary" data-court-retry>Retry</button>';
   }
   function pendingWriteNotice() {
-    return '<div class="alert alert-warning py-2 small" role="status">Add, edit, and deactivate actions are waiting for JWT integration. No data will be sent or saved.</div>';
+    if (dataMode === "demo") {
+      return '<div class="alert alert-info py-2 small" role="status"><strong>Demo Mode:</strong> Changes affect only the in-memory sample data. Reload the page to restore the starter data.</div>';
+    }
+    return '<div class="alert alert-warning py-2 small" role="status"><strong>API Mode:</strong> GET uses Court Service data. Add, edit, and deactivate are read-only previews until S1 provides the JWT contract; no write request is sent.</div>';
   }
   function demoNotice(message) {
     return '<div class="alert alert-info py-2 small" role="status"><strong>Demo:</strong> ' + esc(message) + '</div>';
@@ -145,6 +182,128 @@
   }
   function resourceError(label, error) {
     return '<div class="alert alert-danger d-flex justify-content-between align-items-center gap-2" role="alert"><span>Could not load ' + esc(label) + ': ' + esc(error || "Connection error.") + '</span>' + retryButton() + "</div>";
+  }
+  function crudOpenButton(resource, id, label, style) {
+    return '<button type="button" class="btn btn-sm ' + (style || "btn-outline-secondary") + '" data-crud-open="' + esc(resource) + '" data-crud-id="' + esc(id === undefined ? "" : id) + '">' + esc(label) + "</button>";
+  }
+  function crudDeleteButton(resource, id) {
+    return '<button type="button" class="btn btn-sm btn-outline-danger" data-crud-delete="' + esc(resource) + '" data-crud-id="' + esc(id) + '" ' + (dataMode === "api" ? 'disabled title="JWT integration is pending"' : "") + '>Delete</button>';
+  }
+  function formInput(label, name, value, type, attributes, full) {
+    return '<div class="' + (full ? "crud-field-full" : "") + '"><label class="form-label" for="crud-' + name + '">' + label +
+      '</label><input class="form-control" id="crud-' + name + '" name="' + name + '" type="' + (type || "text") + '" value="' + esc(value === null || value === undefined ? "" : value) + '" ' + (attributes || "") + '></div>';
+  }
+  function formTextarea(label, name, value, attributes) {
+    return '<div class="crud-field-full"><label class="form-label" for="crud-' + name + '">' + label +
+      '</label><textarea class="form-control" id="crud-' + name + '" name="' + name + '" ' + (attributes || "") + '>' + esc(value || "") + "</textarea></div>";
+  }
+  function formSelect(label, name, items, selected, textFor) {
+    var options = items.map(function (item) {
+      return '<option value="' + esc(item.id) + '" ' + (String(item.id) === String(selected) ? "selected" : "") + '>' + esc(textFor(item)) + "</option>";
+    }).join("");
+    return '<div><label class="form-label" for="crud-' + name + '">' + label + '</label><select class="form-select" id="crud-' + name + '" name="' + name + '" required><option value="">Choose ' + label.toLowerCase() + "</option>" + options + "</select></div>";
+  }
+  function formActiveField(active) {
+    return '<label class="crud-field-full form-check"><input class="form-check-input" type="checkbox" name="is_active" ' + (active ? "checked" : "") + '><span class="form-check-label">Active</span></label>';
+  }
+  function crudFormMarkup(resource, resources) {
+    if (!crudFormState || crudFormState.resource !== resource) return "";
+    var records = dataMode === "demo" ? recordsFor(resource) : resources[resource].data;
+    var record = crudFormState.id === null ? null : records.find(function (item) { return String(item.id) === String(crudFormState.id); });
+    var editing = !!record;
+    var title = (editing ? "Edit " : "Add ") + ({ sports: "Sport", venues: "Venue", courts: "Court", slots: "Time Slot" }[resource]);
+    var fields = "";
+    if (resource === "sports") {
+      fields = formInput("Name", "name", record && record.name, "text", 'maxlength="100" required') +
+        formTextarea("Description", "description", record && record.description, "") + formActiveField(!record || record.is_active);
+    } else if (resource === "venues") {
+      if (dataMode === "api") fields += formInput("Owner ID", "owner_id", record && record.owner_id, "number", 'min="1" step="1" required');
+      else fields += '<div class="crud-field-full small text-secondary">Owner: Demo session (not a real User Service account)</div>';
+      fields += formInput("Name", "name", record && record.name, "text", 'maxlength="200" required') +
+        formInput("Address", "address", record && record.address, "text", 'maxlength="255" required', true) +
+        formTextarea("Description", "description", record && record.description, "") +
+        formInput("Phone", "phone", record && record.phone, "tel", 'maxlength="20"') + formActiveField(!record || record.is_active);
+    } else if (resource === "courts") {
+      fields = formSelect("Venue", "venue_id", resources.venues.data, record && record.venue_id, function (item) { return item.name; }) +
+        formSelect("Sport", "sport_id", resources.sports.data, record && record.sport_id, function (item) { return item.name; }) +
+        formInput("Name", "name", record && record.name, "text", 'maxlength="100" required') +
+        formInput("Price per hour (VND)", "price_per_hour", record && record.price_per_hour, "text", 'inputmode="decimal" placeholder="120000.00" required') +
+        formTextarea("Description", "description", record && record.description, "") + formActiveField(!record || record.is_active);
+    } else {
+      fields = formSelect("Court", "court_id", resources.courts.data, record && record.court_id, function (item) { return item.name; }) +
+        formInput("Date", "slot_date", record && record.slot_date, "date", "required") +
+        formInput("Start time", "start_time", record && apiTime(record.start_time), "time", 'step="60" required') +
+        formInput("End time", "end_time", record && apiTime(record.end_time), "time", 'step="60" required') + formActiveField(!record || record.is_active);
+    }
+    var save = dataMode === "demo"
+      ? '<button type="submit" class="btn btn-success">Save in Demo Mode</button>'
+      : '<button type="submit" class="btn btn-success" disabled>Save disabled</button>';
+    return '<form class="crud-form-card" data-crud-form data-crud-resource="' + resource + '" data-crud-id="' + (record ? esc(record.id) : "") + '"><div class="d-flex justify-content-between align-items-center"><h3>' + title +
+      '</h3><span class="badge-soft ' + (dataMode === "demo" ? "" : "warning") + '">' + (dataMode === "demo" ? "Demo only" : "API read-only") + '</span></div><div class="crud-grid">' + fields +
+      '</div><p class="small text-danger mt-2 mb-0" data-crud-error>' + esc(crudFormError) + '</p><div class="crud-form-footer">' +
+      '<button type="button" class="btn btn-outline-secondary" data-crud-cancel>Cancel</button>' + save + '</div></form>';
+  }
+  function validateDemoForm(resource, values, id) {
+    if (resource === "sports") {
+      if (!values.name || values.name.length > 100) return "Enter a sport name with at most 100 characters.";
+      if (demoCourtData.sports.some(function (item) { return String(item.id) !== String(id) && item.name.toLowerCase() === values.name.toLowerCase(); })) return "A sport with this name already exists.";
+    }
+    if (resource === "venues") {
+      if (!values.name || values.name.length > 200 || !values.address || values.address.length > 255) return "Enter a venue name and address within the allowed lengths.";
+      if (values.phone && values.phone.length > 20) return "Phone must be at most 20 characters.";
+    }
+    if (resource === "courts") {
+      if (!values.name || values.name.length > 100) return "Enter a court name with at most 100 characters.";
+      if (!demoCourtData.venues.some(function (item) { return String(item.id) === String(values.venue_id); })) return "Choose a valid venue.";
+      if (!demoCourtData.sports.some(function (item) { return String(item.id) === String(values.sport_id); })) return "Choose a valid sport.";
+      if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(values.price_per_hour) || /^0+(?:\.0{1,2})?$/.test(values.price_per_hour)) return "Price must be greater than zero with at most 2 decimal places.";
+    }
+    if (resource === "slots") {
+      if (!demoCourtData.courts.some(function (item) { return String(item.id) === String(values.court_id); })) return "Choose a valid court.";
+      if (!values.slot_date || !values.start_time || !values.end_time || values.start_time.slice(0, 5) >= values.end_time.slice(0, 5)) return "Choose a date and ensure start time is earlier than end time.";
+      var collision = demoCourtData.slots.find(function (slot) {
+        if (String(slot.id) === String(id) || String(slot.court_id) !== String(values.court_id) || slot.slot_date !== values.slot_date) return false;
+        var start = values.start_time.slice(0, 5);
+        var end = values.end_time.slice(0, 5);
+        var exact = slot.start_time.slice(0, 5) === start && slot.end_time.slice(0, 5) === end;
+        var overlaps = values.is_active && slot.is_active && slot.start_time.slice(0, 5) < end && slot.end_time.slice(0, 5) > start;
+        return exact || overlaps;
+      });
+      if (collision) return "This time range duplicates or overlaps another slot for the selected court.";
+    }
+    return "";
+  }
+  function demoFormValues(form, resource) {
+    var values = Object.fromEntries(new FormData(form).entries());
+    values.is_active = form.elements.is_active.checked;
+    ["name", "address", "description", "phone", "price_per_hour"].forEach(function (key) {
+      if (values[key] === undefined || values[key] === null) values[key] = "";
+    });
+    ["name", "address", "description", "phone", "price_per_hour"].forEach(function (key) {
+      if (values[key] !== undefined) values[key] = values[key].trim();
+    });
+    if (resource === "courts") {
+      values.venue_id = Number(values.venue_id);
+      values.sport_id = Number(values.sport_id);
+      values.price_per_hour = values.price_per_hour;
+      if (!values.description) values.description = null;
+    }
+    if (resource === "venues") {
+      if (!values.description) values.description = null;
+      if (!values.phone) values.phone = null;
+      values.owner_id = null;
+      values.created_at = null;
+    }
+    if (resource === "sports" && !values.description) values.description = null;
+    if (resource === "slots") {
+      values.court_id = Number(values.court_id);
+      values.start_time += ":00";
+      values.end_time += ":00";
+    }
+    return values;
+  }
+  function resourceForApi(resource) {
+    return resource === "slots" ? "time-slots" : resource;
   }
   function detailButton(resource, id, label) {
     return '<button class="btn btn-sm btn-outline-secondary" data-resource-detail="' + esc(resource) + '" data-resource-id="' + esc(id) + '">' + esc(label || "Details") + "</button>";
@@ -240,10 +399,11 @@
   }
   function stats(type, values, live) {
     var set = statSets[type] || statSets.dashboard;
+    var ownerDemo = live && dataMode === "demo" && ["dashboard", "venues", "schedule"].indexOf(currentRoute()) >= 0;
     return '<div class="stat-grid">' + values.map(function (value, i) {
       return '<article class="stat-card ' + (type === "admin-dashboard" && i === 3 ? "admin-highlight" : "") + '"><div class="stat-top"><span>' +
         esc(set[i][1]) + '</span><span class="stat-icon"><i class="bi ' + set[i][0] + '"></i></span></div><div class="stat-value">' + esc(value) +
-        '</div><div class="stat-note">' + (live ? 'Court Service - live count' : 'Demo data') + '</div></article>';
+        '</div><div class="stat-note">' + (ownerDemo ? "Demo Mode sample" : (live ? 'Court Service - live count' : 'Demo data')) + '</div></article>';
     }).join("") + "</div>";
   }
   function badge(status) {
@@ -287,10 +447,11 @@
     return panel("Quick actions", body);
   }
   function dashboard(active) {
-    var sports = courtResources.sports;
-    var venues = courtResources.venues;
-    var courts = courtResources.courts;
-    var slots = courtResources.slots;
+    var resources = currentResources(active !== "admin-dashboard");
+    var sports = resources.sports;
+    var venues = resources.venues;
+    var courts = resources.courts;
+    var slots = resources.slots;
     var activeSlots = slots.status === "loaded" ? slots.data.filter(function (slot) { return slot.is_active; }).length : "?";
     var values = [
       sports.status === "loaded" ? sports.data.length : "?",
@@ -309,12 +470,12 @@
           return '<tr><td class="table-primary-text">' + esc(venue.name) + '</td><td>' + esc(venue.address) + '</td><td>' + esc(linkedCourts) + '</td><td>' + courtStatus(venue.is_active) + '</td><td>' + detailButton("venues", venue.id) + '</td></tr>';
         }).join("") + '</tbody></table></div>';
     }
-    var anyError = Object.keys(courtResources).some(function (key) { return courtResources[key].status === "error"; });
+    var anyError = Object.keys(resources).some(function (key) { return resources[key].status === "error"; });
     return heading(active, '<button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
       stats("court-overview", values, true) +
-      '<p class="text-secondary small">Counts are from the public Court Service catalogue and are not scoped to the demo Owner account. Active slots are administrative records, not booking availability.</p>' +
+      '<p class="text-secondary small">' + (dataMode === "demo" && active !== "admin-dashboard" ? "Demo sample counts are stored only in browser memory. " : "Counts are from the public Court Service catalogue and are not scoped to the demo Owner account. ") + 'Active slots are administrative records, not booking availability.</p>' +
       (anyError ? resourceError("some Court Service data", "One or more lists could not be loaded.") : "") +
-      '<div class="content-grid">' + panel("Venue catalogue", venueBody, "Live data from Court Service") +
+      '<div class="content-grid">' + panel("Venue catalogue", venueBody, dataMode === "demo" && active !== "admin-dashboard" ? "Demo Mode sample" : "Live data from Court Service") +
       panel("Court data", '<div class="panel-body"><p class="mb-2">Sports: ' + (sports.status === "loaded" ? sports.data.length : "?") + '</p><p class="mb-2">Venues: ' + (venues.status === "loaded" ? venues.data.length : "?") + '</p><p class="mb-2">Courts: ' + (courts.status === "loaded" ? courts.data.length : "?") + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>', "No Booking or revenue data is connected") +
       '</div><div class="mt-3 d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="#/venues">Open venues and courts</a><a class="btn btn-outline-secondary btn-sm" href="#/schedule">Open schedule</a></div>';
   }
@@ -329,65 +490,70 @@
       table(heads, rows) + '<div class="table-foot"><span>Showing ' + rows.length + ' sample bookings</span><nav><ul class="pagination pagination-sm"><li class="page-item active"><a class="page-link" href="#">1</a></li><li class="page-item"><a class="page-link" href="#" data-toast="More sample rows can be added later.">2</a></li></ul></nav></div>');
   }
   function venuePage(active, admin) {
-    var venues = courtResources.venues;
-    var courts = courtResources.courts;
-    var sports = courtResources.sports;
-    var venueCards = "";
-    if (venues.status === "loading" || venues.status === "idle") venueCards = '<div class="panel-body">Loading venues...</div>';
-    else if (venues.status === "error") venueCards = '<div class="panel-body">' + resourceError("venues", venues.error) + "</div>";
-    else if (!venues.data.length) venueCards = '<div class="panel-body text-secondary">No venues returned by Court Service.</div>';
-    else {
-      venueCards = venues.data.map(function (venue) {
-        var courtDataAvailable = courts.status === "loaded";
-        var linkedCourts = courtDataAvailable ? courts.data.filter(function (court) { return court.venue_id === venue.id; }) : [];
-        var sportNames = [];
-        if (sports.status === "loaded") {
-          linkedCourts.forEach(function (court) {
-            var sport = sports.data.find(function (item) { return item.id === court.sport_id; });
-            if (sport && sportNames.indexOf(sport.name) < 0) sportNames.push(sport.name);
-          });
-        }
-        var sportIds = linkedCourts.map(function (court) { return "|" + court.sport_id + "|"; }).join("");
-        return '<article class="venue-card" data-venue-card data-search="' + esc((venue.name + " " + venue.address).toLowerCase()) + '" data-sport-ids="' + esc(sportIds) + '" data-active="' + String(!!venue.is_active) + '"><div class="venue-cover"><span class="venue-cover-icon"><i class="bi bi-building"></i></span>' + courtStatus(venue.is_active) + '</div><div class="venue-body"><h3>' +
-          esc(venue.name) + '</h3><p><i class="bi bi-geo-alt me-1"></i>' + esc(venue.address) + '</p><div class="venue-meta"><span><strong>' + (courtDataAvailable ? linkedCourts.length : "-") + '</strong> courts</span><span>' + esc(sports.status === "loaded" ? (sportNames.join(", ") || "No linked sports") : "Sport data unavailable") + '</span></div><div class="d-flex justify-content-end gap-2 mt-3">' +
-          detailButton("venues", venue.id, "View") + '<button class="btn btn-sm btn-success" data-pending-auth>Edit</button></div></div></article>';
-      }).join("");
-    }
-    var courtRows = "";
-    if (courts.status === "loading" || courts.status === "idle") courtRows = '<tr><td colspan="6" class="text-secondary">Loading courts...</td></tr>';
-    else if (courts.status === "error") courtRows = '<tr><td colspan="6">' + resourceError("courts", courts.error) + '</td></tr>';
-    else if (!courts.data.length) courtRows = '<tr><td colspan="6" class="text-secondary">No courts returned by Court Service.</td></tr>';
-    else {
-      courtRows = courts.data.map(function (court) {
-        var venue = venues.status === "loaded" ? venues.data.find(function (item) { return item.id === court.venue_id; }) : null;
-        var sport = sports.status === "loaded" ? sports.data.find(function (item) { return item.id === court.sport_id; }) : null;
-        var searchText = [court.name, venue && venue.name, sport && sport.name].filter(Boolean).join(" ").toLowerCase();
-        return '<tr data-court-row data-search="' + esc(searchText) + '" data-venue-id="' + esc(court.venue_id) + '" data-sport-id="' + esc(court.sport_id) + '" data-active="' + String(!!court.is_active) + '"><td class="table-primary-text">' + esc(court.name) + '</td><td>' + esc(venue ? venue.name : "Venue #" + court.venue_id) + '</td><td>' + esc(sport ? sport.name : "Sport #" + court.sport_id) + '</td><td>' + formatPriceVnd(court.price_per_hour) + '</td><td>' + courtStatus(court.is_active) + '</td><td>' + detailButton("courts", court.id) + ' <button class="btn btn-sm btn-outline-secondary" data-pending-auth>Edit</button></td></tr>';
-      }).join("");
-    }
-    var sportOptions = sports.status === "loaded" ? sports.data.map(function (sport) { return '<option value="' + esc(sport.id) + '">' + esc(sport.name) + '</option>'; }).join("") : "";
-    var venueOptions = venues.status === "loaded" ? venues.data.map(function (venue) { return '<option value="' + esc(venue.id) + '">' + esc(venue.name) + '</option>'; }).join("") : "";
+    var editable = !admin;
+    var resources = currentResources(editable);
+    var venues = resources.venues;
+    var courts = resources.courts;
+    var sports = resources.sports;
+    var venueCards = venues.data.map(function (venue) {
+      var linkedCourts = courts.status === "loaded" ? courts.data.filter(function (court) { return court.venue_id === venue.id; }) : [];
+      var sportNames = [];
+      linkedCourts.forEach(function (court) {
+        var sport = sports.data.find(function (item) { return item.id === court.sport_id; });
+        if (sport && sportNames.indexOf(sport.name) < 0) sportNames.push(sport.name);
+      });
+      var ownerLabel = dataMode === "demo" && editable ? "Demo session" : (venue.owner_id ? "Owner #" + venue.owner_id : "Owner unavailable");
+      var actions = detailButton("venues", venue.id, "View");
+      if (editable) actions += '<div class="crud-actions">' + crudOpenButton("venues", venue.id, "Edit") + crudDeleteButton("venues", venue.id) + "</div>";
+      return '<article class="venue-card" data-venue-card data-search="' + esc((venue.name + " " + venue.address).toLowerCase()) + '" data-sport-ids="' + esc(linkedCourts.map(function (court) { return "|" + court.sport_id + "|"; }).join("")) + '" data-active="' + String(!!venue.is_active) + '"><div class="venue-cover"><span class="venue-cover-icon"><i class="bi bi-building"></i></span>' + courtStatus(venue.is_active) + '</div><div class="venue-body"><h3>' +
+        esc(venue.name) + '</h3><p><i class="bi bi-geo-alt me-1"></i>' + esc(venue.address) + '</p><div class="venue-meta"><span><strong>' + linkedCourts.length + '</strong> courts</span><span>' + esc(sportNames.join(", ") || "No linked sports") + '</span></div><div class="detail-row"><span>Owner</span><strong>' + esc(ownerLabel) + '</strong></div><div class="d-flex justify-content-between align-items-center gap-2 mt-3">' + actions + '</div></div></article>';
+    }).join("");
+    var courtRows = courts.data.map(function (court) {
+      var venue = venues.data.find(function (item) { return item.id === court.venue_id; });
+      var sport = sports.data.find(function (item) { return item.id === court.sport_id; });
+      var searchText = [court.name, venue && venue.name, sport && sport.name].filter(Boolean).join(" ").toLowerCase();
+      var actions = detailButton("courts", court.id);
+      if (editable) actions += '<div class="crud-actions">' + crudOpenButton("courts", court.id, "Edit") + crudDeleteButton("courts", court.id) + "</div>";
+      return '<tr data-court-row data-search="' + esc(searchText) + '" data-venue-id="' + esc(court.venue_id) + '" data-sport-id="' + esc(court.sport_id) + '" data-active="' + String(!!court.is_active) + '"><td class="table-primary-text">' + esc(court.name) + '</td><td>' + esc(venue ? venue.name : "Venue #" + court.venue_id) + '</td><td>' + esc(sport ? sport.name : "Sport #" + court.sport_id) + '</td><td>' + formatPriceVnd(court.price_per_hour) + '</td><td>' + courtStatus(court.is_active) + '</td><td>' + actions + '</td></tr>';
+    }).join("");
+    var sportOptions = sports.data.map(function (sport) { return '<option value="' + esc(sport.id) + '">' + esc(sport.name) + '</option>'; }).join("");
+    var venueOptions = venues.data.map(function (venue) { return '<option value="' + esc(venue.id) + '">' + esc(venue.name) + '</option>'; }).join("");
+    var sportRows = sports.data.map(function (sport) {
+      var actions = detailButton("sports", sport.id) + '<div class="crud-actions">' + crudOpenButton("sports", sport.id, "Edit") + crudDeleteButton("sports", sport.id) + "</div>";
+      return '<tr><td class="table-primary-text">' + esc(sport.name) + '</td><td>' + esc(sport.description || "—") + '</td><td>' + courtStatus(sport.is_active) + '</td><td>' + (editable ? actions : detailButton("sports", sport.id)) + '</td></tr>';
+    }).join("");
+    var sportPanel = editable
+      ? panel("Sports", '<div class="toolbar">' + crudOpenButton("sports", null, "Add sport", "btn-success") + '</div>' + crudFormMarkup("sports", resources) + '<div class="table-wrap"><table class="table"><thead><tr><th>Sport</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + (sportRows || '<tr><td colspan="4" class="text-secondary">No sports. Add one in Demo Mode.</td></tr>') + '</tbody></table></div>', "Sport catalogue")
+      : "";
     var sportCount = sports.status === "loaded" ? sports.data.length : "?";
     var venueCount = venues.status === "loaded" ? venues.data.length : "?";
     var courtCount = courts.status === "loaded" ? courts.data.length : "?";
     var activeVenueCount = venues.status === "loaded" ? venues.data.filter(function (venue) { return venue.is_active; }).length : "?";
-    return heading(active, '<button class="btn btn-outline-secondary me-2" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button><button class="btn btn-success" data-pending-auth><i class="bi bi-plus-lg me-1"></i>Add venue</button>') +
-      pendingWriteNotice() + stats("court-registry", [sportCount, venueCount, courtCount, activeVenueCount], true) +
+    var actions = '<button class="btn btn-outline-secondary me-2" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>';
+    if (editable) actions += crudOpenButton("venues", null, "Add venue", "btn-success");
+    var stateText = dataMode === "demo" && editable ? "Demo Mode sample" : "Live Court Service data";
+    return heading(active, actions) + (editable ? pendingWriteNotice() : "") + stats("court-registry", [sportCount, venueCount, courtCount, activeVenueCount], true) +
+      sportPanel +
       '<div class="panel-card mb-3"><div class="toolbar"><div class="input-group search-field"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input class="form-control border-start-0" data-venue-search type="search" placeholder="Search venues or courts"></div>' +
-      '<select class="form-select" data-registry-sport-filter><option value="">All sports</option>' + sportOptions + '</select><select class="form-select" data-registry-active-filter><option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option></select><select class="form-select" data-registry-venue-filter><option value="">All venues</option>' + venueOptions + '</select></div></div>' +
-      '<div class="venue-grid" id="venue-grid">' + venueCards + '</div><div id="venue-filter-empty" class="alert alert-light mt-2" hidden>No venues match these filters.</div>' +
-      panel("Courts", '<div class="table-wrap"><table class="table"><thead><tr><th>Court</th><th>Venue</th><th>Sport</th><th>Price per hour</th><th>Status</th><th></th></tr></thead><tbody id="court-table-body">' + courtRows + '</tbody></table></div><div id="court-filter-empty" class="alert alert-light m-3" hidden>No courts match these filters.</div>', "Live Court Service data; active status is not booking availability") +
+      '<select class="form-select" data-registry-sport-filter><option value="">All sports</option>' + sportOptions + '</select><select class="form-select" data-registry-active-filter><option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option></select><select class="form-select" data-registry-venue-filter><option value="">All venues</option>' + venueOptions + '</select></div>' +
+      (editable ? crudFormMarkup("venues", resources) : "") + '<div class="venue-grid" id="venue-grid">' + (venueCards || '<div class="panel-body text-secondary">No venues returned by Court Service.</div>') + '</div><div id="venue-filter-empty" class="alert alert-light mt-2" hidden>No venues match these filters.</div></div>' +
+      panel("Courts", '<div class="toolbar">' + (editable ? crudOpenButton("courts", null, "Add court", "btn-success") : "") + '</div>' + (editable ? crudFormMarkup("courts", resources) : "") + '<div class="table-wrap"><table class="table"><thead><tr><th>Court</th><th>Venue</th><th>Sport</th><th>Price per hour</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + (courtRows || '<tr><td colspan="6" class="text-secondary">No courts returned by Court Service.</td></tr>') + '</tbody></table></div><div id="court-filter-empty" class="alert alert-light m-3" hidden>No courts match these filters.</div>', stateText) +
       '<div id="registry-court-error">' + (sports.status === "error" ? resourceError("sports", sports.error) : "") + '</div>';
   }
   function schedulePage() {
-    var courts = courtResources.courts;
-    var venues = courtResources.venues;
+    var resources = currentResources(true);
+    var courts = resources.courts;
+    var venues = resources.venues;
+    var slotsState = dataMode === "demo" ? resources.slots : scheduleState;
+    var formError = crudFormState && crudFormState.resource === "slots" ? "" : "";
     var rows = "";
     var statusBlock = "";
-    if (scheduleState.status === "loading" || scheduleState.status === "idle") statusBlock = '<div class="panel-body">Loading time slots...</div>';
-    else if (scheduleState.status === "error") statusBlock = '<div class="panel-body">' + resourceError("time slots", scheduleState.error) + "</div>";
+    if (slotsState.status === "loading" || slotsState.status === "idle") statusBlock = '<div class="panel-body">Loading time slots...</div>';
+    else if (slotsState.status === "error") statusBlock = '<div class="panel-body">' + resourceError("time slots", slotsState.error) + "</div>";
     else {
-      var visibleSlots = scheduleState.data.filter(function (slot) {
+      var visibleSlots = slotsState.data.filter(function (slot) {
+        if (dataMode === "demo" && scheduleFilters.date && slot.slot_date !== scheduleFilters.date) return false;
+        if (dataMode === "demo" && scheduleFilters.courtId && String(slot.court_id) !== String(scheduleFilters.courtId)) return false;
         if (!scheduleFilters.venueId) return true;
         var court = courts.data.find(function (item) { return item.id === slot.court_id; });
         return court && String(court.venue_id) === String(scheduleFilters.venueId);
@@ -397,24 +563,28 @@
         rows = visibleSlots.map(function (slot) {
           var court = courts.data.find(function (item) { return item.id === slot.court_id; });
           var venue = court && venues.data.find(function (item) { return item.id === court.venue_id; });
-          var sport = court && courtResources.sports.data.find(function (item) { return item.id === court.sport_id; });
-          return '<tr><td>' + apiDate(slot.slot_date) + '</td><td>' + esc(venue ? venue.name : (court ? "Venue #" + court.venue_id : "Court #" + slot.court_id)) + '</td><td>' + esc(court ? court.name : "Court #" + slot.court_id) + '</td><td>' + esc(sport ? sport.name : "?") + '</td><td>' + apiTime(slot.start_time) + ' - ' + apiTime(slot.end_time) + '</td><td>' + courtStatus(slot.is_active) + '</td><td>' + detailButton("time-slots", slot.id) + '</td></tr>';
+          var sport = court && resources.sports.data.find(function (item) { return item.id === court.sport_id; });
+          var actions = detailButton("time-slots", slot.id);
+          if (dataMode === "demo") actions += '<div class="crud-actions">' + crudOpenButton("slots", slot.id, "Edit") + crudDeleteButton("slots", slot.id) + "</div>";
+          else actions += '<div class="crud-actions">' + crudOpenButton("slots", slot.id, "Edit") + crudDeleteButton("slots", slot.id) + "</div>";
+          return '<tr><td>' + apiDate(slot.slot_date) + '</td><td>' + esc(venue ? venue.name : (court ? "Venue #" + court.venue_id : "Court #" + slot.court_id)) + '</td><td>' + esc(court ? court.name : "Court #" + slot.court_id) + '</td><td>' + esc(sport ? sport.name : "?") + '</td><td>' + apiTime(slot.start_time) + ' - ' + apiTime(slot.end_time) + '</td><td>' + courtStatus(slot.is_active) + '</td><td>' + actions + '</td></tr>';
         }).join("");
-        statusBlock = '<div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Venue</th><th>Court</th><th>Sport</th><th>Time</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div><div class="table-foot">Active means the slot record is enabled; booking availability is not provided by this API.</div>';
+        statusBlock = '<div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Venue</th><th>Court</th><th>Sport</th><th>Time</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div><div class="table-foot">Active means the slot record is enabled; booking availability is not provided by this API.</div>';
       }
     }
-    var courtOptions = courts.status === "loaded" ? courts.data.map(function (court) {
+    var courtOptions = courts.data.map(function (court) {
       var venue = venues.data.find(function (item) { return item.id === court.venue_id; });
       return '<option value="' + esc(court.id) + '" ' + (String(court.id) === String(scheduleFilters.courtId) ? "selected" : "") + '>' + esc((venue ? venue.name + " - " : "") + court.name) + '</option>';
-    }).join("") : "";
-    var venueOptions = venues.status === "loaded" ? venues.data.map(function (venue) {
+    }).join("");
+    var venueOptions = venues.data.map(function (venue) {
       return '<option value="' + esc(venue.id) + '" ' + (String(venue.id) === String(scheduleFilters.venueId) ? "selected" : "") + '>' + esc(venue.name) + '</option>';
-    }).join("") : "";
-    var activeSlots = courtResources.slots.status === "loaded" ? courtResources.slots.data.filter(function (slot) { return slot.is_active; }).length : "?";
-    var relationErrors = ["venues", "courts", "sports"].filter(function (key) { return courtResources[key].status === "error"; }).map(function (key) { return resourceError(key, courtResources[key].error); }).join("");
-    return relationErrors + heading("schedule", '<button class="btn btn-success" data-pending-auth><i class="bi bi-plus-lg me-1"></i>Add time slot</button>') + pendingWriteNotice() +
-      stats("court-overview", [courtResources.sports.status === "loaded" ? courtResources.sports.data.length : "?", venues.status === "loaded" ? venues.data.length : "?", courts.status === "loaded" ? courts.data.length : "?", activeSlots], true) +
-      panel("Court schedule", '<div class="toolbar"><label class="small" for="schedule-date-filter">Date</label><input id="schedule-date-filter" class="form-control" type="date" data-schedule-date value="' + esc(scheduleFilters.date) + '"><select class="form-select" data-schedule-court><option value="">All courts</option>' + courtOptions + '</select><select class="form-select" data-schedule-venue><option value="">All venues</option>' + venueOptions + '</select><button class="btn btn-success" data-schedule-apply>Apply filters</button><button class="btn btn-outline-secondary" data-schedule-retry>Refresh</button></div>' + statusBlock, "Time slots from Court Service - no booked/available state") +
+    }).join("");
+    var activeSlots = resources.slots.status === "loaded" ? resources.slots.data.filter(function (slot) { return slot.is_active; }).length : "?";
+    var relationErrors = ["venues", "courts", "sports"].filter(function (key) { return resources[key].status === "error"; }).map(function (key) { return resourceError(key, resources[key].error); }).join("");
+    var addButton = crudOpenButton("slots", null, "Add time slot", "btn-success");
+    return relationErrors + heading("schedule", addButton) + pendingWriteNotice() +
+      stats("court-overview", [resources.sports.status === "loaded" ? resources.sports.data.length : "?", venues.status === "loaded" ? venues.data.length : "?", courts.status === "loaded" ? courts.data.length : "?", activeSlots], true) +
+      panel("Court schedule", '<div class="toolbar"><label class="small" for="schedule-date-filter">Date</label><input id="schedule-date-filter" class="form-control" type="date" data-schedule-date value="' + esc(scheduleFilters.date) + '"><select class="form-select" data-schedule-court><option value="">All courts</option>' + courtOptions + '</select><select class="form-select" data-schedule-venue><option value="">All venues</option>' + venueOptions + '</select><button class="btn btn-success" data-schedule-apply>Apply filters</button><button class="btn btn-outline-secondary" data-schedule-retry>Refresh</button></div>' + crudFormMarkup("slots", resources) + statusBlock, dataMode === "demo" ? "Demo Mode schedule; edits stay in browser memory" : "Time slots from Court Service - no booked/available state") +
       '<p class="small text-secondary mt-2">Time is displayed in local wall-clock format from the API. No timezone conversion is applied.</p>';
   }
   function checkinPage(active, admin) {
@@ -540,7 +710,78 @@
     if (venueEmpty) venueEmpty.hidden = venueCards.length === 0 || visibleVenues > 0;
     if (courtEmpty) courtEmpty.hidden = courtRows.length === 0 || visibleCourts > 0;
   }
+  function saveDemoRecord(form) {
+    var resource = form.dataset.crudResource;
+    var id = form.dataset.crudId || null;
+    var values = demoFormValues(form, resource);
+    var error = validateDemoForm(resource, values, id);
+    if (error) {
+      crudFormError = error;
+      form.querySelector("[data-crud-error]").textContent = error;
+      return;
+    }
+    var records = recordsFor(resource);
+    var existing = id ? records.find(function (item) { return String(item.id) === String(id); }) : null;
+    if (existing) Object.assign(existing, values);
+    else {
+      values.id = nextDemoId(records);
+      records.push(values);
+    }
+    crudFormState = null;
+    crudFormError = "";
+    render();
+    toast((existing ? "Updated " : "Added ") + ({ sports: "sport", venues: "venue", courts: "court", slots: "time slot" }[resource]) + " in Demo Mode.");
+  }
+  function deactivateDemoRecord(resource, id) {
+    if (dataMode !== "demo") {
+      toast("API Mode is read-only until JWT integration. No data was changed.");
+      return;
+    }
+    var records = recordsFor(resource);
+    var record = records.find(function (item) { return String(item.id) === String(id); });
+    if (!record) return;
+    var label = ({ sports: "sport", venues: "venue", courts: "court", slots: "time slot" }[resource]);
+    if (!window.confirm("Deactivate this " + label + " in the Demo Mode sample?")) return;
+    record.is_active = false;
+    crudFormState = null;
+    render();
+    toast("Demo " + label + " deactivated. No API request was sent.");
+  }
   function wireActions() {
+    var modeSelect = document.getElementById("court-data-mode");
+    if (modeSelect) modeSelect.addEventListener("change", function () {
+      dataMode = modeSelect.value;
+      crudFormState = null;
+      crudFormError = "";
+      render();
+    });
+    document.querySelectorAll("[data-crud-open]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        crudFormState = { resource: el.dataset.crudOpen, id: el.dataset.crudId || null };
+        crudFormError = "";
+        render();
+      });
+    });
+    document.querySelectorAll("[data-crud-cancel]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        crudFormState = null;
+        crudFormError = "";
+        render();
+      });
+    });
+    document.querySelectorAll("[data-crud-form]").forEach(function (form) {
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        if (dataMode !== "demo") {
+          toast("API Mode is read-only until JWT integration. No write request was sent.");
+          return;
+        }
+        saveDemoRecord(form);
+      });
+    });
+    document.querySelectorAll("[data-crud-delete]").forEach(function (el) {
+      el.addEventListener("click", function () { deactivateDemoRecord(el.dataset.crudDelete, el.dataset.crudId); });
+    });
     document.querySelectorAll("[data-toast]").forEach(function (el) {
       el.addEventListener("click", function (event) {
         if (el.tagName === "A") event.preventDefault();
@@ -553,12 +794,26 @@
       });
     });
     document.querySelectorAll("[data-court-retry], [data-court-refresh]").forEach(function (el) {
-      el.addEventListener("click", function () { loadCourtResources(true); });
+      el.addEventListener("click", function () {
+        if (dataMode === "demo") {
+          demoCourtData = window.CourtDemoData.create();
+          crudFormState = null;
+          render();
+          toast("Demo sample restored to its starting data.");
+        } else loadCourtResources(true);
+      });
     });
     document.querySelectorAll("[data-resource-detail]").forEach(function (el) {
       el.addEventListener("click", function () {
         var resource = el.dataset.resourceDetail;
         var id = encodeURIComponent(el.dataset.resourceId);
+        if (dataMode === "demo") {
+          var collection = resource === "time-slots" ? "slots" : resource;
+          var item = recordsFor(collection).find(function (record) { return String(record.id) === String(id); });
+          if (item) showResourceDetails(resource, item);
+          else toast("Demo record was not found.");
+          return;
+        }
         window.CourtApi.get("/api/v1/" + resource + "/" + id).then(function (item) {
           showResourceDetails(resource, item);
         }).catch(function (error) {
@@ -602,10 +857,13 @@
     if (active === "login") { renderLogin(); return; }
     var admin = active.indexOf("admin-") === 0 || active === "people" || active === "checkins";
     if (!info[active]) active = admin ? "admin-dashboard" : "dashboard";
-    renderShell(pageFor(active), admin, active);
+    var content = pageFor(active);
+    var ownerCourtScreens = ["dashboard", "venues", "schedule"];
+    if (!admin && ownerCourtScreens.indexOf(active) >= 0) content = modeToolbar() + content;
+    renderShell(content, admin, active);
     wireActions();
     var courtScreens = ["dashboard", "admin-dashboard", "venues", "admin-venues", "schedule"];
-    if (courtScreens.indexOf(active) >= 0 && Object.keys(courtResources).every(function (key) { return courtResources[key].status === "idle"; })) {
+    if (dataMode === "api" && courtScreens.indexOf(active) >= 0 && Object.keys(courtResources).every(function (key) { return courtResources[key].status === "idle"; })) {
       loadCourtResources(false);
     }
   }
