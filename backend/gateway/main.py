@@ -23,6 +23,7 @@ PUBLIC_PREFIXES = {
     "/api/v1/sports": "court",
     "/api/v1/venues": "court",
     "/api/v1/courts": "court",
+    "/api/v1/time-slots": "court",
     "/api/v1/bookings": "booking",
     "/api/v1/payments": "payment",
 }
