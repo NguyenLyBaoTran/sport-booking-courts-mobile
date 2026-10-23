@@ -4,11 +4,19 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 app = FastAPI(title="Sports Court Booking API Gateway")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8080", "http://127.0.0.1:8080"],
+    allow_credentials=False,
+    allow_methods=["GET"],
+    allow_headers=["Accept", "Authorization", "Content-Type"],
+)
 
 SERVICE_URLS = {
     "user": os.getenv("USER_SERVICE_URL", "http://127.0.0.1:8001").rstrip("/"),

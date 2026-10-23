@@ -1,19 +1,42 @@
-# Owner/Admin Management Web
+﻿# Owner/Admin Management Web
 
-Static HTML, CSS, and JavaScript prototype for the Sports Court Booking management workspace. The screens follow the Owner and Admin wireframes in the supplied FinalProject_BasicUI PDF, pages 3–4.
+This project uses static HTML, CSS, and JavaScript with the existing Bootstrap CDN assets. No Node build or frontend package installation is required.
 
 ## Run locally
 
-Open index.html in a browser, or start a small static server from this folder with: py -m http.server 8080
+Start Court Service and API Gateway in separate terminals from the repository root:
 
-Then visit http://localhost:8080.
+```powershell
+cd backend/services/court_service
+python -m uvicorn app.main:app --reload --port 8002
+```
 
-Select Court Owner or Administrator on the login page. This is a demo navigation only; any email and password opens the selected workspace.
+```powershell
+cd backend/gateway
+python -m uvicorn main:app --reload --port 8000
+```
 
-## Routes
+In another terminal, serve the Management Web:
 
-- #/login
-- Owner: #/dashboard, #/venues, #/schedule, #/owner-bookings, #/qr-checkin, #/revenue, #/owner-profile
-- Admin: #/admin-dashboard, #/people, #/admin-venues, #/admin-bookings, #/checkins, #/admin-profile
+```powershell
+cd management-web
+python -m http.server 8080
+```
 
-The screens use local sample data in assets/js/data.js. Login, account/venue actions, revenue, QR scanning, and check-in verification are not connected to authentication or backend services.
+Open `http://localhost:8080`. The login screen is still a UI demo; choosing Owner or Administrator does not authenticate a user.
+
+## Gateway configuration
+
+The frontend calls the Gateway only. Set the single base URL in `assets/js/config.js` (`http://localhost:8000` by default). The Gateway allows browser requests from `http://localhost:8080` and `http://127.0.0.1:8080` for local development.
+
+## Court Service screens
+
+The Owner and Admin dashboards, Venue & Court registry, and Schedule read live Sports, Venue, Court, and Time Slot data through the Gateway. Search and catalogue filters use the loaded data; Schedule date and court filters are sent as API query parameters. Detail buttons fetch the selected resource. API loading, empty, and error states are shown with retry controls.
+
+Displayed slot status reflects only `is_active`; it does not indicate whether a slot is booked or available. Prices are formatted from the API decimal string for display and are not used for payment calculations.
+
+Add, edit, and deactivate controls do not send requests. They display a notice while Court Service write routes await S1 JWT and authorization integration.
+
+## Demo screens
+
+Bookings, QR Check-in, Revenue, People, and Profile remain sample UI because their services are not connected. These screens are labeled Demo. No sample data is used as a fallback when a Court Service request fails.
