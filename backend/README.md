@@ -10,7 +10,9 @@ Backend mới có một API Gateway và bốn FastAPI microservice độc lập:
 - Payment Service — cổng `8004`, database `sports_payment_db`.
 - API Gateway — cổng `8000`, nhận request từ client và chuyển tiếp theo API prefix.
 
-Mỗi service hiện có `/health` và `/health/db`. Các API nghiệp vụ chưa được triển khai.
+Mỗi service có `/health` và `/health/db`. User Service đã có Register/Login/JWT và
+`GET /users/me`; API nghiệp vụ cho Court, Booking và Payment đang được triển khai
+theo từng iteration.
 Gateway có `/health` và các route kiểm tra service tại
 `/api/v1/{user,court,booking,payment}/health`.
 
@@ -99,6 +101,47 @@ có URL hoặc MySQL không kết nối được, `/health/db` trả HTTP 503 v�
 `DATABASE_URL` trong file mẫu chỉ dành cho backend Modular Monolith cũ.
 Database `sports_court_booking` của backend cũ không được tạo bởi script trên;
 script chỉ tạo bốn database riêng của microservice.
+
+## User Service: Authentication và JWT
+
+Tạo một JWT secret riêng cho môi trường local rồi đặt vào `backend/.env`:
+
+```bash
+openssl rand -hex 32
+```
+
+Đặt kết quả vào `JWT_SECRET_KEY`; service chỉ chấp nhận HS256 và secret dài ít nhất
+32 ký tự. Không commit `.env` hoặc secret vào Git.
+
+Sau khi tạo `sports_user_db`, chạy migration và User Service:
+
+```bash
+cd backend/services/user_service
+python -m alembic -c alembic.ini upgrade head
+python -m uvicorn app.main:app --reload --port 8001
+```
+
+API public đi qua Gateway tại `http://127.0.0.1:8000`:
+
+| Method | Path | Mô tả |
+|---|---|---|
+| `POST` | `/api/v1/auth/register` | Đăng ký tài khoản USER |
+| `POST` | `/api/v1/auth/login` | Đăng nhập và nhận JWT Bearer |
+| `GET` | `/api/v1/users/me` | Lấy tài khoản hiện tại, cần Bearer token |
+
+Register nhận `full_name`, `email`, `password` (8–128 ký tự) và `phone` tùy chọn.
+Email được chuẩn hóa chữ thường; đăng ký công khai luôn tạo role `USER`, không nhận
+role từ request. Login nhận `email` và `password`; response trả về
+`access_token`, `token_type`, `expires_in` (giây) và thông tin user. JWT claims
+gồm `sub` (user ID dạng chuỗi), `role`, `iat` và `exp`. Email trùng trả `409`,
+thông tin đăng nhập sai hoặc token không hợp lệ trả `401`.
+
+Chạy Auth tests (SQLite in-memory, không cần kết nối MySQL):
+
+```bash
+cd backend/services/user_service
+python -m pytest -q
+```
 
 ## Chạy các ứng dụng
 
