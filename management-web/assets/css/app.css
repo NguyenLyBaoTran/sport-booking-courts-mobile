@@ -210,3 +210,7 @@ button, input, select { font: inherit; }
   .login-form-side { padding: 20px 15px 32px; }
   .login-card { padding: 25px 22px; }
 }
+
+.booking-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 22px; }
+.booking-detail-grid .detail-row { margin: 0; }
+@media (max-width: 600px) { .booking-detail-grid { grid-template-columns: 1fr; } }

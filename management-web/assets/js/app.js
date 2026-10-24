@@ -3,6 +3,10 @@
   var data = window.BookingMockData;
   var dataMode = "api";
   var demoCourtData = window.CourtDemoData.create();
+  var demoBookings = window.BookingDemoData.create();
+  var bookingSearch = "";
+  var bookingDate = "";
+  var bookingStatus = "";
   var crudFormState = null;
   var crudFormError = "";
   var courtResources = {
@@ -480,14 +484,50 @@
       '</div><div class="mt-3 d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="#/venues">Open venues and courts</a><a class="btn btn-outline-secondary btn-sm" href="#/schedule">Open schedule</a></div>';
   }
   function bookingPage(active, admin) {
-    var rows = bookingRows(admin);
-    var heads = admin ? ["Booking ID", "Customer", "Venue", "Court", "Start time", "Amount", "Status"] : ["Booking ID", "Customer", "Court", "Start time", "Amount", "Status"];
-    return heading(active, actionButton("Export bookings", "bi-download", "Sample booking list exported.", true)) + demoNotice("Booking Service is not connected. Rows and totals below are Demo data.") +
-      stats("bookings", admin ? ["142", "₫38.45M", "126", "16"] : ["28", "₫4.68M", "21", "3"]) +
-      panel("All bookings", '<div class="toolbar"><div class="input-group search-field"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input class="form-control border-start-0" type="search" data-table-search placeholder="Search by booking or customer"></div>' +
-      '<select class="form-select" data-status-filter><option value="">All statuses</option><option>Confirmed</option><option>Pending</option><option>Checked in</option><option>Completed</option><option>Cancelled</option></select>' +
-      '<button class="btn btn-outline-secondary" data-toast="Date range filters are part of the connected version."><i class="bi bi-calendar3 me-1"></i>Date range</button></div>' +
-      table(heads, rows) + '<div class="table-foot"><span>Showing ' + rows.length + ' sample bookings</span><nav><ul class="pagination pagination-sm"><li class="page-item active"><a class="page-link" href="#">1</a></li><li class="page-item"><a class="page-link" href="#" data-toast="More sample rows can be added later.">2</a></li></ul></nav></div>');
+    if (admin) {
+      var adminRows = bookingRows(true);
+      return heading(active, actionButton("Export bookings", "bi-download", "Sample booking list exported.", true)) + demoNotice("Booking Service is not connected. Rows and totals below are Demo data.") +
+        stats("bookings", ["142", "???38.45M", "126", "16"]) + panel("All bookings", table(["Booking ID", "Customer", "Venue", "Court", "Start time", "Amount", "Status"], adminRows), "Admin sample screen");
+    }
+    if (dataMode !== "demo") {
+      return heading(active) + bookingModeNotice() + panel("Owner bookings", '<div class="panel-body text-secondary">Booking API is waiting for S1. No booking request has been sent.</div>', "No live or mock bookings are shown in API Mode");
+    }
+    var filtered = demoBookings.slice().sort(function (a, b) { return b.created_at.localeCompare(a.created_at); }).filter(function (booking) {
+      var query = bookingSearch.trim().toLowerCase();
+      return (!query || booking.id.toLowerCase().indexOf(query) >= 0 || booking.customer.name.toLowerCase().indexOf(query) >= 0) &&
+        (!bookingDate || booking.date === bookingDate) && (!bookingStatus || booking.status === bookingStatus);
+    });
+    var rows = filtered.map(function (booking) {
+      return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.customer.name) + '</td><td>' + esc(booking.venue) + '</td><td>' + esc(booking.court) + '</td><td>' + apiDate(booking.date) + '</td><td>' + esc(booking.start_time + " - " + booking.end_time) + '</td><td>' + esc(formatBookingAmount(booking.total_amount)) + '</td><td>' + statusBadge(booking.status) + '</td><td><button class="btn btn-sm btn-outline-secondary" data-booking-detail="' + esc(booking.id) + '">Details</button>' +
+        (booking.status === "CHECKED_IN" ? ' <button class="btn btn-sm btn-success" data-booking-complete="' + esc(booking.id) + '">Complete Booking</button>' : "") + '</td></tr>';
+    }).join("");
+    var body = '<div class="toolbar"><input class="form-control" type="search" data-booking-search value="' + esc(bookingSearch) + '" placeholder="Search booking ID or customer" aria-label="Search booking ID or customer">' +
+      '<input class="form-control" type="date" data-booking-date value="' + esc(bookingDate) + '" aria-label="Filter booking date"><select class="form-select" data-booking-status aria-label="Filter booking status"><option value="">All statuses</option>' +
+      ["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "EXPIRED"].map(function (status) { return '<option value="' + status + '" ' + (bookingStatus === status ? "selected" : "") + '>' + status + '</option>'; }).join("") +
+      '</select><button class="btn btn-outline-secondary" data-booking-clear>Clear filters</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Booking ID</th><th>Customer</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Total Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="9" class="text-secondary">No bookings match these filters.</td></tr>') + '</tbody></table></div><div class="table-foot">Showing ' + filtered.length + ' of ' + demoBookings.length + ' Demo bookings - newest first</div>';
+    return heading(active) + bookingModeNotice() + demoNotice("Sample booking information is fictional and remains in browser memory only.") + panel("Owner bookings", body, "Filter bookings and open a booking for details");
+  }
+  function bookingModeNotice() {
+    return '<div class="alert alert-warning py-2 small" role="status"><strong>' + (dataMode === "demo" ? "Demo Mode:" : "API Mode:") + '</strong> ' +
+      (dataMode === "demo" ? "Booking data below is mock data and is never sent to Booking Service." : "Owner Booking API contract and JWT integration are pending S1; this screen does not call an unconfirmed endpoint.") + '</div>';
+  }
+  function formatBookingAmount(value) {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value);
+  }
+  function statusBadge(status) {
+    var styles = { PENDING: "warning", CONFIRMED: "", CHECKED_IN: "", COMPLETED: "", CANCELLED: "danger", EXPIRED: "danger" };
+    return '<span class="badge-soft ' + (styles[status] || "neutral") + '">' + esc(status) + '</span>';
+  }
+  function bookingDetail(booking) {
+    var rows = [["Booking ID", booking.id], ["Customer", booking.customer.name], ["Email", booking.customer.email], ["Phone", booking.customer.phone], ["Venue", booking.venue], ["Court", booking.court], ["Date", booking.date], ["Time", booking.start_time + " - " + booking.end_time], ["Total Amount", formatBookingAmount(booking.total_amount)], ["Booking Status", booking.status]];
+    if (booking.payment_status) rows.push(["Payment Status", booking.payment_status]);
+    if (booking.checkin_status) rows.push(["QR Check-in Status", booking.checkin_status]);
+    var host = document.getElementById("booking-detail-modal-host");
+    if (!host) { host = document.createElement("div"); host.id = "booking-detail-modal-host"; document.body.appendChild(host); }
+    host.innerHTML = '<div class="modal fade" id="booking-detail-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-6">Booking details</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body">' + rows.map(function (row) { return '<div class="detail-row"><span>' + esc(row[0]) + '</span><strong>' + esc(row[1]) + '</strong></div>'; }).join("") + '</div></div></div></div>';
+    if (window.bootstrap && window.bootstrap.Modal) new window.bootstrap.Modal(document.getElementById("booking-detail-modal")).show();
+    else host.querySelector(".modal").classList.add("show");
   }
   function venuePage(active, admin) {
     var editable = !admin;
@@ -825,6 +865,31 @@
       el.addEventListener("input", filterRows);
       el.addEventListener("change", filterRows);
     });
+    var bookingSearchInput = document.querySelector("[data-booking-search]");
+    if (bookingSearchInput) bookingSearchInput.addEventListener("input", function () { bookingSearch = bookingSearchInput.value; render(); });
+    var bookingDateInput = document.querySelector("[data-booking-date]");
+    if (bookingDateInput) bookingDateInput.addEventListener("change", function () { bookingDate = bookingDateInput.value; render(); });
+    var bookingStatusInput = document.querySelector("[data-booking-status]");
+    if (bookingStatusInput) bookingStatusInput.addEventListener("change", function () { bookingStatus = bookingStatusInput.value; render(); });
+    var bookingClear = document.querySelector("[data-booking-clear]");
+    if (bookingClear) bookingClear.addEventListener("click", function () { bookingSearch = ""; bookingDate = ""; bookingStatus = ""; render(); });
+    document.querySelectorAll("[data-booking-detail]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        var booking = demoBookings.find(function (item) { return item.id === el.dataset.bookingDetail; });
+        if (booking) bookingDetail(booking);
+      });
+    });
+    document.querySelectorAll("[data-booking-complete]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        var booking = demoBookings.find(function (item) { return item.id === el.dataset.bookingComplete; });
+        if (!booking || booking.status !== "CHECKED_IN") { toast("Only CHECKED_IN bookings can be completed."); return; }
+        if (dataMode !== "demo") { toast("Booking API and JWT are pending. No request was sent."); return; }
+        if (!window.confirm("Complete booking " + booking.id + "?")) return;
+        booking.status = "COMPLETED";
+        render();
+        toast("Demo booking completed. No API request was sent.");
+      });
+    });
     ["[data-venue-search]", "[data-registry-sport-filter]", "[data-registry-active-filter]", "[data-registry-venue-filter]"].forEach(function (selector) {
       document.querySelectorAll(selector).forEach(function (el) {
         el.addEventListener("input", applyRegistryFilters);
@@ -859,7 +924,7 @@
     if (!info[active]) active = admin ? "admin-dashboard" : "dashboard";
     var content = pageFor(active);
     var ownerCourtScreens = ["dashboard", "venues", "schedule"];
-    if (!admin && ownerCourtScreens.indexOf(active) >= 0) content = modeToolbar() + content;
+    if (!admin && (ownerCourtScreens.indexOf(active) >= 0 || active === "owner-bookings")) content = modeToolbar() + content;
     renderShell(content, admin, active);
     wireActions();
     var courtScreens = ["dashboard", "admin-dashboard", "venues", "admin-venues", "schedule"];

@@ -48,6 +48,16 @@ Court forms require an existing Demo venue and sport, and a positive price with 
 
 The older backend-owned seed data remains separate from browser Demo Mode. To seed MySQL, follow the Court Service instructions in [`backend/README.md`](../backend/README.md#court-service-developmentdemo-seed-step-5); it requires an Owner ID confirmed with S1.
 
+## Owner Booking Management (Step 7)
+
+Open the Owner **Bookings** screen from the sidebar. In API Mode, the page displays that the Booking API contract and JWT integration are pending and shows no live or sample booking records. The frontend does not call a guessed Booking endpoint.
+
+Switch the shared Owner data mode selector to **Demo Mode** to view six fictional bookings covering `PENDING`, `CONFIRMED`, `CHECKED_IN`, `COMPLETED`, `CANCELLED`, and `EXPIRED`. The list is sorted newest first and supports Booking ID/customer search, booking date and status filters, and a detail modal with customer, venue/court, time, amount, booking status, plus payment/check-in status when present. Only a `CHECKED_IN` record offers **Complete Booking**; confirm the action to change that record to `COMPLETED` in browser memory. Reload restores the original sample dataset.
+
+Demo booking data is local UI-only mock data. It does not use MySQL, call Booking Service, or alter Court Service data. The login and Owner role are still a frontend demo and do not scope bookings to a real account.
+
+Waiting for S1: the agreed Owner booking list/detail response shapes, route paths, pagination/filter contract, JWT/Owner authorization, payment and check-in field definitions, and the completion API behavior. The V5 route names are planning proposals and are not treated as an active API contract here. Completion in API Mode remains unavailable until S1 provides the contract and authenticated integration.
+
 ## Demo screens
 
 Bookings, QR Check-in, Revenue, People, and Profile remain sample UI because their services are not connected. These screens are labeled Demo. No sample data is used as a fallback when a Court Service request fails.
