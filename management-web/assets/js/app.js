@@ -7,8 +7,20 @@
   var bookingSearch = "";
   var bookingDate = "";
   var bookingStatus = "";
+  var venueSearch = "";
+  var courtSearch = "";
+  var qrScanner = null;
+  var scannerInstance = null;
+  var scannerStarting = false;
+  var scannerStartPromise = null;
+  var scannerStopPromise = null;
+  var scannerEpoch = 0;
+  var scannerState = "idle";
+  var lastScannedText = "";
+  var lastScanAt = 0;
+  var scanProcessing = false;
+  var scanResult = null;
   var crudFormState = null;
-  var crudFormError = "";
   var courtResources = {
     sports: { status: "idle", data: [], error: "" },
     venues: { status: "idle", data: [], error: "" },
@@ -185,7 +197,8 @@
     return esc(whole + (fraction ? "," + fraction : "") + " VND/hour");
   }
   function resourceError(label, error) {
-    return '<div class="alert alert-danger d-flex justify-content-between align-items-center gap-2" role="alert"><span>Could not load ' + esc(label) + ': ' + esc(error || "Connection error.") + '</span>' + retryButton() + "</div>";
+    var gatewayOffline = /failed to fetch|networkerror|connection refused|load failed/i.test(String(error || ""));
+    return '<div class="alert alert-danger d-flex justify-content-between align-items-center gap-2" role="alert"><span>' + (gatewayOffline ? "Cannot connect to API Gateway. Start the API Gateway and Court Service, then retry." : "Could not load " + esc(label) + ": " + esc(error || "Connection error.")) + '</span>' + retryButton() + "</div>";
   }
   function crudOpenButton(resource, id, label, style) {
     return '<button type="button" class="btn btn-sm ' + (style || "btn-outline-secondary") + '" data-crud-open="' + esc(resource) + '" data-crud-id="' + esc(id === undefined ? "" : id) + '">' + esc(label) + "</button>";
@@ -194,18 +207,19 @@
     return '<button type="button" class="btn btn-sm btn-outline-danger" data-crud-delete="' + esc(resource) + '" data-crud-id="' + esc(id) + '" ' + (dataMode === "api" ? 'disabled title="JWT integration is pending"' : "") + '>Delete</button>';
   }
   function formInput(label, name, value, type, attributes, full) {
-    return '<div class="' + (full ? "crud-field-full" : "") + '"><label class="form-label" for="crud-' + name + '">' + label +
-      '</label><input class="form-control" id="crud-' + name + '" name="' + name + '" type="' + (type || "text") + '" value="' + esc(value === null || value === undefined ? "" : value) + '" ' + (attributes || "") + '></div>';
+    var required = /\brequired\b/.test(attributes || "");
+    return '<div class="' + (full ? "crud-field-full" : "") + '"><label class="form-label" for="crud-' + name + '">' + label + (required ? ' <span class="required-mark" aria-label="required">*</span>' : "") +
+      '</label><input class="form-control" id="crud-' + name + '" name="' + name + '" type="' + (type || "text") + '" value="' + esc(value === null || value === undefined ? "" : value) + '" ' + (attributes || "") + (required ? ' aria-required="true"' : "") + '><div class="field-error" data-field-error="' + name + '" aria-live="polite"></div></div>';
   }
   function formTextarea(label, name, value, attributes) {
     return '<div class="crud-field-full"><label class="form-label" for="crud-' + name + '">' + label +
-      '</label><textarea class="form-control" id="crud-' + name + '" name="' + name + '" ' + (attributes || "") + '>' + esc(value || "") + "</textarea></div>";
+      '</label><textarea class="form-control" id="crud-' + name + '" name="' + name + '" ' + (attributes || "") + '>' + esc(value || "") + "</textarea><div class=\"field-error\" data-field-error=\"" + name + "\" aria-live=\"polite\"></div></div>";
   }
   function formSelect(label, name, items, selected, textFor) {
     var options = items.map(function (item) {
       return '<option value="' + esc(item.id) + '" ' + (String(item.id) === String(selected) ? "selected" : "") + '>' + esc(textFor(item)) + "</option>";
     }).join("");
-    return '<div><label class="form-label" for="crud-' + name + '">' + label + '</label><select class="form-select" id="crud-' + name + '" name="' + name + '" required><option value="">Choose ' + label.toLowerCase() + "</option>" + options + "</select></div>";
+    return '<div><label class="form-label" for="crud-' + name + '">' + label + ' <span class="required-mark" aria-label="required">*</span></label><select class="form-select" id="crud-' + name + '" name="' + name + '" required aria-required="true"><option value="">Choose ' + label.toLowerCase() + "</option>" + options + "</select><div class=\"field-error\" data-field-error=\"" + name + "\" aria-live=\"polite\"></div></div>";
   }
   function formActiveField(active) {
     return '<label class="crud-field-full form-check"><input class="form-check-input" type="checkbox" name="is_active" ' + (active ? "checked" : "") + '><span class="form-check-label">Active</span></label>';
@@ -242,29 +256,30 @@
     var save = dataMode === "demo"
       ? '<button type="submit" class="btn btn-success">Save in Demo Mode</button>'
       : '<button type="submit" class="btn btn-success" disabled>Save disabled</button>';
-    return '<form class="crud-form-card" data-crud-form data-crud-resource="' + resource + '" data-crud-id="' + (record ? esc(record.id) : "") + '"><div class="d-flex justify-content-between align-items-center"><h3>' + title +
+    return '<form class="crud-form-card" data-crud-form data-crud-resource="' + resource + '" data-crud-id="' + (record ? esc(record.id) : "") + '" novalidate><div class="d-flex justify-content-between align-items-center"><h3>' + title +
       '</h3><span class="badge-soft ' + (dataMode === "demo" ? "" : "warning") + '">' + (dataMode === "demo" ? "Demo only" : "API read-only") + '</span></div><div class="crud-grid">' + fields +
-      '</div><p class="small text-danger mt-2 mb-0" data-crud-error>' + esc(crudFormError) + '</p><div class="crud-form-footer">' +
+      '</div><div class="crud-form-footer">' +
       '<button type="button" class="btn btn-outline-secondary" data-crud-cancel>Cancel</button>' + save + '</div></form>';
   }
   function validateDemoForm(resource, values, id) {
     if (resource === "sports") {
-      if (!values.name || values.name.length > 100) return "Enter a sport name with at most 100 characters.";
-      if (demoCourtData.sports.some(function (item) { return String(item.id) !== String(id) && item.name.toLowerCase() === values.name.toLowerCase(); })) return "A sport with this name already exists.";
+      if (!values.name || values.name.length > 100) return { field: "name", message: "Enter a sport name with at most 100 characters." };
+      if (demoCourtData.sports.some(function (item) { return String(item.id) !== String(id) && item.name.toLowerCase() === values.name.toLowerCase(); })) return { field: "name", message: "A sport with this name already exists." };
     }
     if (resource === "venues") {
-      if (!values.name || values.name.length > 200 || !values.address || values.address.length > 255) return "Enter a venue name and address within the allowed lengths.";
-      if (values.phone && values.phone.length > 20) return "Phone must be at most 20 characters.";
+      if (!values.name || values.name.length > 200) return { field: "name", message: "Enter a venue name with at most 200 characters." };
+      if (!values.address || values.address.length > 255) return { field: "address", message: "Enter a venue address with at most 255 characters." };
+      if (values.phone && values.phone.length > 20) return { field: "phone", message: "Phone must be at most 20 characters." };
     }
     if (resource === "courts") {
-      if (!values.name || values.name.length > 100) return "Enter a court name with at most 100 characters.";
-      if (!demoCourtData.venues.some(function (item) { return String(item.id) === String(values.venue_id); })) return "Choose a valid venue.";
-      if (!demoCourtData.sports.some(function (item) { return String(item.id) === String(values.sport_id); })) return "Choose a valid sport.";
-      if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(values.price_per_hour) || /^0+(?:\.0{1,2})?$/.test(values.price_per_hour)) return "Price must be greater than zero with at most 2 decimal places.";
+      if (!values.name || values.name.length > 100) return { field: "name", message: "Enter a court name with at most 100 characters." };
+      if (!demoCourtData.venues.some(function (item) { return String(item.id) === String(values.venue_id); })) return { field: "venue_id", message: "Choose a valid venue." };
+      if (!demoCourtData.sports.some(function (item) { return String(item.id) === String(values.sport_id); })) return { field: "sport_id", message: "Choose a valid sport." };
+      if (!/^\d{1,10}(?:\.\d{1,2})?$/.test(values.price_per_hour) || /^0+(?:\.0{1,2})?$/.test(values.price_per_hour)) return { field: "price_per_hour", message: "Price must be greater than zero with at most 2 decimal places." };
     }
     if (resource === "slots") {
-      if (!demoCourtData.courts.some(function (item) { return String(item.id) === String(values.court_id); })) return "Choose a valid court.";
-      if (!values.slot_date || !values.start_time || !values.end_time || values.start_time.slice(0, 5) >= values.end_time.slice(0, 5)) return "Choose a date and ensure start time is earlier than end time.";
+      if (!demoCourtData.courts.some(function (item) { return String(item.id) === String(values.court_id); })) return { field: "court_id", message: "Choose a valid court." };
+      if (!values.slot_date || !values.start_time || !values.end_time || values.start_time.slice(0, 5) >= values.end_time.slice(0, 5)) return { field: "slot_date", message: "Choose a date and ensure start time is earlier than end time." };
       var collision = demoCourtData.slots.find(function (slot) {
         if (String(slot.id) === String(id) || String(slot.court_id) !== String(values.court_id) || slot.slot_date !== values.slot_date) return false;
         var start = values.start_time.slice(0, 5);
@@ -273,9 +288,9 @@
         var overlaps = values.is_active && slot.is_active && slot.start_time.slice(0, 5) < end && slot.end_time.slice(0, 5) > start;
         return exact || overlaps;
       });
-      if (collision) return "This time range duplicates or overlaps another slot for the selected court.";
+      if (collision) return { field: "start_time", message: "This time range duplicates or overlaps another slot for the selected court." };
     }
-    return "";
+    return null;
   }
   function demoFormValues(form, resource) {
     var values = Object.fromEntries(new FormData(form).entries());
@@ -320,7 +335,9 @@
       "time-slots": [["id", "ID"], ["court_id", "Court ID"], ["slot_date", "Date"], ["start_time", "Start"], ["end_time", "End"], ["is_active", "Status"]]
     }[resource] || [];
     var title = { sports: "Sport details", venues: "Venue details", courts: "Court details", "time-slots": "Time slot details" }[resource] || "Details";
-    var rows = fields.map(function (field) {
+    var rows = fields.filter(function (field) {
+      return item[field[0]] !== null && item[field[0]] !== undefined && item[field[0]] !== "";
+    }).map(function (field) {
       var value = item[field[0]];
       if (field[0] === "is_active") value = value ? "Active" : "Inactive";
       if (field[0] === "price_per_hour") value = formatPriceVnd(value);
@@ -334,17 +351,9 @@
       host.id = "api-detail-modal-host";
       document.body.appendChild(host);
     }
-    host.innerHTML = '<div class="modal fade" id="api-detail-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-6">' + title + '</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body">' + rows + '</div></div></div></div>';
+    host.innerHTML = '<div class="modal fade" id="api-detail-modal" tabindex="-1" aria-labelledby="api-detail-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable resource-detail-modal"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-6" id="api-detail-title">' + title + '</h2><button type="button" class="btn-close" data-modal-close aria-label="Close"></button></div><div class="modal-body"><div class="resource-details-grid">' + rows + '</div></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-modal-close>Close</button></div></div></div></div>';
     var modal = document.getElementById("api-detail-modal");
-    if (window.bootstrap && window.bootstrap.Modal) {
-      new window.bootstrap.Modal(modal).show();
-    } else {
-      modal.classList.add("show");
-      modal.style.display = "block";
-      modal.setAttribute("role", "dialog");
-      modal.setAttribute("aria-modal", "true");
-      modal.removeAttribute("aria-hidden");
-    }
+    showManagedModal(modal, host);
   }
   function routeLink(id) { return "#/" + id; }
   function navMarkup(items, active) {
@@ -382,10 +391,8 @@
       (admin ? "AU" : "NA") + '</span><span><strong>' + name + "</strong><small>" + (admin ? "Administrator" : "Court Owner") +
       '</small></span></div></aside><button class="mobile-backdrop" id="mobile-backdrop" aria-label="Close navigation"></button>' +
       '<div class="main-column"><header class="topbar"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="Open navigation"><i class="bi bi-list"></i></button>' +
-      '<div class="input-group top-search"><span class="input-group-text border-0 bg-transparent text-secondary"><i class="bi bi-search"></i></span><input class="form-control" type="search" placeholder="Search bookings, venues, users..."></div>' +
-      '<div class="d-flex align-items-center gap-3"><button class="icon-button" data-toast="You are all caught up." aria-label="Notifications"><i class="bi bi-bell"></i></button>' +
       '<div class="top-user"><span class="avatar">' + (admin ? "AU" : "NA") + '</span><div><strong>' + name + "</strong><small>" +
-      (admin ? "Administrator" : "Owner account") + '</small></div></div></div></header><main class="page-content">' + content +
+      (admin ? "Administrator" : "Owner account") + '</small></div></header><main class="page-content">' + content +
       '<footer class="page-footer">Sports Court Booking · Management workspace</footer></main></div></div>';
     document.getElementById("menu-toggle").addEventListener("click", function () { toggleMenu(true); });
     document.getElementById("mobile-backdrop").addEventListener("click", function () { toggleMenu(false); });
@@ -475,10 +482,11 @@
         }).join("") + '</tbody></table></div>';
     }
     var anyError = Object.keys(resources).some(function (key) { return resources[key].status === "error"; });
+    var gatewayError = anyError && Object.keys(resources).some(function (key) { return resources[key].status === "error" && /failed to fetch|networkerror|connection refused|load failed/i.test(resources[key].error); });
     return heading(active, '<button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
       stats("court-overview", values, true) +
       '<p class="text-secondary small">' + (dataMode === "demo" && active !== "admin-dashboard" ? "Demo sample counts are stored only in browser memory. " : "Counts are from the public Court Service catalogue and are not scoped to the demo Owner account. ") + 'Active slots are administrative records, not booking availability.</p>' +
-      (anyError ? resourceError("some Court Service data", "One or more lists could not be loaded.") : "") +
+      (anyError ? (gatewayError ? resourceError("Court Service data", "Failed to fetch") : resourceError("some Court Service data", "One or more lists could not be loaded.")) : "") +
       '<div class="content-grid">' + panel("Venue catalogue", venueBody, dataMode === "demo" && active !== "admin-dashboard" ? "Demo Mode sample" : "Live data from Court Service") +
       panel("Court data", '<div class="panel-body"><p class="mb-2">Sports: ' + (sports.status === "loaded" ? sports.data.length : "?") + '</p><p class="mb-2">Venues: ' + (venues.status === "loaded" ? venues.data.length : "?") + '</p><p class="mb-2">Courts: ' + (courts.status === "loaded" ? courts.data.length : "?") + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>', "No Booking or revenue data is connected") +
       '</div><div class="mt-3 d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="#/venues">Open venues and courts</a><a class="btn btn-outline-secondary btn-sm" href="#/schedule">Open schedule</a></div>';
@@ -492,21 +500,38 @@
     if (dataMode !== "demo") {
       return heading(active) + bookingModeNotice() + panel("Owner bookings", '<div class="panel-body text-secondary">Booking API is waiting for S1. No booking request has been sent.</div>', "No live or mock bookings are shown in API Mode");
     }
-    var filtered = demoBookings.slice().sort(function (a, b) { return b.created_at.localeCompare(a.created_at); }).filter(function (booking) {
-      var query = bookingSearch.trim().toLowerCase();
-      return (!query || booking.id.toLowerCase().indexOf(query) >= 0 || booking.customer.name.toLowerCase().indexOf(query) >= 0) &&
-        (!bookingDate || booking.date === bookingDate) && (!bookingStatus || booking.status === bookingStatus);
-    });
-    var rows = filtered.map(function (booking) {
-      return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.customer.name) + '</td><td>' + esc(booking.venue) + '</td><td>' + esc(booking.court) + '</td><td>' + apiDate(booking.date) + '</td><td>' + esc(booking.start_time + " - " + booking.end_time) + '</td><td>' + esc(formatBookingAmount(booking.total_amount)) + '</td><td>' + statusBadge(booking.status) + '</td><td><button class="btn btn-sm btn-outline-secondary" data-booking-detail="' + esc(booking.id) + '">Details</button>' +
-        (booking.status === "CHECKED_IN" ? ' <button class="btn btn-sm btn-success" data-booking-complete="' + esc(booking.id) + '">Complete Booking</button>' : "") + '</td></tr>';
-    }).join("");
+    var filtered = filteredDemoBookings();
     var body = '<div class="toolbar"><input class="form-control" type="search" data-booking-search value="' + esc(bookingSearch) + '" placeholder="Search booking ID or customer" aria-label="Search booking ID or customer">' +
       '<input class="form-control" type="date" data-booking-date value="' + esc(bookingDate) + '" aria-label="Filter booking date"><select class="form-select" data-booking-status aria-label="Filter booking status"><option value="">All statuses</option>' +
       ["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "EXPIRED"].map(function (status) { return '<option value="' + status + '" ' + (bookingStatus === status ? "selected" : "") + '>' + status + '</option>'; }).join("") +
-      '</select><button class="btn btn-outline-secondary" data-booking-clear>Clear filters</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Booking ID</th><th>Customer</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Total Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody>' +
-      (rows || '<tr><td colspan="9" class="text-secondary">No bookings match these filters.</td></tr>') + '</tbody></table></div><div class="table-foot">Showing ' + filtered.length + ' of ' + demoBookings.length + ' Demo bookings - newest first</div>';
+      '</select><button class="btn btn-outline-secondary" data-booking-clear>Clear filters</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Booking ID</th><th>Customer</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Total Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody id="owner-booking-rows" aria-live="polite">' +
+      bookingRowsMarkup(filtered) + '</tbody></table></div><div class="table-foot" data-booking-count>Showing ' + filtered.length + ' of ' + demoBookings.length + ' Demo bookings - newest first</div>';
     return heading(active) + bookingModeNotice() + demoNotice("Sample booking information is fictional and remains in browser memory only.") + panel("Owner bookings", body, "Filter bookings and open a booking for details");
+  }
+  function filteredDemoBookings() {
+    var query = bookingSearch.trim().toLowerCase();
+    return demoBookings.slice().sort(function (a, b) { return b.created_at.localeCompare(a.created_at); }).filter(function (booking) {
+      return (!query || booking.id.toLowerCase().indexOf(query) >= 0 || booking.customer.name.toLowerCase().indexOf(query) >= 0) &&
+        (!bookingDate || booking.date === bookingDate) && (!bookingStatus || booking.status === bookingStatus);
+    });
+  }
+  function bookingRowsMarkup(bookings) {
+    if (!bookings.length) return '<tr><td colspan="9" class="text-secondary">No bookings match these filters.</td></tr>';
+    return bookings.map(function (booking) {
+      return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.customer.name) + '</td><td>' + esc(booking.venue) + '</td><td>' + esc(booking.court) + '</td><td>' + apiDate(booking.date) + '</td><td>' + esc(booking.start_time + " - " + booking.end_time) + '</td><td>' + esc(formatBookingAmount(booking.total_amount)) + '</td><td>' + statusBadge(booking.status) + '</td><td class="table-actions"><button class="btn btn-sm btn-outline-secondary" data-booking-detail="' + esc(booking.id) + '">Details</button>' +
+        (booking.status === "CHECKED_IN" ? ' <button class="btn btn-sm btn-success" data-booking-complete="' + esc(booking.id) + '">Complete Booking</button>' : "") + '</td></tr>';
+    }).join("");
+  }
+  function applyBookingFilters() {
+    var rows = document.getElementById("owner-booking-rows");
+    if (!rows) return;
+    bookingSearch = (document.querySelector("[data-booking-search]") || {}).value || "";
+    bookingDate = (document.querySelector("[data-booking-date]") || {}).value || "";
+    bookingStatus = (document.querySelector("[data-booking-status]") || {}).value || "";
+    var filtered = filteredDemoBookings();
+    rows.innerHTML = bookingRowsMarkup(filtered);
+    var count = document.querySelector("[data-booking-count]");
+    if (count) count.textContent = "Showing " + filtered.length + " of " + demoBookings.length + " Demo bookings - newest first";
   }
   function bookingModeNotice() {
     return '<div class="alert alert-warning py-2 small" role="status"><strong>' + (dataMode === "demo" ? "Demo Mode:" : "API Mode:") + '</strong> ' +
@@ -520,14 +545,75 @@
     return '<span class="badge-soft ' + (styles[status] || "neutral") + '">' + esc(status) + '</span>';
   }
   function bookingDetail(booking) {
-    var rows = [["Booking ID", booking.id], ["Customer", booking.customer.name], ["Email", booking.customer.email], ["Phone", booking.customer.phone], ["Venue", booking.venue], ["Court", booking.court], ["Date", booking.date], ["Time", booking.start_time + " - " + booking.end_time], ["Total Amount", formatBookingAmount(booking.total_amount)], ["Booking Status", booking.status]];
-    if (booking.payment_status) rows.push(["Payment Status", booking.payment_status]);
-    if (booking.checkin_status) rows.push(["QR Check-in Status", booking.checkin_status]);
+    var customerRows = [["Name", booking.customer.name]];
+    if (booking.customer.email) customerRows.push(["Email", booking.customer.email]);
+    if (booking.customer.phone) customerRows.push(["Phone", booking.customer.phone]);
+    var bookingRows = [["Venue", booking.venue], ["Court", booking.court], ["Date", apiDate(booking.date)], ["Time", booking.start_time + " - " + booking.end_time], ["Total amount", formatBookingAmount(booking.total_amount)]];
+    var statusRows = [];
+    if (booking.payment_status) statusRows.push(["Payment", booking.payment_status]);
+    if (booking.checkin_status) statusRows.push(["QR check-in", booking.checkin_status]);
+    function detailSection(title, rows) {
+      return '<section class="booking-detail-section"><h3>' + title + '</h3><div class="booking-detail-grid">' + rows.map(function (row) {
+        return '<div class="detail-row"><span>' + esc(row[0]) + '</span><strong>' + esc(row[1]) + '</strong></div>';
+      }).join("") + '</div></section>';
+    }
     var host = document.getElementById("booking-detail-modal-host");
     if (!host) { host = document.createElement("div"); host.id = "booking-detail-modal-host"; document.body.appendChild(host); }
-    host.innerHTML = '<div class="modal fade" id="booking-detail-modal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-6">Booking details</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div><div class="modal-body">' + rows.map(function (row) { return '<div class="detail-row"><span>' + esc(row[0]) + '</span><strong>' + esc(row[1]) + '</strong></div>'; }).join("") + '</div></div></div></div>';
-    if (window.bootstrap && window.bootstrap.Modal) new window.bootstrap.Modal(document.getElementById("booking-detail-modal")).show();
-    else host.querySelector(".modal").classList.add("show");
+    host.innerHTML = '<div class="modal fade" id="booking-detail-modal" tabindex="-1" aria-labelledby="booking-detail-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable booking-detail-modal"><div class="modal-content"><div class="modal-header align-items-start"><div><p class="eyebrow mb-1">Booking details</p><h2 class="modal-title fs-6" id="booking-detail-title">' + esc(booking.id) + '</h2></div><div class="d-flex align-items-center gap-2">' + statusBadge(booking.status) + '<button type="button" class="btn-close ms-2" data-modal-close aria-label="Close"></button></div></div><div class="modal-body">' + detailSection("Customer", customerRows) + detailSection("Court and booking", bookingRows) + (statusRows.length ? detailSection("Payment and check-in", statusRows) : "") + '</div><div class="modal-footer">' + (booking.status === "CHECKED_IN" && dataMode === "demo" ? '<button type="button" class="btn btn-success" data-booking-complete="' + esc(booking.id) + '">Complete Booking</button>' : "") + '</div></div></div></div>';
+    var modal = document.getElementById("booking-detail-modal");
+    var completeButton = modal.querySelector("[data-booking-complete]");
+    if (completeButton) completeButton.addEventListener("click", function () { completeDemoBooking(booking.id); });
+    showManagedModal(modal, host);
+  }
+  function showManagedModal(modal, host) {
+    modal.addEventListener("hidden.bs.modal", function () { host.innerHTML = ""; }, { once: true });
+    modal.addEventListener("click", function (event) {
+      var target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target === modal || target.closest("[data-modal-close]")) {
+        event.preventDefault();
+        closeManagedModal(modal);
+      }
+    });
+    modal.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeManagedModal(modal);
+      }
+    });
+    if (window.bootstrap && window.bootstrap.Modal) {
+      window.bootstrap.Modal.getOrCreateInstance(modal).show();
+      modal.focus();
+      return;
+    }
+    modal.classList.add("show");
+    modal.style.display = "block";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.removeAttribute("aria-hidden");
+    modal.focus();
+  }
+  function closeManagedModal(modal) {
+    if (window.bootstrap && window.bootstrap.Modal) {
+      var instance = window.bootstrap.Modal.getInstance(modal);
+      if (instance) instance.hide();
+      return;
+    }
+    modal.classList.remove("show");
+    modal.style.display = "none";
+    modal.setAttribute("aria-hidden", "true");
+    if (modal.parentElement) modal.parentElement.innerHTML = "";
+  }
+  function completeDemoBooking(id) {
+    var booking = demoBookings.find(function (item) { return item.id === id; });
+    if (!booking || booking.status !== "CHECKED_IN") { toast("Only CHECKED_IN bookings can be completed."); return; }
+    if (dataMode !== "demo") { toast("Booking API and JWT are pending. No request was sent."); return; }
+    if (!window.confirm("Complete booking " + booking.id + "?")) return;
+    var modal = document.getElementById("booking-detail-modal");
+    if (modal) closeManagedModal(modal);
+    booking.status = "COMPLETED";
+    render();
+    toast("Demo booking completed. No API request was sent.");
   }
   function venuePage(active, admin) {
     var editable = !admin;
@@ -554,13 +640,13 @@
       var searchText = [court.name, venue && venue.name, sport && sport.name].filter(Boolean).join(" ").toLowerCase();
       var actions = detailButton("courts", court.id);
       if (editable) actions += '<div class="crud-actions">' + crudOpenButton("courts", court.id, "Edit") + crudDeleteButton("courts", court.id) + "</div>";
-      return '<tr data-court-row data-search="' + esc(searchText) + '" data-venue-id="' + esc(court.venue_id) + '" data-sport-id="' + esc(court.sport_id) + '" data-active="' + String(!!court.is_active) + '"><td class="table-primary-text">' + esc(court.name) + '</td><td>' + esc(venue ? venue.name : "Venue #" + court.venue_id) + '</td><td>' + esc(sport ? sport.name : "Sport #" + court.sport_id) + '</td><td>' + formatPriceVnd(court.price_per_hour) + '</td><td>' + courtStatus(court.is_active) + '</td><td>' + actions + '</td></tr>';
+      return '<tr data-court-row data-search="' + esc(searchText) + '" data-venue-id="' + esc(court.venue_id) + '" data-sport-id="' + esc(court.sport_id) + '" data-active="' + String(!!court.is_active) + '"><td class="table-primary-text">' + esc(court.name) + '</td><td>' + esc(venue ? venue.name : "Venue #" + court.venue_id) + '</td><td>' + esc(sport ? sport.name : "Sport #" + court.sport_id) + '</td><td>' + formatPriceVnd(court.price_per_hour) + '</td><td>' + courtStatus(court.is_active) + '</td><td class="table-actions">' + actions + '</td></tr>';
     }).join("");
     var sportOptions = sports.data.map(function (sport) { return '<option value="' + esc(sport.id) + '">' + esc(sport.name) + '</option>'; }).join("");
     var venueOptions = venues.data.map(function (venue) { return '<option value="' + esc(venue.id) + '">' + esc(venue.name) + '</option>'; }).join("");
     var sportRows = sports.data.map(function (sport) {
       var actions = detailButton("sports", sport.id) + '<div class="crud-actions">' + crudOpenButton("sports", sport.id, "Edit") + crudDeleteButton("sports", sport.id) + "</div>";
-      return '<tr><td class="table-primary-text">' + esc(sport.name) + '</td><td>' + esc(sport.description || "—") + '</td><td>' + courtStatus(sport.is_active) + '</td><td>' + (editable ? actions : detailButton("sports", sport.id)) + '</td></tr>';
+      return '<tr><td class="table-primary-text">' + esc(sport.name) + '</td><td>' + esc(sport.description || "—") + '</td><td>' + courtStatus(sport.is_active) + '</td><td class="table-actions">' + (editable ? actions : detailButton("sports", sport.id)) + '</td></tr>';
     }).join("");
     var sportPanel = editable
       ? panel("Sports", '<div class="toolbar">' + crudOpenButton("sports", null, "Add sport", "btn-success") + '</div>' + crudFormMarkup("sports", resources) + '<div class="table-wrap"><table class="table"><thead><tr><th>Sport</th><th>Description</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + (sportRows || '<tr><td colspan="4" class="text-secondary">No sports. Add one in Demo Mode.</td></tr>') + '</tbody></table></div>', "Sport catalogue")
@@ -569,12 +655,13 @@
     var venueCount = venues.status === "loaded" ? venues.data.length : "?";
     var courtCount = courts.status === "loaded" ? courts.data.length : "?";
     var activeVenueCount = venues.status === "loaded" ? venues.data.filter(function (venue) { return venue.is_active; }).length : "?";
-    var actions = '<button class="btn btn-outline-secondary me-2" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>';
+    var actions = '<div class="page-heading-actions"><button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>';
     if (editable) actions += crudOpenButton("venues", null, "Add venue", "btn-success");
+    actions += "</div>";
     var stateText = dataMode === "demo" && editable ? "Demo Mode sample" : "Live Court Service data";
     return heading(active, actions) + (editable ? pendingWriteNotice() : "") + stats("court-registry", [sportCount, venueCount, courtCount, activeVenueCount], true) +
       sportPanel +
-      '<div class="panel-card mb-3"><div class="toolbar"><div class="input-group search-field"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input class="form-control border-start-0" data-venue-search type="search" placeholder="Search venues or courts"></div>' +
+      '<div class="panel-card mb-3"><div class="toolbar"><div class="input-group search-field"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input class="form-control border-start-0" data-venue-search type="search" value="' + esc(venueSearch) + '" placeholder="Search venues" aria-label="Search venues"></div><div class="input-group search-field"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input class="form-control border-start-0" data-court-search type="search" value="' + esc(courtSearch) + '" placeholder="Search courts" aria-label="Search courts"></div>' +
       '<select class="form-select" data-registry-sport-filter><option value="">All sports</option>' + sportOptions + '</select><select class="form-select" data-registry-active-filter><option value="">All statuses</option><option value="true">Active</option><option value="false">Inactive</option></select><select class="form-select" data-registry-venue-filter><option value="">All venues</option>' + venueOptions + '</select></div>' +
       (editable ? crudFormMarkup("venues", resources) : "") + '<div class="venue-grid" id="venue-grid">' + (venueCards || '<div class="panel-body text-secondary">No venues returned by Court Service.</div>') + '</div><div id="venue-filter-empty" class="alert alert-light mt-2" hidden>No venues match these filters.</div></div>' +
       panel("Courts", '<div class="toolbar">' + (editable ? crudOpenButton("courts", null, "Add court", "btn-success") : "") + '</div>' + (editable ? crudFormMarkup("courts", resources) : "") + '<div class="table-wrap"><table class="table"><thead><tr><th>Court</th><th>Venue</th><th>Sport</th><th>Price per hour</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + (courtRows || '<tr><td colspan="6" class="text-secondary">No courts returned by Court Service.</td></tr>') + '</tbody></table></div><div id="court-filter-empty" class="alert alert-light m-3" hidden>No courts match these filters.</div>', stateText) +
@@ -585,7 +672,6 @@
     var courts = resources.courts;
     var venues = resources.venues;
     var slotsState = dataMode === "demo" ? resources.slots : scheduleState;
-    var formError = crudFormState && crudFormState.resource === "slots" ? "" : "";
     var rows = "";
     var statusBlock = "";
     if (slotsState.status === "loading" || slotsState.status === "idle") statusBlock = '<div class="panel-body">Loading time slots...</div>';
@@ -607,7 +693,7 @@
           var actions = detailButton("time-slots", slot.id);
           if (dataMode === "demo") actions += '<div class="crud-actions">' + crudOpenButton("slots", slot.id, "Edit") + crudDeleteButton("slots", slot.id) + "</div>";
           else actions += '<div class="crud-actions">' + crudOpenButton("slots", slot.id, "Edit") + crudDeleteButton("slots", slot.id) + "</div>";
-          return '<tr><td>' + apiDate(slot.slot_date) + '</td><td>' + esc(venue ? venue.name : (court ? "Venue #" + court.venue_id : "Court #" + slot.court_id)) + '</td><td>' + esc(court ? court.name : "Court #" + slot.court_id) + '</td><td>' + esc(sport ? sport.name : "?") + '</td><td>' + apiTime(slot.start_time) + ' - ' + apiTime(slot.end_time) + '</td><td>' + courtStatus(slot.is_active) + '</td><td>' + actions + '</td></tr>';
+          return '<tr><td>' + apiDate(slot.slot_date) + '</td><td>' + esc(venue ? venue.name : (court ? "Venue #" + court.venue_id : "Court #" + slot.court_id)) + '</td><td>' + esc(court ? court.name : "Court #" + slot.court_id) + '</td><td>' + esc(sport ? sport.name : "?") + '</td><td>' + apiTime(slot.start_time) + ' - ' + apiTime(slot.end_time) + '</td><td>' + courtStatus(slot.is_active) + '</td><td class="table-actions">' + actions + '</td></tr>';
         }).join("");
         statusBlock = '<div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Venue</th><th>Court</th><th>Sport</th><th>Time</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div><div class="table-foot">Active means the slot record is enabled; booking availability is not provided by this API.</div>';
       }
@@ -628,16 +714,148 @@
       '<p class="small text-secondary mt-2">Time is displayed in local wall-clock format from the API. No timezone conversion is applied.</p>';
   }
   function checkinPage(active, admin) {
-    var rows = admin ? data.checkins : data.checkins.slice(0, 3);
-    var heads = ["Check-in ID", "Booking", "Customer", "Venue / court", "Check-in time", "Status"];
-    if (admin) return heading(active, actionButton("Export history", "bi-download", "Sample check-in history exported.", true)) + demoNotice("Booking and Check-in APIs are not connected. Rows and totals below are Demo data.") +
-      stats("checkins", ["64", "62", "18", "2"]) + panel("Check-in history",
-        '<div class="toolbar"><div class="input-group search-field"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input class="form-control border-start-0" data-table-search type="search" placeholder="Search booking or customer"></div><select class="form-select"><option>All venues</option><option>Green Field</option></select><select class="form-select"><option>Today</option><option>Last 7 days</option></select></div>' + table(heads, rows));
-    var scan = '<div class="panel-body"><div class="scanner-frame"><div><i class="bi bi-qr-code-scan"></i><strong>Camera preview</strong><small>QR scanning will be connected in a later iteration.</small></div></div><div class="d-flex gap-2 mt-3"><button class="btn btn-success flex-grow-1" data-toast="Camera scanning is not connected in this prototype."><i class="bi bi-camera me-1"></i>Start scanner</button><button class="btn btn-outline-secondary" data-toast="Choose an image after scanner integration."><i class="bi bi-image"></i></button></div></div>';
-    var verify = '<div class="panel-body"><label class="form-label" for="booking-token">Booking code or QR token</label><div class="input-group"><input class="form-control" id="booking-token" placeholder="e.g. BK-2047"><button class="btn btn-success" id="verify-booking">Verify</button></div><p class="text-secondary mt-2 mb-3" style="font-size:10px">Enter a sample booking ID to preview the confirmation state.</p><div id="verify-result" class="scan-result d-none"><i class="bi bi-patch-check-fill"></i><span><strong>Booking found · Ready for check-in</strong><small>Quang Huy · City Arena, Field A · Today at 17:30</small></span></div><div class="profile-divider"></div><div class="detail-row"><span>Venue</span><strong>City Arena</strong></div><div class="detail-row"><span>Check-in window</span><strong>15 min before start</strong></div><div class="detail-row"><span>Last scan</span><strong>Not scanned yet</strong></div></div>';
-    return heading(active) + demoNotice("QR Check-in and Booking APIs are not connected. This is a Demo screen.") + '<div class="scanner-layout mb-3">' + panel("Scan booking QR", scan, "Customer presents their booking QR code") +
-      panel("Verify booking manually", verify, "Confirm the booking before admitting a customer") + "</div>" +
-      panel("Recent check-ins", table(heads, rows), "Latest check-ins at your venues");
+    if (admin) {
+      var adminRows = data.checkins;
+      return heading(active) + demoNotice("Admin check-in management is not part of this iteration.") + panel("Recent check-ins", table(["Check-in ID", "Booking", "Customer", "Venue / court", "Check-in time", "Status"], adminRows));
+    }
+    var demo = dataMode === "demo";
+    var statusLabel = { idle: "IDLE", loading: "STARTING", scanning: "SCANNING", stopping: "STOPPING", success: "SUCCESS", error: "ERROR" }[scannerState] || "IDLE";
+    var cameraFrameClass = ["idle", "success", "error"].indexOf(scannerState) >= 0 && !scannerInstance ? "qr-camera-frame--idle" : "qr-camera-frame--active";
+    var result = scanResult ? '<div class="alert ' + (scanResult.ok ? "alert-success" : "alert-danger") + '" role="status"><strong>' + esc(scanResult.title) + '</strong><p class="mb-1 mt-2">' + esc(scanResult.message) + '</p>' +
+      (scanResult.booking ? '<div class="small">' + esc(scanResult.booking.id + " | " + scanResult.booking.court + " | " + scanResult.booking.date + " " + scanResult.booking.start_time + " - " + scanResult.booking.end_time) + '</div>' : "") + '</div>' : '<p class="text-secondary small" data-scan-result>No QR result yet.</p>';
+    var controls = '<div class="qr-camera-controls"><button class="btn btn-success" data-scanner-start ' + (["loading", "scanning", "stopping"].indexOf(scannerState) >= 0 || !!scannerInstance && !qrScanner ? "disabled" : "") + '>Start Camera</button><button class="btn btn-outline-secondary" data-scanner-stop ' + (["loading", "scanning", "stopping"].indexOf(scannerState) < 0 && !scannerInstance && !qrScanner ? "disabled" : "") + '>Stop Camera</button></div>';
+    var cameraPanel = '<div class="scanner-frame qr-camera-frame ' + cameraFrameClass + '"><div id="qr-reader" aria-label="Camera preview"></div>' + (scannerState === "idle" ? '<div class="qr-camera-placeholder"><i class="bi bi-qr-code-scan"></i><strong>Camera preview</strong><small>Start the camera when you are ready to scan.</small></div>' : "") + '</div><div class="qr-scanner-footer"><div class="qr-scanner-toolbar"><div class="qr-scanner-status qr-scanner-status--' + scannerState + '" role="status" data-scanner-status>' + statusLabel + '</div>' + controls + '</div><div class="qr-scanner-result" data-scanner-result-host>' + result + '</div></div>';
+    var notice = demo ? demoNotice("Demo Only: scan one of the QR tokens from this page or enter it manually below. No real booking token is shown or accepted.") : bookingModeNotice();
+    var manual = demo ? '<div class="panel-body"><label class="form-label" for="demo-qr-token">Demo QR token input</label><div class="input-group"><input class="form-control" id="demo-qr-token" autocomplete="off" placeholder="Enter a Demo Only QR token"><button class="btn btn-outline-secondary" data-demo-qr-submit>Check token</button></div><small class="text-secondary">Manual input is for Demo Mode testing only.</small></div>' : '<div class="panel-body text-secondary">Booking Check-in API contract and JWT are pending S1. API Mode does not process scanned tokens or change booking status.</div>';
+    var examples = demo ? '<div class="panel-body"><p class="small text-secondary mb-2">Demo Only test tokens</p><div class="qr-demo-token-list">' + demoBookings.map(function (booking) { return '<div class="qr-demo-token"><span><small>' + esc(booking.status) + '</small><br><code>' + esc(booking.qr_token) + '</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="' + esc(booking.qr_token) + '">Copy</button></div>'; }).join("") + '<div class="qr-demo-token"><span><small>INVALID</small><br><code>demo-qr-invalid</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="demo-qr-invalid">Copy</button></div></div></div>' : '<div class="panel-body text-secondary">No demo tokens are shown in API Mode.</div>';
+    return heading(active) + notice + '<div class="scanner-layout mb-3">' + panel("QR Check-in", cameraPanel, "Camera access starts only after you press Start Camera") + panel("Check-in result", manual + examples, demo ? "Demo Only" : "API integration pending") + '</div>';
+  }
+  function checkDemoQr(token) {
+    if (dataMode !== "demo") {
+      setScanResult(false, "API unavailable", "Booking Check-in API is pending S1. No request was sent.");
+      return;
+    }
+    var booking = demoBookings.find(function (item) { return item.qr_token === token; });
+    if (!booking) { setScanResult(false, "Invalid QR", "This token does not match a Demo booking."); return; }
+    if (booking.owner_id !== "demo-owner") { setScanResult(false, "Access Denied", "This Demo booking belongs to another Owner.", booking); return; }
+    if (booking.status === "CHECKED_IN") { setScanResult(false, "Already Checked In", "This booking has already been checked in.", booking); return; }
+    if (booking.status === "COMPLETED") { setScanResult(false, "Booking Already Completed", "Completed bookings cannot be checked in.", booking); return; }
+    if (booking.status === "CANCELLED") { setScanResult(false, "Booking Cancelled", "Cancelled bookings cannot be checked in.", booking); return; }
+    if (booking.status === "EXPIRED") { setScanResult(false, "Booking Expired", "Expired bookings cannot be checked in.", booking); return; }
+    if (booking.status !== "CONFIRMED") { setScanResult(false, "Booking Not Ready", "Only CONFIRMED bookings can be checked in.", booking); return; }
+    booking.status = "CHECKED_IN";
+    booking.checkin_status = "CHECKED_IN";
+    setScanResult(true, "Check-in Successful", "Booking was checked in in Demo Mode.", booking);
+  }
+  function setScanResult(ok, title, message, booking) {
+    scanResult = { ok: ok, title: title, message: message, booking: booking || null };
+    scannerState = ok ? "success" : "error";
+    updateScannerResult();
+    updateScannerState(scannerState.toUpperCase());
+  }
+  function updateScannerResult() {
+    var host = document.querySelector("[data-scanner-result-host]");
+    if (!host) return;
+    if (!scanResult) { host.innerHTML = '<p class="text-secondary small" data-scan-result>No QR result yet.</p>'; return; }
+    host.innerHTML = '<div class="alert ' + (scanResult.ok ? "alert-success" : "alert-danger") + '" role="status"><strong>' + esc(scanResult.title) + '</strong><p class="mb-1 mt-2">' + esc(scanResult.message) + '</p>' + (scanResult.booking ? '<div class="small">' + esc(scanResult.booking.id + " | " + scanResult.booking.court + " | " + scanResult.booking.date + " " + scanResult.booking.start_time + " - " + scanResult.booking.end_time) + '</div>' : "") + '</div>';
+  }
+  function updateScannerState(label) {
+    var status = document.querySelector("[data-scanner-status]");
+    if (status) {
+      status.textContent = label || scannerState.toUpperCase();
+      status.className = "qr-scanner-status qr-scanner-status--" + scannerState;
+    }
+    var start = document.querySelector("[data-scanner-start]");
+    var stop = document.querySelector("[data-scanner-stop]");
+    if (start) start.disabled = ["loading", "scanning", "stopping"].indexOf(scannerState) >= 0 || (!!scannerInstance && !qrScanner);
+    if (stop) stop.disabled = ["loading", "scanning", "stopping"].indexOf(scannerState) < 0 && !scannerInstance && !qrScanner;
+    var placeholder = document.querySelector(".qr-camera-placeholder");
+    if (placeholder) placeholder.hidden = ["loading", "scanning", "stopping"].indexOf(scannerState) >= 0;
+    var frame = document.querySelector(".qr-camera-frame");
+    if (frame) {
+      var idleFrame = ["idle", "success", "error"].indexOf(scannerState) >= 0 && !scannerInstance;
+      frame.classList.toggle("qr-camera-frame--idle", idleFrame);
+      frame.classList.toggle("qr-camera-frame--active", !idleFrame);
+    }
+  }
+  function scannerErrorMessage(error) {
+    var name = error && error.name || "";
+    if (name === "NotAllowedError" || name === "PermissionDeniedError") return "Camera permission was denied. Allow camera access in your browser settings, then try again.";
+    if (name === "NotFoundError" || name === "DevicesNotFoundError") return "No camera was found. Connect or enable a webcam, then try again.";
+    if (name === "NotReadableError" || name === "TrackStartError" || name === "AbortError") return "The camera is busy or could not start. Close other apps using it, then try again.";
+    if (location.protocol !== "https:" && location.hostname !== "localhost" && location.hostname !== "127.0.0.1") return "Camera access requires HTTPS or localhost.";
+    return error && error.message ? error.message : "Could not start the camera. Check camera permission and try again.";
+  }
+  function startQrScanner() {
+    if (scannerStarting || qrScanner || scannerInstance || scannerStopPromise) return;
+    if (dataMode !== "demo") { scannerState = "error"; scanResult = { ok: false, title: "API Mode", message: "Booking Check-in API is pending S1. Scanning is disabled and no request was sent.", booking: null }; updateScannerState("ERROR"); updateScannerResult(); return; }
+    if (!window.Html5Qrcode) { scannerState = "error"; scanResult = { ok: false, title: "Scanner library unavailable", message: window.Html5QrcodeLoadError || "html5-qrcode is still loading or could not be loaded. Check your internet/CDN access, then reload this page.", booking: null }; updateScannerState("ERROR"); updateScannerResult(); return; }
+    scannerStarting = true; scannerState = "loading"; scanResult = null; updateScannerState("STARTING - requesting camera permission"); updateScannerResult();
+    var epoch = ++scannerEpoch;
+    var activeScanner;
+    try {
+      activeScanner = new window.Html5Qrcode("qr-reader");
+      scannerInstance = activeScanner;
+    } catch (error) {
+      scannerInstance = null; scannerStarting = false; scannerState = "error"; scanResult = { ok: false, title: "Scanner error", message: scannerErrorMessage(error), booking: null }; updateScannerState("ERROR"); updateScannerResult(); return;
+    }
+    scannerStartPromise = Promise.resolve().then(function () {
+      if (scannerInstance !== activeScanner || epoch !== scannerEpoch) throw new Error("Camera start was cancelled.");
+      return Promise.resolve().then(function () { return window.Html5Qrcode.getCameras(); }).then(function (devices) {
+        if (scannerInstance !== activeScanner || epoch !== scannerEpoch) throw new Error("Camera start was cancelled.");
+        if (!devices || !devices.length) { var missing = new Error("No camera was found. Connect or enable a webcam, then try again."); missing.name = "NotFoundError"; throw missing; }
+        var selected = devices.find(function (device) { return /webcam|integrated|front|camera/i.test(device.label || ""); }) || devices[0];
+        return activeScanner.start(selected.id, { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 4 / 3 }, function (decodedText) {
+          if (scannerState !== "scanning") return;
+          var now = Date.now();
+          if (scanProcessing || (decodedText === lastScannedText && now - lastScanAt < 2500)) return;
+          scanProcessing = true; lastScannedText = decodedText; lastScanAt = now;
+          stopQrScanner().then(function (stopped) { scanProcessing = false; if (stopped) checkDemoQr(decodedText); });
+        }, function () {});
+      });
+    }).then(function () {
+      if (scannerInstance !== activeScanner || epoch !== scannerEpoch) return;
+      qrScanner = activeScanner; scannerStarting = false; scannerState = "scanning"; updateScannerState("SCANNING");
+    }).catch(function (error) {
+      if (scannerInstance !== activeScanner || epoch !== scannerEpoch) return;
+      if (error && error.message === "Camera start was cancelled.") { scannerState = "idle"; updateScannerState("IDLE"); return; }
+      var message = scannerErrorMessage(error);
+      var cleanup = Promise.resolve();
+      if (activeScanner.isScanning || activeScanner.stateManager && activeScanner.stateManager.getState && activeScanner.stateManager.getState() === 2) {
+        cleanup = Promise.resolve().then(function () { return activeScanner.stop(); });
+      }
+      return cleanup.then(function () {
+        if (activeScanner.isScanning || activeScanner.stateManager && activeScanner.stateManager.getState && activeScanner.stateManager.getState() === 2) throw new Error("Scanner is still active.");
+        return typeof activeScanner.clear === "function" ? activeScanner.clear() : undefined;
+      }).then(function () {
+        if (scannerInstance === activeScanner) scannerInstance = null;
+        if (qrScanner === activeScanner) qrScanner = null;
+        scannerStarting = false; scannerState = "error"; scanResult = { ok: false, title: "Camera error", message: message, booking: null }; updateScannerState("ERROR"); updateScannerResult();
+      }).catch(function (cleanupError) {
+        scannerStarting = false; scannerState = "error"; scanResult = { ok: false, title: "Camera cleanup error", message: message + " Camera cleanup failed: " + (cleanupError && cleanupError.message ? cleanupError.message : "unknown error") + ". Press Stop Camera to retry cleanup.", booking: null }; updateScannerState("ERROR"); updateScannerResult();
+      });
+    }).finally(function () { scannerStartPromise = null; });
+  }
+  function stopQrScanner() {
+    if (scannerStopPromise) return scannerStopPromise;
+    var current = qrScanner || scannerInstance;
+    if (!current) { scannerStarting = false; return Promise.resolve(true); }
+    ++scannerEpoch; scannerState = "stopping"; updateScannerState("STOPPING");
+    scannerStopPromise = Promise.resolve().then(function () {
+      return scannerStartPromise ? scannerStartPromise.then(function () { return true; }, function () { return false; }) : true;
+    }).then(function (started) {
+      if (!started) return false;
+      if (current.isScanning || current.stateManager && current.stateManager.getState && current.stateManager.getState() === 2) return Promise.resolve(current.stop()).then(function () { return true; });
+      return true;
+    }).then(function (started) {
+      if (current.isScanning) throw new Error("Scanner did not stop; camera cleanup was not attempted.");
+      return typeof current.clear === "function" ? current.clear() : undefined;
+    }).then(function () {
+      scannerInstance = null; qrScanner = null; scannerStarting = false; scannerState = "idle"; updateScannerState("IDLE"); return true;
+    }).catch(function (error) {
+      scannerState = "error"; scanResult = { ok: false, title: "Camera stop error", message: error && error.message ? error.message : "Could not stop the camera safely. Retry Stop Camera.", booking: null }; updateScannerState("ERROR"); updateScannerResult(); return false;
+    }).finally(function () { scannerStopPromise = null; });
+    return scannerStopPromise;
   }
   function revenuePage() {
     var values = [42, 61, 52, 72, 66, 84, 76, 95, 73, 87, 67, 100];
@@ -722,7 +940,8 @@
     });
   }
   function applyRegistryFilters() {
-    var search = (document.querySelector("[data-venue-search]") || {}).value || "";
+    venueSearch = (document.querySelector("[data-venue-search]") || {}).value || "";
+    courtSearch = (document.querySelector("[data-court-search]") || {}).value || "";
     var sportId = (document.querySelector("[data-registry-sport-filter]") || {}).value || "";
     var active = (document.querySelector("[data-registry-active-filter]") || {}).value || "";
     var venueId = (document.querySelector("[data-registry-venue-filter]") || {}).value || "";
@@ -731,14 +950,14 @@
     var visibleVenues = 0;
     var visibleCourts = 0;
     venueCards.forEach(function (card) {
-      var show = card.dataset.search.indexOf(search.toLowerCase()) >= 0 &&
+      var show = card.dataset.search.indexOf(venueSearch.toLowerCase()) >= 0 &&
         (!sportId || card.dataset.sportIds.indexOf("|" + sportId + "|") >= 0) &&
         (!active || card.dataset.active === active);
       card.hidden = !show;
       if (show) visibleVenues += 1;
     });
     courtRows.forEach(function (row) {
-      var show = row.dataset.search.indexOf(search.toLowerCase()) >= 0 &&
+      var show = row.dataset.search.indexOf(courtSearch.toLowerCase()) >= 0 &&
         (!sportId || row.dataset.sportId === sportId) &&
         (!active || row.dataset.active === active) &&
         (!venueId || row.dataset.venueId === venueId);
@@ -756,8 +975,13 @@
     var values = demoFormValues(form, resource);
     var error = validateDemoForm(resource, values, id);
     if (error) {
-      crudFormError = error;
-      form.querySelector("[data-crud-error]").textContent = error;
+      form.querySelectorAll(".field-error").forEach(function (node) { node.textContent = ""; });
+      form.querySelectorAll(".is-invalid").forEach(function (node) { node.classList.remove("is-invalid"); });
+      var field = form.elements.namedItem(error.field);
+      var feedback = form.querySelector('[data-field-error="' + error.field + '"]');
+      if (field) field.classList.add("is-invalid");
+      if (feedback) feedback.textContent = error.message;
+      if (field) field.focus();
       return;
     }
     var records = recordsFor(resource);
@@ -768,7 +992,6 @@
       records.push(values);
     }
     crudFormState = null;
-    crudFormError = "";
     render();
     toast((existing ? "Updated " : "Added ") + ({ sports: "sport", venues: "venue", courts: "court", slots: "time slot" }[resource]) + " in Demo Mode.");
   }
@@ -781,31 +1004,54 @@
     var record = records.find(function (item) { return String(item.id) === String(id); });
     if (!record) return;
     var label = ({ sports: "sport", venues: "venue", courts: "court", slots: "time slot" }[resource]);
-    if (!window.confirm("Deactivate this " + label + " in the Demo Mode sample?")) return;
-    record.is_active = false;
-    crudFormState = null;
-    render();
-    toast("Demo " + label + " deactivated. No API request was sent.");
+    showActionConfirmation("Deactivate " + label, "This Demo record will be marked inactive. No API request will be sent.", "Deactivate", function () {
+      record.is_active = false;
+      crudFormState = null;
+      render();
+      toast("Demo " + label + " deactivated. No API request was sent.");
+    });
+  }
+  function showActionConfirmation(title, message, confirmLabel, onConfirm) {
+    var host = document.getElementById("action-confirmation-modal-host");
+    if (!host) { host = document.createElement("div"); host.id = "action-confirmation-modal-host"; document.body.appendChild(host); }
+    host.innerHTML = '<div class="modal fade" id="action-confirmation-modal" tabindex="-1" aria-labelledby="action-confirmation-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-6" id="action-confirmation-title">' + esc(title) + '</h2><button type="button" class="btn-close" data-modal-close aria-label="Close"></button></div><div class="modal-body">' + esc(message) + '</div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-modal-close>Cancel</button><button type="button" class="btn btn-danger" data-confirm-action>' + esc(confirmLabel) + '</button></div></div></div></div>';
+    var modal = document.getElementById("action-confirmation-modal");
+    modal.querySelector("[data-confirm-action]").addEventListener("click", function () {
+      closeManagedModal(modal);
+      onConfirm();
+    });
+    showManagedModal(modal, host);
   }
   function wireActions() {
     var modeSelect = document.getElementById("court-data-mode");
     if (modeSelect) modeSelect.addEventListener("change", function () {
-      dataMode = modeSelect.value;
+      var nextMode = modeSelect.value;
+      if (currentRoute() === "qr-checkin" && (qrScanner || scannerInstance || scannerStarting)) {
+        modeSelect.disabled = true;
+        stopQrScanner().then(function (stopped) {
+          if (stopped) {
+            dataMode = nextMode; scannerState = "idle"; scanResult = null; crudFormState = null; render();
+          } else {
+            modeSelect.disabled = false; modeSelect.value = dataMode;
+          }
+        });
+        return;
+      }
+      dataMode = nextMode;
+      scannerState = "idle";
+      scanResult = null;
       crudFormState = null;
-      crudFormError = "";
       render();
     });
     document.querySelectorAll("[data-crud-open]").forEach(function (el) {
       el.addEventListener("click", function () {
         crudFormState = { resource: el.dataset.crudOpen, id: el.dataset.crudId || null };
-        crudFormError = "";
         render();
       });
     });
     document.querySelectorAll("[data-crud-cancel]").forEach(function (el) {
       el.addEventListener("click", function () {
         crudFormState = null;
-        crudFormError = "";
         render();
       });
     });
@@ -866,35 +1112,47 @@
       el.addEventListener("change", filterRows);
     });
     var bookingSearchInput = document.querySelector("[data-booking-search]");
-    if (bookingSearchInput) bookingSearchInput.addEventListener("input", function () { bookingSearch = bookingSearchInput.value; render(); });
+    if (bookingSearchInput) bookingSearchInput.addEventListener("input", applyBookingFilters);
     var bookingDateInput = document.querySelector("[data-booking-date]");
-    if (bookingDateInput) bookingDateInput.addEventListener("change", function () { bookingDate = bookingDateInput.value; render(); });
+    if (bookingDateInput) bookingDateInput.addEventListener("change", applyBookingFilters);
     var bookingStatusInput = document.querySelector("[data-booking-status]");
-    if (bookingStatusInput) bookingStatusInput.addEventListener("change", function () { bookingStatus = bookingStatusInput.value; render(); });
+    if (bookingStatusInput) bookingStatusInput.addEventListener("change", applyBookingFilters);
     var bookingClear = document.querySelector("[data-booking-clear]");
-    if (bookingClear) bookingClear.addEventListener("click", function () { bookingSearch = ""; bookingDate = ""; bookingStatus = ""; render(); });
-    document.querySelectorAll("[data-booking-detail]").forEach(function (el) {
-      el.addEventListener("click", function () {
-        var booking = demoBookings.find(function (item) { return item.id === el.dataset.bookingDetail; });
+    if (bookingClear) bookingClear.addEventListener("click", function () {
+      bookingSearch = ""; bookingDate = ""; bookingStatus = "";
+      if (bookingSearchInput) bookingSearchInput.value = "";
+      if (bookingDateInput) bookingDateInput.value = "";
+      if (bookingStatusInput) bookingStatusInput.value = "";
+      applyBookingFilters();
+      if (bookingSearchInput) bookingSearchInput.focus();
+    });
+    var bookingRowsHost = document.getElementById("owner-booking-rows");
+    if (bookingRowsHost) bookingRowsHost.addEventListener("click", function (event) {
+      var detailButton = event.target.closest("[data-booking-detail]");
+      var completeButton = event.target.closest("[data-booking-complete]");
+      if (detailButton) {
+        var booking = demoBookings.find(function (item) { return item.id === detailButton.dataset.bookingDetail; });
         if (booking) bookingDetail(booking);
-      });
+      } else if (completeButton) completeDemoBooking(completeButton.dataset.bookingComplete);
     });
-    document.querySelectorAll("[data-booking-complete]").forEach(function (el) {
+    var scannerStart = document.querySelector("[data-scanner-start]");
+    if (scannerStart) scannerStart.addEventListener("click", startQrScanner);
+    var scannerStop = document.querySelector("[data-scanner-stop]");
+    if (scannerStop) scannerStop.addEventListener("click", function () { stopQrScanner(); });
+    var demoQrSubmit = document.querySelector("[data-demo-qr-submit]");
+    if (demoQrSubmit) demoQrSubmit.addEventListener("click", function () { checkDemoQr((document.getElementById("demo-qr-token").value || "").trim()); });
+    document.querySelectorAll("[data-copy-qr]").forEach(function (el) {
       el.addEventListener("click", function () {
-        var booking = demoBookings.find(function (item) { return item.id === el.dataset.bookingComplete; });
-        if (!booking || booking.status !== "CHECKED_IN") { toast("Only CHECKED_IN bookings can be completed."); return; }
-        if (dataMode !== "demo") { toast("Booking API and JWT are pending. No request was sent."); return; }
-        if (!window.confirm("Complete booking " + booking.id + "?")) return;
-        booking.status = "COMPLETED";
-        render();
-        toast("Demo booking completed. No API request was sent.");
+        var token = el.dataset.copyQr;
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(token).then(function () { toast("Demo QR token copied."); }).catch(function () { toast("Copy was blocked; select the token text to copy it."); });
+        else toast("Select the Demo token text and copy it manually.");
       });
     });
-    ["[data-venue-search]", "[data-registry-sport-filter]", "[data-registry-active-filter]", "[data-registry-venue-filter]"].forEach(function (selector) {
-      document.querySelectorAll(selector).forEach(function (el) {
-        el.addEventListener("input", applyRegistryFilters);
-        el.addEventListener("change", applyRegistryFilters);
-      });
+    document.querySelectorAll("[data-venue-search], [data-court-search]").forEach(function (el) {
+      el.addEventListener("input", applyRegistryFilters);
+    });
+    document.querySelectorAll("[data-registry-sport-filter], [data-registry-active-filter], [data-registry-venue-filter]").forEach(function (el) {
+      el.addEventListener("change", applyRegistryFilters);
     });
     var scheduleApply = document.querySelector("[data-schedule-apply]");
     if (scheduleApply) scheduleApply.addEventListener("click", function () {
@@ -920,18 +1178,64 @@
   function render() {
     var active = currentRoute();
     if (active === "login") { renderLogin(); return; }
+    if (active === "qr-checkin" && (scannerStarting || qrScanner || scannerInstance || scannerStopPromise) && document.getElementById("qr-reader")) {
+      updateScannerState();
+      updateScannerResult();
+      return;
+    }
     var admin = active.indexOf("admin-") === 0 || active === "people" || active === "checkins";
     if (!info[active]) active = admin ? "admin-dashboard" : "dashboard";
     var content = pageFor(active);
     var ownerCourtScreens = ["dashboard", "venues", "schedule"];
-    if (!admin && (ownerCourtScreens.indexOf(active) >= 0 || active === "owner-bookings")) content = modeToolbar() + content;
+    if (!admin && (ownerCourtScreens.indexOf(active) >= 0 || active === "owner-bookings" || active === "qr-checkin")) content = modeToolbar() + content;
     renderShell(content, admin, active);
     wireActions();
     var courtScreens = ["dashboard", "admin-dashboard", "venues", "admin-venues", "schedule"];
+    if (active === "qr-checkin" && dataMode === "demo" && !window.Html5Qrcode) {
+      window.addEventListener("load", function () { updateScannerState(); }, { once: true });
+    }
     if (dataMode === "api" && courtScreens.indexOf(active) >= 0 && Object.keys(courtResources).every(function (key) { return courtResources[key].status === "idle"; })) {
       loadCourtResources(false);
     }
   }
-  window.addEventListener("hashchange", render);
+  var renderedRoute = currentRoute();
+  var navigationStopPromise = null;
+  window.addEventListener("hashchange", function () {
+    var nextRoute = currentRoute();
+    if (navigationStopPromise) return;
+    if (renderedRoute === "qr-checkin" && nextRoute !== "qr-checkin") {
+      navigationStopPromise = stopQrScanner().then(function (stopped) {
+        if (!stopped) {
+          renderedRoute = "qr-checkin";
+          if (currentRoute() !== "qr-checkin") location.hash = "#/qr-checkin";
+          return;
+        }
+        renderedRoute = currentRoute();
+        scannerState = "idle";
+        render();
+      }).catch(function (error) {
+        scannerState = "error";
+        scanResult = { ok: false, title: "Camera stop error", message: error && error.message ? error.message : "Could not stop the camera safely. Retry Stop Camera.", booking: null };
+        updateScannerState("ERROR");
+        updateScannerResult();
+        renderedRoute = "qr-checkin";
+        if (currentRoute() !== "qr-checkin") location.hash = "#/qr-checkin";
+      }).finally(function () { navigationStopPromise = null; });
+      return;
+    }
+    if (nextRoute === "qr-checkin") {
+      renderedRoute = nextRoute;
+      render();
+      return;
+    }
+    renderedRoute = nextRoute;
+    render();
+  });
+  window.addEventListener("beforeunload", function () { stopQrScanner(); });
+  document.addEventListener("visibilitychange", function () { if (document.hidden && (qrScanner || scannerInstance || scannerStarting)) stopQrScanner(); });
+  document.addEventListener("qrscannerloaderror", function () {
+    var start = document.querySelector("[data-scanner-start]");
+    if (start && currentRoute() === "qr-checkin") { start.disabled = false; start.title = window.Html5QrcodeLoadError; }
+  });
   render();
 })();

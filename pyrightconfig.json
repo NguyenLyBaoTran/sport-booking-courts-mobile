@@ -1,0 +1,21 @@
+{
+  "venvPath": "backend",
+  "venv": ".venv",
+  "include": [
+    "backend/scripts/seed_court_demo.py",
+    "backend/alembic/env.py"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "backend/scripts",
+      "extraPaths": ["backend/services/court_service"]
+    },
+    {
+      "root": "backend/alembic",
+      "extraPaths": [
+        "backend/.venv/Lib/site-packages",
+        "backend"
+      ]
+    }
+  ]
+}
