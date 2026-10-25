@@ -4,22 +4,27 @@
 
 Backend mới có một API Gateway và bốn FastAPI microservice độc lập:
 
-- User Service — cổng `8001`, database `sports_user_db`.
-- Court Service — cổng `8002`, database `sports_court_db`.
-- Booking Service — cổng `8003`, database `sports_booking_db`.
-- Payment Service — cổng `8004`, database `sports_payment_db`.
+- User Service — cổng `8001`, database `sports_user_db`; Auth/Register/Login đã có.
+- Court Service — cổng `8002`, database `sports_court_db`; nghiệp vụ Court/Sports do
+  nhánh Court Service triển khai.
+- Booking Service — cổng `8003`, database `sports_booking_db`; booking, hold
+  orchestration, xác nhận nội bộ và QR token.
+- Payment Service — cổng `8004`, database `sports_payment_db`; mock payment và
+  payment history.
 - API Gateway — cổng `8000`, nhận request từ client và chuyển tiếp theo API prefix.
 
 Mỗi service có `/health` và `/health/db`. User Service đã có Register/Login/JWT và
-`GET /users/me`; API nghiệp vụ cho Court, Booking và Payment đang được triển khai
-theo từng iteration.
+`GET /users/me`. Booking/Payment có API cốt lõi nhưng luồng đặt chỗ end-to-end cần
+Court Service triển khai đúng internal slot contract trong
+[API contract](../docs/API_CONTRACT.md).
 Gateway có `/health` và các route kiểm tra service tại
 `/api/v1/{user,court,booking,payment}/health`.
 
 `app/` và `alembic/` ở cấp `backend/` là backend Modular Monolith cũ. Chúng được
 giữ lại trong giai đoạn chuyển đổi; Alembic hiện tham chiếu `app.core.config` và
-`app.db.database`. Chưa có migration nghiệp vụ. Các file `models.py`, `schemas.py`
-và `routes.py` rỗng trong từng service được giữ làm điểm mở rộng theo cấu trúc dự án.
+`app.db.database`. Chưa có migration nghiệp vụ cho Booking/Payment; script
+`python -m app.init_db` chỉ khởi tạo schema cho local development. Các file rỗng
+trong Court Service vẫn là điểm mở rộng theo cấu trúc dự án.
 
 ## Công nghệ
 
@@ -142,6 +147,57 @@ Chạy Auth tests (SQLite in-memory, không cần kết nối MySQL):
 cd backend/services/user_service
 python -m pytest -q
 ```
+
+Tạo tài khoản OWNER/ADMIN dùng cho local integration test (nhập password ẩn khi
+được nhắc; mật khẩu không được lưu dạng rõ trong database hoặc commit vào repo):
+
+```bash
+cd backend/services/user_service
+python -m app.create_test_account
+```
+
+Lệnh chỉ chạy khi `APP_ENV=development` hoặc `test`, và in ra User ID sau khi tạo.
+OWNER ID này có thể dùng làm `owner_id` khi seed dữ liệu Court Service. Đăng nhập
+qua `/api/v1/auth/login` để lấy JWT cho web integration test.
+
+### Tài khoản test hiện tại
+
+Các tài khoản này đang tồn tại trong User DB local:
+
+| Role | Email | User ID | Mật khẩu test |
+|---|---|---:|---|
+| OWNER | `nguyenvana@gmail.com` | `1` | `12345678` |
+| ADMIN | `admin@sportbooking.com` | `3` | `12345678` |
+
+## Booking và Payment API
+
+Booking Service cung cấp API lịch sử/chi tiết booking cho USER, tạo booking PENDING
+với slot hold 10 phút, hủy booking đang PENDING, và API nội bộ để Payment Service
+xác nhận booking sau mock payment. Payment Service ghi nhận các lần mock payment,
+chặn thanh toán thành công lặp lại, và chỉ cho người dùng xem payment của chính họ.
+QR token opaque do Booking Service tạo sau khi xác nhận; QR check-in thuộc phạm vi
+Booking Service quản lý state transition check-in/completion; Court/Owner Service
+phải xác thực Owner và gọi các internal endpoint đó.
+
+Trước khi chạy hai service, đặt `INTERNAL_SERVICE_TOKEN` thành cùng một giá trị
+ngẫu nhiên riêng trong `.env`; không dùng giá trị ví dụ khi chạy thật. Cấu hình
+`COURT_SERVICE_URL` và `BOOKING_SERVICE_URL` theo địa chỉ nội bộ tương ứng.
+Khởi tạo bảng lần đầu cho local development:
+
+```bash
+cd backend/services/booking_service
+python -m app.init_db
+cd ../payment_service
+python -m app.init_db
+```
+
+Chi tiết request/response và contract internal phụ thuộc Court Service nằm trong
+[API contract](../docs/API_CONTRACT.md). Các service đang phát triển cần cùng thống
+nhất contract này trước khi chạy end-to-end; chạy test riêng không cần MySQL hoặc
+Court/Booking service đang hoạt động.
+
+Hướng dẫn chi tiết để chạy test tự động, Auth qua Gateway và luồng tích hợp
+Booking/Payment nằm trong [Local Test Guide](../docs/TESTING_GUIDE.md).
 
 ## Chạy các ứng dụng
 
