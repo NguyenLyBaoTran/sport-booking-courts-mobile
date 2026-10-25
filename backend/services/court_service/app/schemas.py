@@ -96,6 +96,10 @@ class TimeSlotInput(InputModel):
 
     @model_validator(mode="after")
     def validate_time_range(self):
+        for field_name in ("start_time", "end_time"):
+            value = getattr(self, field_name)
+            if value.minute not in (0, 30) or value.second != 0 or value.microsecond != 0:
+                raise ValueError(f"{field_name} must be on a 30-minute boundary")
         if self.start_time >= self.end_time:
             raise ValueError("start_time must be earlier than end_time")
         return self

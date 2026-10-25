@@ -1,12 +1,15 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Court, Sport, TimeSlot, Venue
+from app.security import JWTConfigurationError, JWTError, Principal, decode_access_token
 from app.schemas import (
     CourtInput,
     CourtOutput,
@@ -19,13 +22,54 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/v1")
+bearer_scheme = HTTPBearer(auto_error=False)
+BUSINESS_TIMEZONE = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
-def require_write_access():
-    """Placeholder until S1 JWT and OWNER/ADMIN authorization are integrated."""
+def get_current_principal(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> Principal:
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        return decode_access_token(credentials.credentials)
+    except JWTConfigurationError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="JWT verification is not configured",
+        ) from None
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+
+
+def require_owner(principal: Principal = Depends(get_current_principal)) -> Principal:
+    if principal.role != "OWNER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Owner role required",
+        )
+    return principal
+
+
+def require_admin_policy_pending(
+    principal: Principal = Depends(get_current_principal),
+) -> None:
+    if principal.role != "ADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="Write API authentication integration is pending",
+        detail="Sports write authorization policy is pending confirmation",
     )
 
 
@@ -34,6 +78,22 @@ def get_or_404(db: Session, model, object_id: int, label: str):
     if item is None:
         raise HTTPException(status_code=404, detail=f"{label} not found")
     return item
+
+
+def require_owned_venue(db: Session, venue_id: int, principal: Principal) -> Venue:
+    venue = get_or_404(db, Venue, venue_id, "Venue")
+    if venue.owner_id != principal.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Venue is outside the authenticated owner's scope",
+        )
+    return venue
+
+
+def require_owned_court(db: Session, court_id: int, principal: Principal) -> Court:
+    court = get_or_404(db, Court, court_id, "Court")
+    require_owned_venue(db, court.venue_id, principal)
+    return court
 
 
 def commit_or_conflict(db: Session, detail: str = "Conflicting data") -> None:
@@ -60,7 +120,7 @@ def read_sport(sport_id: int, db: Session = Depends(get_db)):
     return get_or_404(db, Sport, sport_id, "Sport")
 
 
-@router.post("/sports", response_model=SportOutput, status_code=201, dependencies=[Depends(require_write_access)])
+@router.post("/sports", response_model=SportOutput, status_code=201, dependencies=[Depends(require_admin_policy_pending)])
 def create_sport(data: SportInput, db: Session = Depends(get_db)):
     sport = Sport(**data.model_dump())
     db.add(sport)
@@ -69,7 +129,7 @@ def create_sport(data: SportInput, db: Session = Depends(get_db)):
     return sport
 
 
-@router.put("/sports/{sport_id}", response_model=SportOutput, dependencies=[Depends(require_write_access)])
+@router.put("/sports/{sport_id}", response_model=SportOutput, dependencies=[Depends(require_admin_policy_pending)])
 def update_sport(sport_id: int, data: SportInput, db: Session = Depends(get_db)):
     sport = get_or_404(db, Sport, sport_id, "Sport")
     for key, value in data.model_dump().items():
@@ -79,7 +139,7 @@ def update_sport(sport_id: int, data: SportInput, db: Session = Depends(get_db))
     return sport
 
 
-@router.delete("/sports/{sport_id}", status_code=204, dependencies=[Depends(require_write_access)])
+@router.delete("/sports/{sport_id}", status_code=204, dependencies=[Depends(require_admin_policy_pending)])
 def delete_sport(sport_id: int, db: Session = Depends(get_db)):
     sport = get_or_404(db, Sport, sport_id, "Sport")
     sport.is_active = False
@@ -106,28 +166,53 @@ def read_venue(venue_id: int, db: Session = Depends(get_db)):
     return get_or_404(db, Venue, venue_id, "Venue")
 
 
-@router.post("/venues", response_model=VenueOutput, status_code=201, dependencies=[Depends(require_write_access)])
-def create_venue(data: VenueInput, db: Session = Depends(get_db)):
-    venue = Venue(**data.model_dump(), created_at=datetime.utcnow())
+@router.post("/venues", response_model=VenueOutput, status_code=201)
+def create_venue(
+    data: VenueInput,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner),
+):
+    if data.owner_id != principal.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="owner_id must match the authenticated owner",
+        )
+    values = data.model_dump()
+    values["owner_id"] = principal.user_id
+    venue = Venue(**values, created_at=datetime.now(timezone.utc).replace(tzinfo=None))
     db.add(venue)
     commit_or_conflict(db)
     db.refresh(venue)
     return venue
 
 
-@router.put("/venues/{venue_id}", response_model=VenueOutput, dependencies=[Depends(require_write_access)])
-def update_venue(venue_id: int, data: VenueInput, db: Session = Depends(get_db)):
-    venue = get_or_404(db, Venue, venue_id, "Venue")
-    for key, value in data.model_dump().items():
+@router.put("/venues/{venue_id}", response_model=VenueOutput)
+def update_venue(
+    venue_id: int,
+    data: VenueInput,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner),
+):
+    venue = require_owned_venue(db, venue_id, principal)
+    if data.owner_id != principal.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="owner_id must match the authenticated owner",
+        )
+    for key, value in data.model_dump(exclude={"owner_id"}).items():
         setattr(venue, key, value)
     commit_or_conflict(db)
     db.refresh(venue)
     return venue
 
 
-@router.delete("/venues/{venue_id}", status_code=204, dependencies=[Depends(require_write_access)])
-def delete_venue(venue_id: int, db: Session = Depends(get_db)):
-    venue = get_or_404(db, Venue, venue_id, "Venue")
+@router.delete("/venues/{venue_id}", status_code=204)
+def delete_venue(
+    venue_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner),
+):
+    venue = require_owned_venue(db, venue_id, principal)
     venue.is_active = False
     commit_or_conflict(db)
     return Response(status_code=204)
@@ -165,9 +250,14 @@ def validate_court_references(db: Session, data: CourtInput) -> None:
         raise HTTPException(status_code=400, detail="Sport does not exist")
 
 
-@router.post("/courts", response_model=CourtOutput, status_code=201, dependencies=[Depends(require_write_access)])
-def create_court(data: CourtInput, db: Session = Depends(get_db)):
+@router.post("/courts", response_model=CourtOutput, status_code=201)
+def create_court(
+    data: CourtInput,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner),
+):
     validate_court_references(db, data)
+    require_owned_venue(db, data.venue_id, principal)
     court = Court(**data.model_dump())
     db.add(court)
     commit_or_conflict(db)
@@ -175,10 +265,16 @@ def create_court(data: CourtInput, db: Session = Depends(get_db)):
     return court
 
 
-@router.put("/courts/{court_id}", response_model=CourtOutput, dependencies=[Depends(require_write_access)])
-def update_court(court_id: int, data: CourtInput, db: Session = Depends(get_db)):
-    court = get_or_404(db, Court, court_id, "Court")
+@router.put("/courts/{court_id}", response_model=CourtOutput)
+def update_court(
+    court_id: int,
+    data: CourtInput,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner),
+):
+    court = require_owned_court(db, court_id, principal)
     validate_court_references(db, data)
+    require_owned_venue(db, data.venue_id, principal)
     for key, value in data.model_dump().items():
         setattr(court, key, value)
     commit_or_conflict(db)
@@ -186,9 +282,13 @@ def update_court(court_id: int, data: CourtInput, db: Session = Depends(get_db))
     return court
 
 
-@router.delete("/courts/{court_id}", status_code=204, dependencies=[Depends(require_write_access)])
-def delete_court(court_id: int, db: Session = Depends(get_db)):
-    court = get_or_404(db, Court, court_id, "Court")
+@router.delete("/courts/{court_id}", status_code=204)
+def delete_court(
+    court_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner),
+):
+    court = require_owned_court(db, court_id, principal)
     court.is_active = False
     commit_or_conflict(db)
     return Response(status_code=204)
@@ -216,12 +316,13 @@ def read_time_slot(slot_id: int, db: Session = Depends(get_db)):
     return get_or_404(db, TimeSlot, slot_id, "Time slot")
 
 
-def validate_slot_court(db: Session, court_id: int) -> None:
+def validate_slot_court(db: Session, court_id: int, principal: Principal) -> None:
     court = db.get(Court, court_id)
     if court is None:
         raise HTTPException(status_code=400, detail="Court does not exist")
     if not court.is_active:
         raise HTTPException(status_code=400, detail="Court is inactive")
+    require_owned_venue(db, court.venue_id, principal)
 
 
 def validate_slot_overlap(db: Session, data: TimeSlotInput, exclude_id: int | None = None) -> None:
@@ -240,9 +341,31 @@ def validate_slot_overlap(db: Session, data: TimeSlotInput, exclude_id: int | No
         raise HTTPException(status_code=409, detail="Time slot overlaps an active slot")
 
 
-@router.post("/time-slots", response_model=TimeSlotOutput, status_code=201, dependencies=[Depends(require_write_access)])
-def create_time_slot(data: TimeSlotInput, db: Session = Depends(get_db)):
-    validate_slot_court(db, data.court_id)
+def business_now() -> datetime:
+    return datetime.now(BUSINESS_TIMEZONE)
+
+
+def validate_slot_start_time(data: TimeSlotInput, existing: TimeSlot | None = None) -> None:
+    """Require new or changed slot starts to be future Vietnam business time."""
+    if existing is not None and data.slot_date == existing.slot_date and data.start_time == existing.start_time:
+        return
+
+    slot_start = datetime.combine(data.slot_date, data.start_time, tzinfo=BUSINESS_TIMEZONE)
+    if slot_start <= business_now():
+        raise HTTPException(
+            status_code=422,
+            detail="Time slot start must be in the future (Asia/Ho_Chi_Minh)",
+        )
+
+
+@router.post("/time-slots", response_model=TimeSlotOutput, status_code=201)
+def create_time_slot(
+    data: TimeSlotInput,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner),
+):
+    validate_slot_court(db, data.court_id, principal)
+    validate_slot_start_time(data)
     validate_slot_overlap(db, data)
     slot = TimeSlot(**data.model_dump())
     db.add(slot)
@@ -251,10 +374,17 @@ def create_time_slot(data: TimeSlotInput, db: Session = Depends(get_db)):
     return slot
 
 
-@router.put("/time-slots/{slot_id}", response_model=TimeSlotOutput, dependencies=[Depends(require_write_access)])
-def update_time_slot(slot_id: int, data: TimeSlotInput, db: Session = Depends(get_db)):
+@router.put("/time-slots/{slot_id}", response_model=TimeSlotOutput)
+def update_time_slot(
+    slot_id: int,
+    data: TimeSlotInput,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner),
+):
     slot = get_or_404(db, TimeSlot, slot_id, "Time slot")
-    validate_slot_court(db, data.court_id)
+    require_owned_court(db, slot.court_id, principal)
+    validate_slot_court(db, data.court_id, principal)
+    validate_slot_start_time(data, existing=slot)
     validate_slot_overlap(db, data, exclude_id=slot_id)
     for key, value in data.model_dump().items():
         setattr(slot, key, value)
@@ -263,9 +393,14 @@ def update_time_slot(slot_id: int, data: TimeSlotInput, db: Session = Depends(ge
     return slot
 
 
-@router.delete("/time-slots/{slot_id}", status_code=204, dependencies=[Depends(require_write_access)])
-def delete_time_slot(slot_id: int, db: Session = Depends(get_db)):
+@router.delete("/time-slots/{slot_id}", status_code=204)
+def delete_time_slot(
+    slot_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner),
+):
     slot = get_or_404(db, TimeSlot, slot_id, "Time slot")
+    require_owned_court(db, slot.court_id, principal)
     slot.is_active = False
     commit_or_conflict(db)
     return Response(status_code=204)

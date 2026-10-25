@@ -45,7 +45,8 @@ backend/
 │   └── payment_service/app/     # main.py, database.py, models.py, schemas.py, routes.py
 ├── .env.example
 ├── README.md
-└── requirements.txt
+├── requirements.txt            # Runtime dependencies
+└── requirements-dev.txt        # Runtime + pytest
 ```
 
 ## Cài đặt
@@ -59,6 +60,14 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
+
+For Court/Gateway tests, install the test tools as well:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+```
+
+`requirements.txt` contains runtime packages. The development file includes it and adds test tooling. On Windows, `tzdata` supplies the IANA timezone database used by `ZoneInfo`.
 
 Mở `backend/.env` và thay `YOUR_PASSWORD` bằng thông tin MySQL của máy. Tệp `.env`
 được `.gitignore` loại trừ. Không commit thông tin đăng nhập thật. Nếu mật khẩu có
@@ -164,18 +173,18 @@ lập. Bước này chưa thêm Docker, Compose hay Nginx.
 
 ## Court Service REST API (Step 2)
 
-Court Service exposes public read routes and write routes that remain closed until S1 authentication is integrated. Every POST, PUT, and DELETE currently returns HTTP 503 with a generic pending-authentication message. Do not treat a client-supplied `owner_id` as proof of ownership. Replace the `require_write_access` dependency in `services/court_service/app/routes.py` with the agreed JWT and OWNER/ADMIN checks when the Auth contract is available.
+Court Service exposes public read routes and JWT-protected writes. OWNER can manage only Venues they own and Courts/Time Slots whose related Venue belongs to them. USER and cross-owner mutations return `403`; missing/invalid/expired tokens return `401`. Venue creation requires body `owner_id` to match the authenticated subject, and updates cannot transfer ownership. The API never authorizes from a client-supplied owner ID alone. Sports writes remain closed (`503` for ADMIN) until the proposed ADMIN-only policy is confirmed. ADMIN access to other writes is also disabled pending confirmation.
 
 | Method | Endpoint | Purpose | Access now |
 |---|---|---|---|
 | GET | `/api/v1/sports` and `/api/v1/sports/{sport_id}` | List/filter and view sports | Public |
-| POST, PUT, DELETE | `/api/v1/sports[/{sport_id}]` | Create, update, soft-deactivate sport | Closed pending Auth |
+| POST, PUT, DELETE | `/api/v1/sports[/{sport_id}]` | Create, update, soft-deactivate sport | Closed pending ADMIN policy |
 | GET | `/api/v1/venues` and `/api/v1/venues/{venue_id}` | List/filter and view venues | Public |
-| POST, PUT, DELETE | `/api/v1/venues[/{venue_id}]` | Create, update, soft-deactivate venue | Closed pending Auth |
+| POST, PUT, DELETE | `/api/v1/venues[/{venue_id}]` | Create, update, soft-deactivate venue | OWNER of the venue; ADMIN pending |
 | GET | `/api/v1/courts` and `/api/v1/courts/{court_id}` | List/filter and view courts | Public |
-| POST, PUT, DELETE | `/api/v1/courts[/{court_id}]` | Create, update, soft-deactivate court | Closed pending Auth |
+| POST, PUT, DELETE | `/api/v1/courts[/{court_id}]` | Create, update, soft-deactivate court | OWNER of related Venue; ADMIN pending |
 | GET | `/api/v1/time-slots` and `/api/v1/time-slots/{slot_id}` | List/filter and view time slots | Public |
-| POST, PUT, DELETE | `/api/v1/time-slots[/{slot_id}]` | Create, update, soft-deactivate time slot | Closed pending Auth |
+| POST, PUT, DELETE | `/api/v1/time-slots[/{slot_id}]` | Create, update, soft-deactivate time slot | OWNER of related Court's Venue; ADMIN pending |
 
 Example create request (after Auth integration):
 
@@ -206,7 +215,7 @@ Example response (`201 Created`):
 
 Read routes support `is_active`; venue routes also support `owner_id`, court routes `venue_id` and `sport_id`, and time-slot routes `court_id` and `slot_date` (ISO date, for example `2026-10-23`). Query parameters can be combined. Request schemas reject extra fields such as `id` and `created_at`.
 
-Validation returns 422 for malformed request schemas, 400 for invalid references or inactive parent records, 404 for missing resource IDs, and 409 for duplicate sport names or overlapping time slots. Deletes only set `is_active = false`. Time-slot overlap validation considers active slots and excludes the slot being updated. Since there is no database constraint for arbitrary interval overlap, concurrent requests can pass the pre-check at the same time; this API does not claim to prevent that race. The existing exact-slot unique constraint can also reject re-creating an identical slot after soft deletion.
+Validation returns 422 for malformed request schemas, invalid time ranges, off-boundary times, and new/changed start times that are not in the future; 400 for invalid references or inactive parent records; 404 for missing resource IDs; and 409 for duplicate sport names or overlapping time slots. Time Slot start and end times must fall on a 30-minute boundary (`:00` or `:30`, with zero seconds), and start must precede end. Future-time validation uses the business timezone `Asia/Ho_Chi_Minh` while the database continues to store a `DATE` and timezone-naive `TIME`. On update, changing only fields other than the date/start is allowed for historical rows. No fixed Venue opening hours are enforced. Existing rows are not changed by request validation; the database `TIME` columns have no 30-minute or future-time check constraint. A read-only check of the local Court DB found zero Time Slot rows, so there are no current local records to migrate; other installations may still retain older off-boundary or past slots. Deletes only set `is_active = false`. Time-slot overlap validation considers active slots on the same Court and date and excludes the slot being updated. Since there is no database constraint for arbitrary interval overlap, concurrent requests can pass the pre-check at the same time; this API does not claim to prevent that race. The existing exact-slot unique constraint can also reject re-creating an identical slot after soft deletion.
 
 Run the service from the repository's `backend` folder:
 
@@ -217,7 +226,23 @@ python -m uvicorn app.main:app --reload --port 8002
 
 Open Swagger UI at `http://127.0.0.1:8002/docs`. Through the Gateway (port 8000), use the same API paths, for example `http://127.0.0.1:8000/api/v1/time-slots?court_id=1&slot_date=2026-10-23`. Gateway forwards the request body, query string, Authorization header, and upstream status code.
 
-JWT validation and OWNER/ADMIN authorization for all write routes, including checking that the authenticated Owner owns a venue, are pending the S1 Auth contract. Booking Service remains responsible for bookings and does not have its status changed by Court Service time-slot operations.
+Court JWT verification uses `python-jose` and reads `JWT_SECRET_KEY`, `JWT_ALGORITHM`, and `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` from `backend/.env`. Set the same random secret used by User Service (at least 32 characters); the checked-in `.env.example` value is a placeholder and will not verify tokens. Generate a strong random value locally, configure the same value in User Service and Court Service, and never put it in frontend code or commit it. Gateway CORS defaults to the two localhost Management Web origins. Set `CORS_ALLOWED_ORIGINS` to a comma-separated explicit origin allowlist for other development/deployment hosts; wildcard origins are rejected.
+
+Install `requirements-dev.txt` into the project virtual environment, then run the Gateway and Court authorization tests without MySQL from their service directories. `requirements.txt` contains runtime dependencies, including `tzdata` so `ZoneInfo("Asia/Ho_Chi_Minh")` works on Windows; `requirements-dev.txt` adds `pytest` for test workflows. The current suite uses `unittest` and can also be run by pytest:
+
+```powershell
+cd backend/gateway
+python -m unittest discover -s tests -v
+python -m pytest -q
+```
+
+```powershell
+cd backend/services/court_service
+python -m unittest discover -s tests -v
+python -m pytest -q
+```
+
+Court tests use an in-memory SQLite database and a test-only JWT secret. They do not run migrations or seed MySQL. Booking Service remains responsible for bookings and does not have its status changed by Court Service time-slot operations.
 
 ## Court Service development/demo seed (Step 5)
 
