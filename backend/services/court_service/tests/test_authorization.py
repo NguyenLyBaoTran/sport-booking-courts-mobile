@@ -39,6 +39,8 @@ class CourtAuthorizationTests(unittest.TestCase):
         os.environ["JWT_SECRET_KEY"] = TEST_SECRET
         os.environ["JWT_ALGORITHM"] = "HS256"
         os.environ["JWT_ACCESS_TOKEN_EXPIRE_MINUTES"] = "60"
+        os.environ["INTERNAL_SERVICE_TOKEN"] = "court-internal-test-token"
+        os.environ["BOOKING_HOLD_MINUTES"] = "10"
 
     def setUp(self):
         self.business_clock = patch("app.routes.business_now", return_value=self.FROZEN_BUSINESS_NOW)
@@ -257,6 +259,40 @@ class CourtAuthorizationTests(unittest.TestCase):
         self.assertEqual(updated.status_code, 403)
         self.assertEqual(deleted.status_code, 403)
 
+    def test_admin_can_manage_catalogue_across_owner_boundaries(self):
+        headers = self._headers(role="ADMIN", user_id=3)
+        venue_body = self._venue_payload(owner_id=20, name="Admin venue")
+        created_venue = self.client.post("/api/v1/venues", json=venue_body, headers=headers)
+        self.assertEqual(created_venue.status_code, 201, created_venue.text)
+        venue_id = created_venue.json()["id"]
+        changed_venue = self.client.put(
+            f"/api/v1/venues/{self.venue_a_id}",
+            json=self._venue_payload(owner_id=20, name="Admin changed venue"),
+            headers=headers,
+        )
+        self.assertEqual(changed_venue.status_code, 200, changed_venue.text)
+        self.assertEqual(changed_venue.json()["owner_id"], 20)
+
+        court_body = {
+            "venue_id": self.venue_b_id,
+            "sport_id": self.sport_id,
+            "name": "Admin court",
+            "price_per_hour": "40.00",
+            "is_active": True,
+        }
+        created_court = self.client.post("/api/v1/courts", json=court_body, headers=headers)
+        self.assertEqual(created_court.status_code, 201, created_court.text)
+        court_id = created_court.json()["id"]
+        slot_body = self._time_slot_payload(court_id, "08:00:00", "09:00:00")
+        created_slot = self.client.post("/api/v1/time-slots", json=slot_body, headers=headers)
+        self.assertEqual(created_slot.status_code, 201, created_slot.text)
+        self.assertEqual(
+            self.client.delete(f"/api/v1/time-slots/{created_slot.json()['id']}", headers=headers).status_code,
+            204,
+        )
+        self.assertEqual(self.client.delete(f"/api/v1/courts/{court_id}", headers=headers).status_code, 204)
+        self.assertEqual(self.client.delete(f"/api/v1/venues/{venue_id}", headers=headers).status_code, 204)
+
     def test_court_mutations_require_ownership_of_related_venue(self):
         body = {
             "venue_id": self.venue_b_id,
@@ -450,16 +486,157 @@ class CourtAuthorizationTests(unittest.TestCase):
             403,
         )
 
-    def test_admin_and_sports_write_policy_remain_closed_pending_confirmation(self):
+    def test_only_admin_can_create_update_and_deactivate_sports(self):
         payload = {"name": "New sport", "description": None, "is_active": True}
         owner_response = self.client.post(
             "/api/v1/sports", json=payload, headers=self._headers()
+        )
+        user_response = self.client.post(
+            "/api/v1/sports", json=payload, headers=self._headers(role="USER")
         )
         admin_response = self.client.post(
             "/api/v1/sports", json=payload, headers=self._headers(role="ADMIN")
         )
         self.assertEqual(owner_response.status_code, 403)
-        self.assertEqual(admin_response.status_code, 503)
+        self.assertEqual(user_response.status_code, 403)
+        self.assertEqual(admin_response.status_code, 201, admin_response.text)
+        sport_id = admin_response.json()["id"]
+        updated = self.client.put(
+            f"/api/v1/sports/{sport_id}",
+            json={"name": "Updated sport", "description": "Changed", "is_active": True},
+            headers=self._headers(role="ADMIN"),
+        )
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["name"], "Updated sport")
+        self.assertEqual(
+            self.client.delete(
+                f"/api/v1/sports/{sport_id}", headers=self._headers(role="ADMIN")
+            ).status_code,
+            204,
+        )
+        self.assertFalse(self.client.get(f"/api/v1/sports/{sport_id}").json()["is_active"])
+
+    def test_sports_writes_require_authentication_and_duplicate_name_conflicts(self):
+        payload = {"name": "Tennis", "description": None, "is_active": True}
+        self.assertEqual(self.client.post("/api/v1/sports", json=payload).status_code, 401)
+        duplicate = self.client.post(
+            "/api/v1/sports", json=payload, headers=self._headers(role="ADMIN")
+        )
+        self.assertEqual(duplicate.status_code, 409)
+
+    def test_booking_hold_contract_is_idempotent_and_booking_scoped(self):
+        with self.Session() as db:
+            slot = TimeSlot(
+                court_id=self.court_a_id,
+                slot_date=date(2026, 11, 5),
+                start_time=time(8),
+                end_time=time(9),
+            )
+            db.add(slot)
+            db.commit()
+            slot_id = slot.id
+        url = f"/api/v1/internal/slots/{slot_id}/hold?booking_id=501"
+        headers = {"X-Internal-Token": "court-internal-test-token"}
+        first = self.client.post(url, headers=headers)
+        second = self.client.post(url, headers=headers)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(first.json(), second.json())
+        self.assertEqual(first.json()["court_id"], self.court_a_id)
+        self.assertEqual(first.json()["venue_id"], self.venue_a_id)
+        self.assertEqual(first.json()["owner_id"], 10)
+        self.assertIn("expires_at", first.json())
+        self.assertEqual(self.client.post(url.replace("501", "502"), headers=headers).status_code, 409)
+        release_url = f"/api/v1/internal/slots/{slot_id}/release?booking_id=501"
+        wrong_release_url = f"/api/v1/internal/slots/{slot_id}/release?booking_id=502"
+        self.assertEqual(self.client.post(wrong_release_url, headers=headers).status_code, 409)
+        self.assertEqual(self.client.post(release_url, headers=headers).json(), {"status": "AVAILABLE"})
+        self.assertEqual(self.client.post(release_url, headers=headers).json(), {"status": "AVAILABLE"})
+        first = self.client.post(url, headers=headers)
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(
+            self.client.post(
+                f"/api/v1/internal/slots/{slot_id}/confirm?booking_id=501", headers=headers
+            ).json(),
+            {"status": "BOOKED"},
+        )
+        self.assertEqual(
+            self.client.post(
+                f"/api/v1/internal/slots/{slot_id}/confirm?booking_id=501", headers=headers
+            ).json(),
+            {"status": "BOOKED"},
+        )
+        self.assertEqual(self.client.post(url.replace("501", "502"), headers=headers).status_code, 409)
+        self.assertEqual(self.client.post(release_url, headers=headers).status_code, 409)
+
+    def test_expired_hold_cannot_be_confirmed_and_can_be_reacquired(self):
+        with self.Session() as db:
+            slot = TimeSlot(
+                court_id=self.court_a_id,
+                slot_date=date(2026, 11, 5),
+                start_time=time(8),
+                end_time=time(9),
+            )
+            db.add(slot)
+            db.commit()
+            slot_id = slot.id
+        headers = {"X-Internal-Token": "court-internal-test-token"}
+        hold_url = f"/api/v1/internal/slots/{slot_id}/hold?booking_id=700"
+        initial_utc = datetime(2026, 10, 26, 0, 0)
+        expired_utc = initial_utc + timedelta(minutes=11)
+        with patch("app.routes._reservation_now", side_effect=[initial_utc, expired_utc, expired_utc]):
+            first = self.client.post(hold_url, headers=headers)
+            self.assertEqual(first.status_code, 200, first.text)
+            expired = self.client.post(
+                f"/api/v1/internal/slots/{slot_id}/confirm?booking_id=700", headers=headers
+            )
+            replacement = self.client.post(
+                f"/api/v1/internal/slots/{slot_id}/hold?booking_id=701", headers=headers
+            )
+        self.assertEqual(expired.status_code, 409)
+        self.assertEqual(replacement.status_code, 200, replacement.text)
+
+    def test_reserved_time_slot_cannot_be_changed_or_deactivated(self):
+        slot = self.client.post(
+            "/api/v1/time-slots",
+            json=self._time_slot_payload(self.court_a_id, "08:00:00", "09:00:00"),
+            headers=self._headers(),
+        )
+        self.assertEqual(slot.status_code, 201, slot.text)
+        slot_id = slot.json()["id"]
+        internal_headers = {"X-Internal-Token": "court-internal-test-token"}
+        self.assertEqual(
+            self.client.post(
+                f"/api/v1/internal/slots/{slot_id}/hold?booking_id=801",
+                headers=internal_headers,
+            ).status_code,
+            200,
+        )
+        owner_headers = self._headers()
+        changed = self._time_slot_payload(self.court_a_id, "08:00:00", "09:30:00")
+        self.assertEqual(
+            self.client.put(f"/api/v1/time-slots/{slot_id}", json=changed, headers=owner_headers).status_code,
+            409,
+        )
+        self.assertEqual(
+            self.client.delete(f"/api/v1/time-slots/{slot_id}", headers=owner_headers).status_code,
+            409,
+        )
+        confirmed = self.client.post(
+            f"/api/v1/internal/slots/{slot_id}/confirm?booking_id=801",
+            headers=internal_headers,
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(
+            self.client.put(f"/api/v1/time-slots/{slot_id}", json=changed, headers=owner_headers).status_code,
+            409,
+        )
+
+    def test_internal_booking_routes_require_internal_token(self):
+        response = self.client.post(
+            f"/api/v1/internal/slots/{self.slot_b_id}/hold?booking_id=501"
+        )
+        self.assertEqual(response.status_code, 403)
 
 
 if __name__ == "__main__":

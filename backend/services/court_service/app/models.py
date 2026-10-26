@@ -8,6 +8,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -84,6 +85,7 @@ class TimeSlot(Base):
             "end_time",
             name="uq_time_slots_court_date_start_end",
         ),
+        Index("ix_time_slots_reservation_expiry", "reservation_status", "reservation_expires_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -94,5 +96,10 @@ class TimeSlot(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("1")
     )
+    reservation_status: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="AVAILABLE", server_default="AVAILABLE"
+    )
+    reservation_booking_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reservation_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     court: Mapped[Court] = relationship(back_populates="time_slots")

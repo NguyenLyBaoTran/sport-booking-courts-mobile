@@ -53,6 +53,7 @@ backend/*.log
 *.tmp
 *.sqlite
 *.sqlite3
+*.db
 
 # Android Profiling
 *.hprof

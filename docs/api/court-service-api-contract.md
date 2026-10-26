@@ -1,6 +1,6 @@
 ﻿# Court Service API Contract
 
-Status: reflects the implementation in `backend/services/court_service/app` on 2026-10-25. This is a description of implemented routes plus clearly marked future integration points; it does not promise unimplemented APIs.
+Status: reflects the implementation in `backend/services/court_service/app` on 2026-10-26. This is a description of implemented routes plus clearly marked future integration points; it does not promise unimplemented APIs.
 
 ## 1. Overview
 
@@ -8,8 +8,8 @@ Status: reflects the implementation in `backend/services/court_service/app` on 2
 - API Gateway base URL: `http://localhost:8000`
 - API prefix: `/api/v1`
 - Content type: JSON (`application/json`); date values use `YYYY-MM-DD`, time values use `HH:MM:SS`, and timestamps use ISO 8601. `price_per_hour` is a decimal with two places and is serialized as a JSON string, for example `"25.00"`.
-- Current access: all GET routes are public. Venue, Court, and Time Slot mutations require a valid OWNER JWT and enforce ownership through the related Venue; Sports writes remain closed with `503` for ADMIN while the Sports policy is pending. Do not use request `owner_id` as evidence of ownership.
-- Gateway forwards the Court Service path, query string, request body, `Authorization` header, and upstream status. The same API paths work directly and through the Gateway.
+- Current access: all GET routes are public. Venue, Court, and Time Slot mutations require OWNER access scoped to the related Venue or ADMIN access system-wide. Sports mutations require an ADMIN JWT. Do not use request `owner_id` as evidence of OWNER authority.
+- Gateway forwards public Court paths, query strings, request bodies, the `Authorization` header, and upstream status. Public routes work directly and through the Gateway; internal reservation routes are direct service-to-service only and are intentionally not proxied.
 
 Every response schema contains the fields shown below; list routes return arrays of these objects. `description` and `phone` may be `null` where applicable.
 
@@ -21,9 +21,9 @@ Every response schema contains the fields shown below; list routes return arrays
 |---|---|---|---|---|
 | `GET /api/v1/sports` | List sports | Optional `is_active: boolean` | `200`, `Sport[]` | Public |
 | `GET /api/v1/sports/{sport_id}` | Get one sport | Positive integer path ID | `200`, `Sport` | Public; `404` if absent |
-| `POST /api/v1/sports` | Create sport | `SportInput` | Intended `201`, `Sport` | Currently `503`; ADMIN-only policy pending confirmation |
-| `PUT /api/v1/sports/{sport_id}` | Replace editable sport fields | `SportInput` | Intended `200`, `Sport` | Currently `503`; ADMIN-only policy pending confirmation |
-| `DELETE /api/v1/sports/{sport_id}` | Soft-deactivate (`is_active=false`) | No body | Intended `204`, no body | Currently `503`; ADMIN-only policy pending confirmation |
+| `POST /api/v1/sports` | Create sport | `SportInput` | `201`, `Sport` | ADMIN only; USER/OWNER receive `403` |
+| `PUT /api/v1/sports/{sport_id}` | Replace editable sport fields | `SportInput` | `200`, `Sport` | ADMIN only; USER/OWNER receive `403` |
+| `DELETE /api/v1/sports/{sport_id}` | Soft-deactivate (`is_active=false`) | No body | `204`, no body | ADMIN only; USER/OWNER receive `403` |
 
 `SportInput`: `name` (required, trimmed, 1–100 characters), `description` (optional nullable string), `is_active` (optional boolean, defaults to `true`). `name` is unique; a duplicate produces `409` when the write path is enabled.
 
@@ -33,11 +33,11 @@ Every response schema contains the fields shown below; list routes return arrays
 |---|---|---|---|---|
 | `GET /api/v1/venues` | List venues | Optional `owner_id` (positive integer), `is_active` (boolean) | `200`, `Venue[]` | Public; `owner_id` is only a filter, not an authorization check |
 | `GET /api/v1/venues/{venue_id}` | Get one venue | Positive integer path ID | `200`, `Venue` | Public; `404` if absent |
-| `POST /api/v1/venues` | Create venue | `VenueInput` | `201`, `Venue` | OWNER with matching authenticated `owner_id`; ADMIN policy pending |
-| `PUT /api/v1/venues/{venue_id}` | Replace editable venue fields | `VenueInput` | `200`, `Venue` | Owning OWNER only; ADMIN policy pending |
-| `DELETE /api/v1/venues/{venue_id}` | Soft-deactivate (`is_active=false`) | No body | `204`, no body | Owning OWNER only; ADMIN policy pending |
+| `POST /api/v1/venues` | Create venue | `VenueInput` | `201`, `Venue` | OWNER with matching authenticated `owner_id`, or ADMIN |
+| `PUT /api/v1/venues/{venue_id}` | Replace editable venue fields | `VenueInput` | `200`, `Venue` | Owning OWNER or ADMIN |
+| `DELETE /api/v1/venues/{venue_id}` | Soft-deactivate (`is_active=false`) | No body | `204`, no body | Owning OWNER or ADMIN |
 
-`VenueInput`: `owner_id` (required positive integer matching the authenticated OWNER's `sub`), `name` (required, trimmed, 1–200 characters), `address` (required, trimmed, 1–255 characters), optional nullable `description` and `phone` (maximum 20 characters), and optional `is_active` (defaults to `true`). Court Service derives authority from the verified token, rejects a mismatched body `owner_id`, and preserves the stored owner on update.
+`VenueInput`: `owner_id` (required positive integer; for OWNER it must match the authenticated `sub`), `name` (required, trimmed, 1–200 characters), `address` (required, trimmed, 1–255 characters), optional nullable `description` and `phone` (maximum 20 characters), and optional `is_active` (defaults to `true`). Court Service derives OWNER authority from the verified token, rejects mismatched OWNER `owner_id`, and preserves the stored owner on OWNER update. ADMIN may manage any venue and set its owner ID.
 
 ### Courts
 
@@ -45,9 +45,9 @@ Every response schema contains the fields shown below; list routes return arrays
 |---|---|---|---|---|
 | `GET /api/v1/courts` | List courts | Optional positive `venue_id`, positive `sport_id`, `is_active` | `200`, `Court[]` | Public |
 | `GET /api/v1/courts/{court_id}` | Get one court | Positive integer path ID | `200`, `Court` | Public; `404` if absent |
-| `POST /api/v1/courts` | Create court | `CourtInput` | `201`, `Court` | OWNER of the related Venue; ADMIN policy pending |
-| `PUT /api/v1/courts/{court_id}` | Replace editable court fields | `CourtInput` | `200`, `Court` | OWNER of both current and target Venue; ADMIN policy pending |
-| `DELETE /api/v1/courts/{court_id}` | Soft-deactivate (`is_active=false`) | No body | `204`, no body | OWNER of the related Venue; ADMIN policy pending |
+| `POST /api/v1/courts` | Create court | `CourtInput` | `201`, `Court` | OWNER of related Venue or ADMIN |
+| `PUT /api/v1/courts/{court_id}` | Replace editable court fields | `CourtInput` | `200`, `Court` | OWNER of both current and target Venue or ADMIN |
+| `DELETE /api/v1/courts/{court_id}` | Soft-deactivate (`is_active=false`) | No body | `204`, no body | OWNER of related Venue or ADMIN |
 
 `CourtInput`: positive `venue_id` and `sport_id`, `name` (required, trimmed, 1–100 characters), optional nullable `description`, `price_per_hour` (decimal greater than zero, at most 12 digits and 2 decimal places), and optional `is_active` (defaults to `true`). Create/update checks that the Venue exists and is active and that the Sport exists. The API currently does not reject an inactive Sport.
 
@@ -57,11 +57,11 @@ Every response schema contains the fields shown below; list routes return arrays
 |---|---|---|---|---|
 | `GET /api/v1/time-slots` | List time slots | Optional positive `court_id`, `slot_date`, `is_active` | `200`, `TimeSlot[]` | Public |
 | `GET /api/v1/time-slots/{slot_id}` | Get one time slot | Positive integer path ID | `200`, `TimeSlot` | Public; `404` if absent |
-| `POST /api/v1/time-slots` | Create time slot | `TimeSlotInput` | `201`, `TimeSlot` | OWNER of the related Court's Venue; ADMIN policy pending |
-| `PUT /api/v1/time-slots/{slot_id}` | Replace editable time-slot fields | `TimeSlotInput` | `200`, `TimeSlot` | OWNER of current and target Court Venues; ADMIN policy pending |
-| `DELETE /api/v1/time-slots/{slot_id}` | Soft-deactivate (`is_active=false`) | No body | `204`, no body | OWNER of the related Court's Venue; ADMIN policy pending |
+| `POST /api/v1/time-slots` | Create time slot | `TimeSlotInput` | `201`, `TimeSlot` | OWNER of related Court's Venue or ADMIN |
+| `PUT /api/v1/time-slots/{slot_id}` | Replace editable time-slot fields | `TimeSlotInput` | `200`, `TimeSlot` | OWNER of current and target Court Venues or ADMIN |
+| `DELETE /api/v1/time-slots/{slot_id}` | Soft-deactivate (`is_active=false`) | No body | `204`, no body | OWNER of related Court's Venue or ADMIN |
 
-`TimeSlotInput`: positive `court_id`, required `slot_date`, `start_time`, `end_time`, optional `is_active` (defaults to `true`). Both times must be on a 30-minute boundary (`:00` or `:30`, with zero seconds), and `start_time` must be earlier than `end_time`; otherwise FastAPI returns `422`. The Court must exist and be active. Active slots may not overlap on the same court and date; an update excludes the slot being changed. Inactive slots are excluded from overlap checks. The database also has an exact-range unique constraint. The overlap pre-check is not atomic, so simultaneous requests can race; this API does not claim to prevent that race. No opening hours are imposed because Venue opening-hour configuration is not part of this API. No booking state is read or changed by this service.
+`TimeSlotInput`: positive `court_id`, required `slot_date`, `start_time`, `end_time`, optional `is_active` (defaults to `true`). Both times must be on a 30-minute boundary (`:00` or `:30`, with zero seconds), and `start_time` must be earlier than `end_time`; otherwise FastAPI returns `422`. The Court must exist and be active. Active slots may not overlap on the same court and date; an update excludes the slot being changed. Inactive slots are excluded from overlap checks. Writes lock the affected Court rows before checking overlaps, serializing cooperating create/update requests on MySQL. The database also has an exact-range unique constraint. No opening hours are imposed because Venue opening-hour configuration is not part of this API. Slots with an active hold or booking cannot be edited or deactivated; expired holds can be reclaimed.
 
 This validation applies to new and updated requests; it does not modify existing database rows. The SQL `TIME` column has no 30-minute check constraint, so old rows may contain other minute values. Existing MySQL data was not queried or changed as part of this validation update.
 
@@ -160,7 +160,7 @@ Request to `POST /api/v1/time-slots`:
 ```json
 {
   "court_id": 1,
-  "slot_date": "2026-10-24",
+      "slot_date": "2026-10-29",
   "start_time": "08:00:00",
   "end_time": "09:00:00",
   "is_active": true
@@ -173,7 +173,7 @@ Response shape after the write route is enabled (`201`):
 {
   "id": 1,
   "court_id": 1,
-  "slot_date": "2026-10-24",
+  "slot_date": "2026-10-29",
   "start_time": "08:00:00",
   "end_time": "09:00:00",
   "is_active": true
@@ -186,11 +186,11 @@ Response shape after the write route is enabled (`201`):
 |---|---|---|
 | `400 Bad Request` | Court references a missing/inactive Venue or missing Sport; Time Slot references a missing/inactive Court | Implemented in write handlers after authorization |
 | `401 Unauthorized` | Missing, invalid, expired, or malformed required-claim Bearer token | Implemented by Court JWT verification |
-| `403 Forbidden` | Valid token has insufficient role or OWNER does not own the related Venue | Implemented for USER and cross-owner mutations; ADMIN policy remains disabled |
+| `403 Forbidden` | Valid token has insufficient role or OWNER does not own the related Venue | Implemented for USER, OWNER cross-owner writes, and non-ADMIN Sports writes |
 | `404 Not Found` | Requested resource ID does not exist | Implemented on GET detail; write handlers also check existence after access is granted |
-| `409 Conflict` | Duplicate Sport name, overlapping active Time Slot, or database uniqueness conflict | Implemented in write handlers after authorization |
+| `409 Conflict` | Duplicate Sport name, overlapping active Time Slot, reserved slot mutation, unavailable reservation, invalid reservation transition, or database uniqueness conflict | Implemented in write handlers after authorization |
 | `422 Unprocessable Entity` | Invalid path/query/body, extra body fields, blank required text, invalid price/range, time not on a 30-minute boundary, or new/changed start time not in the future | Implemented by FastAPI/Pydantic and Court Service write validation; malformed requests may be rejected before authorization |
-| `503 Service Unavailable` | JWT verification configuration is missing/invalid, or Sports write policy is pending | Implemented; Sports write stays closed pending policy confirmation |
+| `503 Service Unavailable` | JWT verification or internal service token configuration is missing/invalid | Implemented |
 | `503 Service Unavailable` / `504 Gateway Timeout` | Gateway cannot reach a service or the upstream request times out | Implemented by Gateway, not by Court Service |
 
 Error JSON follows FastAPI's `{"detail": "..."}` shape, except the normal Pydantic `422` validation response. Database credentials and JWT material are not returned.
@@ -205,12 +205,12 @@ User Service on `feature/s1-w1-auth-usecase` issues HS256 access tokens with str
 - A valid token with a role not allowed by an endpoint returns `403`.
 - Public GET catalogue routes remain public. The `owner_id` query is a public filter, not an access-control check.
 - USER cannot mutate Court data. OWNER may create a Venue only for their own `sub`; updates preserve the stored owner. Court and Time Slot writes check ownership through their related Venue. Cross-owner mutations return `403`.
-- ADMIN authorization for Venue/Court/Time Slot operations remains disabled pending policy confirmation. Sports mutations remain closed with `503` while the proposed ADMIN-only rule is pending confirmation; USER and OWNER receive `403`.
+- ADMIN may manage Sports and all Venues, Courts, and Time Slots system-wide. Only ADMIN may mutate Sports.
 - Gateway forwards the Authorization header. CORS uses exact configured origins, allows the required API methods and headers, and rejects wildcard origins.
 
-`venues.owner_id` is a logical User Service ID; Court DB intentionally has no cross-database User foreign key. The policy for public reads, ADMIN permissions, Sports management, token issuer/audience, key rotation, and role-change/revocation behavior still needs team confirmation. No secret or token is embedded in this contract.
+`venues.owner_id` is a logical User Service ID; Court DB intentionally has no cross-database User foreign key. Token issuer/audience, key rotation, and role-change/revocation behavior are not specified by the inspected S1 contract. No secret or token is embedded in this contract.
 
-### Booking Service data and availability
+### Booking Service data, availability, and internal reservations
 
 The existing GET APIs provide these fields:
 
@@ -220,30 +220,32 @@ The existing GET APIs provide these fields:
 
 Booking can obtain the basic slot and price data with multiple GET calls, but there is no single joined availability response. These reads do not reserve a slot. The current `is_active` flag is not a booking/hold state.
 
-**Important V5 gap:** Project Plan V5 requires Court Service to own an atomic, idempotent slot hold, confirmation, and release flow with a 10-minute TTL. No such fields, table, or endpoint exists in the current models, schema, routes, or MySQL Court DB. The planned `GET /courts/{id}/slots` and internal hold/confirm/release APIs are also absent. Booking Service currently contains only health endpoints. S1 and S2 must agree on the reservation data model, idempotency key (`booking_request_id`), TTL, and internal authorization before implementing that later step. This contract does not create or promise those routes.
+Court Service implements the S1 internal contract with `POST /api/v1/internal/slots/{slot_id}/hold|confirm|release`, `booking_id` query parameter, and `X-Internal-Token`. These endpoints are service-to-service only; the Gateway does not expose `/api/v1/internal`. Hold returns the slot, court, venue, owner and hourly price fields required by Booking, with an ISO 8601 UTC `expires_at`. Repeating hold/confirm/release for the same booking is idempotent. A competing booking, wrong booking ID, expired hold confirmation, or booked-slot release returns `409`. The hold duration defaults to 10 minutes and is configured with `BOOKING_HOLD_MINUTES`; Court and Booking must share the same `INTERNAL_SERVICE_TOKEN` and hold duration. `time_slots.is_active` remains catalogue state, separate from reservation state.
+
+The reservation state is stored on `time_slots` using `reservation_status`, `reservation_booking_id`, and `reservation_expires_at`. Existing databases require the SQL migration in `backend/migrations/20261026_add_time_slot_reservations.sql`; it has not been run. Hold, confirm, release and slot edits lock the slot row; schedule create/update also locks the affected Court rows to serialize overlap checks on MySQL. SQLite tests verify state behavior but do not establish production concurrency behavior. There is no joined availability API; no endpoint is invented for one.
 
 ### Owner/Admin Management Web needs
 
 | Use case | Exists in Court Service now | Other service / future work |
 |---|---|---|
 | Read venues and courts | Public GET list/detail routes; venue list can filter by `owner_id`, courts by `venue_id`/`sport_id` | Reads are public; `owner_id` is not authorization |
-| Manage own venues, courts, and schedule | OWNER writes require valid JWT and ownership through related Venue; USER and cross-owner writes are denied | ADMIN permissions remain pending; Management Web login and token forwarding are implemented against the inspected S1 contract but remain unverified end-to-end until Auth is integrated and a valid local account is available |
-| View bookings and complete booking | Not a Court Service responsibility or route | Booking Service (S1); currently not implemented in the inspected service |
-| QR check-in | Not a Court Service responsibility or route | Booking Service API owned by S1; currently not implemented in the inspected service |
+| Manage venues, courts, and schedule | OWNER writes require valid JWT and ownership through related Venue; ADMIN has system-wide API access | Management Web provides OWNER CRUD and ADMIN Sports/Venue/Court CRUD; Admin Time Slot screen is not wired in this iteration. Auth remains unverified end-to-end until S1 is integrated and valid local credentials are available |
+| View bookings and complete booking | Not a Court Service responsibility or route | Implemented on inspected S1 branch; unavailable in this checkout pending integration |
+| QR check-in | Not a Court Service responsibility or route | Implemented on inspected S1 branch; unavailable in this checkout pending integration |
 | Dashboard booking/revenue aggregates | Not provided by Court Service | Requires Booking/Payment API or an agreed dashboard aggregation contract from S1 |
 
 Project Plan V5 also lists planned route shapes such as `/venues/{id}/courts`, `/courts/{id}/slots`, `/owner/venues`, `/owner/courts`, and `/owner/slots`; they are not currently implemented. The implemented public Court routes remain under `/api/v1` as documented above.
 
-V5 lists these S1-owned shapes, which are also planned rather than implemented in the inspected services: `POST /bookings`, `GET /bookings`, `GET /bookings/{id}`, `POST /bookings/{id}/cancel`, `GET /owner/bookings`, `POST /owner/bookings/{id}/complete`, and `POST /owner/checkins`. On the current S2 branch the User Service exposes health endpoints only; the separately inspected S1 branch adds the Auth routes documented above, which are not present in this checkout until integration. Booking Service currently exposes health endpoints only. V5 proposes internal contracts including `POST /internal/slots/{id}/hold`, `POST /internal/holds/{hold_id}/confirm`, `POST /internal/holds/{hold_id}/release`, `GET /internal/slots/{id}`, and an ownership lookup such as `GET /internal/venues/{id}/ownership`; none are present in Court Service. These are proposals requiring team agreement, not current endpoints.
+The inspected S1 branch implements Booking create/list/detail/cancel, internal payment-context/confirm/check-in/complete/expire routes, Payment APIs, and calls the Court reservation paths documented above. Those S1 source changes are not present in this checkout until integration. V5's alternate `/internal/holds/{hold_id}/...`, joined slot lookup, and venue ownership lookup shapes are not part of the inspected S1 contract and are not implemented here.
 
 ## 6. Consistency check
 
-- SQLAlchemy models, Pydantic response schemas, and the four Court DB tables agree on names and fields: `sports`, `venues`, `courts`, `time_slots`.
+- SQLAlchemy models and Pydantic response schemas cover the four Court DB tables: `sports`, `venues`, `courts`, `time_slots`. Time Slots include internal reservation columns; existing databases need the supplied migration.
 - Court DB has the local physical relationships `courts.venue_id -> venues.id`, `courts.sport_id -> sports.id`, and `time_slots.court_id -> courts.id`; the unique time-slot range index is present.
 - `venues.owner_id` and Booking's `time_slot_id` are logical cross-service references; they are not physical foreign keys in Court DB.
 - `docs/diagrams/court-service-erd.dbml` describes the same four Court tables and internal relationships. The overall ERD contains the nine logical business tables, including `checkins` in Booking ownership; it is a conceptual ERD and does not change the database-per-service foreign-key rule.
 - Two wire-format details differ from Project Plan V5 §6.1: V5 states time as `HH:mm`, while the current API schema emits `HH:MM:SS`; V5 states money as integer VND, while `price_per_hour` is `DECIMAL(12,2)` and emits a decimal string. Confirm the shared format with S1 and the clients before cross-service integration; this step does not change the existing schema or API.
-- No discrepancy requiring changes to the database, Project Plan, or diagrams was found in this step. The missing reservation/hold API is a documented implementation gap against V5, not an ERD inconsistency to resolve here.
+- The S1 Booking–Court endpoint shapes now match the implemented Court reservation API. The Court database needs the supplied migration before those routes can run against an existing database; no database was altered.
 
 ## 7. Running and checking
 
@@ -262,5 +264,5 @@ Read-only examples:
 GET http://localhost:8002/api/v1/sports
 GET http://localhost:8000/api/v1/venues?owner_id=1&is_active=true
 GET http://localhost:8000/api/v1/courts?venue_id=1&sport_id=1
-GET http://localhost:8000/api/v1/time-slots?court_id=1&slot_date=2026-10-24
+GET http://localhost:8000/api/v1/time-slots?court_id=1&slot_date=2026-10-29
 ```

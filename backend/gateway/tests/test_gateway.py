@@ -100,6 +100,20 @@ class GatewayTests(unittest.TestCase):
             "Bearer test-only-placeholder",
         )
 
+    def test_gateway_routes_time_slots_and_does_not_expose_internal_contract(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.get("/api/v1/time-slots?court_id=12")
+        self.assertEqual(response.status_code, 200)
+        captured_request = FakeUpstreamClient.captured_request
+        self.assertIsNotNone(captured_request)
+        assert captured_request is not None
+        self.assertEqual(captured_request["url"], "http://127.0.0.1:8002/api/v1/time-slots?court_id=12")
+
+        FakeUpstreamClient.captured_request = None
+        hidden = self.client.post("/api/v1/internal/slots/12/hold?booking_id=44")
+        self.assertEqual(hidden.status_code, 404)
+        self.assertIsNone(FakeUpstreamClient.captured_request)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -173,7 +173,9 @@ lập. Bước này chưa thêm Docker, Compose hay Nginx.
 
 ## Court Service REST API (Step 2)
 
-Court Service exposes public read routes and JWT-protected writes. OWNER can manage only Venues they own and Courts/Time Slots whose related Venue belongs to them. USER and cross-owner mutations return `403`; missing/invalid/expired tokens return `401`. Venue creation requires body `owner_id` to match the authenticated subject, and updates cannot transfer ownership. The API never authorizes from a client-supplied owner ID alone. Sports writes remain closed (`503` for ADMIN) until the proposed ADMIN-only policy is confirmed. ADMIN access to other writes is also disabled pending confirmation.
+Court Service exposes public read routes and JWT-protected writes. OWNER can manage only Venues they own and Courts/Time Slots whose related Venue belongs to them. ADMIN can manage Sports, Venues, Courts, and Time Slots across the system. Only ADMIN can mutate Sports. USER and cross-owner OWNER mutations return `403`; missing/invalid/expired tokens return `401`. OWNER Venue creation requires body `owner_id` to match the authenticated subject, and OWNER updates cannot transfer ownership. The API never authorizes an OWNER from a client-supplied ID alone.
+
+Booking–Court internal reservation routes use `X-Internal-Token` and the S1 paths `POST /api/v1/internal/slots/{slot_id}/hold|confirm|release`. They are not exposed by Gateway. Before running these routes on an existing Court DB, apply the documented migration in `migrations/20261026_add_time_slot_reservations.sql` to a disposable database and configure the same internal token and hold duration in Booking and Court.
 
 | Method | Endpoint | Purpose | Access now |
 |---|---|---|---|

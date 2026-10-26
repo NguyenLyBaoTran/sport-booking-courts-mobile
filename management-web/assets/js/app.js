@@ -136,11 +136,11 @@
     var adminRegistry = currentRoute() === "admin-dashboard" || currentRoute() === "admin-venues";
     var message = demo
       ? (adminRegistry ? "Fictional Court catalogue in memory. Admin registry is read-only; reload restores starter data." : "Changes stay in this browser tab memory and reset when the page is reloaded. No API request is sent.")
-      : (adminRegistry ? "Live GET data from Court Service. Admin registry is read-only." : (authUser && authUser.role === "OWNER" ? "Live Court Service data. Venue, Court and Time Slot writes use your authenticated Owner account." : "Live GET data from Court Service. Admin catalogue is read-only."));
+      : (adminRegistry ? "Live Court Service data. ADMIN can manage Sports, Venues and Courts." : (authUser && authUser.role === "OWNER" ? "Live Court Service data. Venue, Court and Time Slot writes use your authenticated Owner account." : "Live Court Service catalogue."));
     return '<section class="court-mode-bar" aria-label="Court data mode"><div><strong>' +
       (demo ? "Demo Mode" : "API Mode") + '</strong><small>' + message +
       '</small></div><label class="small mb-0" for="court-data-mode">Data mode</label><select id="court-data-mode" class="form-select" aria-label="Select data mode"><option value="api" ' +
-      (!demo ? "selected" : "") + '>API Mode — real GET, writes disabled</option><option value="demo" ' +
+      (!demo ? "selected" : "") + '>API Mode — live Court Service</option><option value="demo" ' +
       (demo ? "selected" : "") + '>Demo Mode — in-memory sample data</option></select></section>';
   }
   function recordsFor(resource) {
@@ -437,7 +437,8 @@
       return '<div class="alert alert-info py-2 small" role="status"><strong>Demo Mode:</strong> Changes affect only the in-memory sample data. Reload the page to restore the starter data.</div>';
     }
     if (authUser && authUser.role === "OWNER") return '<div class="alert alert-info py-2 small" role="status"><strong>API Mode:</strong> Venue, Court and Time Slot changes use your authenticated Owner session. Sports remain read-only.</div>';
-    return '<div class="alert alert-warning py-2 small" role="status"><strong>API Mode:</strong> Administrator catalogue access is read-only.</div>';
+    if (authUser && authUser.role === "ADMIN") return '<div class="alert alert-info py-2 small" role="status"><strong>API Mode:</strong> ADMIN can manage the Court catalogue across the system, including Sports, Venues and Courts.</div>';
+    return '<div class="alert alert-warning py-2 small" role="status"><strong>API Mode:</strong> Catalogue access is read-only.</div>';
   }
   function demoNotice(message) {
     return '<div class="alert alert-info py-2 small" role="status"><strong>Demo:</strong> ' + esc(message) + '</div>';
@@ -509,7 +510,8 @@
       fields = formInput("Name", "name", record && record.name, "text", 'maxlength="100" required') +
         formTextarea("Description", "description", record && record.description, "") + formActiveField(!record || record.is_active);
     } else if (resource === "venues") {
-      if (dataMode === "api") fields += '<div class="crud-field-full small text-secondary">Owner ID: ' + esc(authUser ? authUser.id : "Unavailable") + ' (taken from your authenticated account)</div>';
+      if (dataMode === "api" && authUser && authUser.role === "ADMIN") fields += formInput("Owner user ID", "owner_id", record && record.owner_id, "number", 'min="1" step="1" required');
+      else if (dataMode === "api") fields += '<div class="crud-field-full small text-secondary">Owner ID: ' + esc(authUser ? authUser.id : "Unavailable") + ' (taken from your authenticated account)</div>';
       else fields += '<div class="crud-field-full small text-secondary">Owner: Demo session (not a real User Service account)</div>';
       fields += formInput("Name", "name", record && record.name, "text", 'maxlength="200" required') +
         formInput("Address", "address", record && record.address, "text", 'maxlength="255" required', true) +
@@ -537,18 +539,18 @@
     }
     var prerequisiteNotice = "";
     if (dataMode === "api" && resource === "courts" && resources.sports.status === "loaded" && !resources.sports.data.length) {
-      prerequisiteNotice = '<div class="crud-field-full alert alert-warning py-2 small" role="status">No Sports are available. Court creation requires an existing Sport; Sports writes remain disabled while their authorization policy is pending.</div>';
+      prerequisiteNotice = '<div class="crud-field-full alert alert-warning py-2 small" role="status">No Sports are available. An ADMIN must create a Sport before Court creation.</div>';
     }
     if (dataMode === "api" && resource === "slots" && resources.courts.status === "loaded" && !resources.courts.data.length) {
       prerequisiteNotice = '<div class="crud-field-full alert alert-warning py-2 small" role="status">No Courts are available. Create a Venue and Court with an existing Sport before adding Time Slots.</div>';
     }
-    var apiWritable = dataMode === "api" && authUser && authUser.role === "OWNER" && resource !== "sports";
+    var apiWritable = dataMode === "api" && authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports"));
     var canSave = dataMode === "demo" || apiWritable;
     var save = dataMode === "demo"
       ? '<button type="submit" class="btn btn-success">Save in Demo Mode</button>'
       : '<button type="submit" class="btn btn-success" ' + (canSave ? "" : "disabled") + '>' + (canSave ? "Save to Court Service" : "Read-only") + '</button>';
     return '<form class="crud-form-card" data-crud-form data-crud-resource="' + resource + '" data-crud-id="' + (record ? esc(record.id) : "") + '" novalidate><div class="d-flex justify-content-between align-items-center"><h3>' + title +
-      '</h3><span class="badge-soft ' + (dataMode === "demo" || apiWritable ? "" : "warning") + '">' + (dataMode === "demo" ? "Demo only" : (apiWritable ? "Authenticated Owner" : "API read-only")) + '</span></div><div class="crud-grid">' + prerequisiteNotice + fields +
+      '</h3><span class="badge-soft ' + (dataMode === "demo" || apiWritable ? "" : "warning") + '">' + (dataMode === "demo" ? "Demo only" : (apiWritable ? (authUser.role === "ADMIN" ? "Authenticated Admin" : "Authenticated Owner") : "API read-only")) + '</span></div><div class="crud-grid">' + prerequisiteNotice + fields +
       '</div><div class="crud-form-footer">' +
       '<button type="button" class="btn btn-outline-secondary" data-crud-cancel>Cancel</button>' + save + '</div></form>';
   }
@@ -1043,7 +1045,7 @@
   function venuePage(active, admin) {
     var editable = !admin;
     var canManageDemo = editable && dataMode === "demo";
-    var canManageApi = editable && dataMode === "api" && authUser && authUser.role === "OWNER" && window.CourtApi.hasAccessToken();
+    var canManageApi = dataMode === "api" && authUser && window.CourtApi.hasAccessToken();
     var resources = currentResources(editable || dataMode === "demo");
     var venues = resources.venues;
     var courts = resources.courts;
@@ -1066,7 +1068,7 @@
     } else {
       filters = '<select class="form-select" data-registry-sport-filter data-focus-key="registry-sport"><option value="">All sports</option>' + sports.data.map(function (sport) { return '<option value="' + esc(sport.id) + '" ' + (registryFilters.sportId === String(sport.id) ? "selected" : "") + '>' + esc(sport.name) + '</option>'; }).join("") + '</select><select class="form-select" data-registry-active-filter data-focus-key="registry-active"><option value="">All statuses</option><option value="true" ' + (registryFilters.active === "true" ? "selected" : "") + '>Active</option><option value="false" ' + (registryFilters.active === "false" ? "selected" : "") + '>Inactive</option></select><select class="form-select" data-registry-venue-filter data-focus-key="registry-venue"><option value="">All venues</option>' + venues.data.map(function (venue) { return '<option value="' + esc(venue.id) + '" ' + (registryFilters.venueId === String(venue.id) ? "selected" : "") + '>' + esc(venue.name) + '</option>'; }).join("") + '</select>';
     }
-    var canManageRegistry = canManageDemo || (canManageApi && registryTab !== "sports");
+    var canManageRegistry = canManageDemo || (canManageApi && (authUser.role === "ADMIN" || (editable && authUser.role === "OWNER" && registryTab !== "sports")));
     var addButton = canManageRegistry ? crudOpenButton(registryTab, null, "Add " + registryTab.slice(0, -1), "btn-success") : "";
     var controls = '<div class="registry-toolbar"><div class="input-group registry-search"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input class="form-control border-start-0" data-registry-search data-focus-key="registry-search" type="search" value="' + esc(searchValue) + '" placeholder="' + esc(searchPlaceholder) + '" aria-label="' + esc(searchPlaceholder) + '"></div>' + filters + addButton + '</div>';
     var form = canManageRegistry ? crudFormMarkup(registryTab, resources) : "";
@@ -1074,7 +1076,7 @@
     if (registryTab === "sports") {
       var sportRows = sports.data.map(function (sport) {
         var actions = '<div class="table-action-group">' + detailButton("sports", sport.id);
-        if (canManageDemo) actions += '<div class="crud-actions">' + crudOpenButton("sports", sport.id, "Edit") + crudDeleteButton("sports", sport.id) + '</div>';
+        if (canManageDemo || (canManageApi && authUser.role === "ADMIN")) actions += '<div class="crud-actions">' + crudOpenButton("sports", sport.id, "Edit") + crudDeleteButton("sports", sport.id) + '</div>';
         actions += '</div>';
         return '<tr data-registry-row data-kind="sports" data-search="' + esc((sport.name + " " + (sport.description || "")).toLowerCase()) + '" data-active="' + String(!!sport.is_active) + '"><td class="table-primary-text">' + esc(sport.name) + '</td><td>' + esc(sport.description || "—") + '</td><td>' + courtStatus(sport.is_active) + '</td><td class="table-actions">' + actions + '</td></tr>';
       }).join("");
@@ -1106,8 +1108,10 @@
       }).join("");
       content = '<div class="table-wrap"><table class="table"><thead><tr><th>Court</th><th>Venue</th><th>Sport</th><th>Price per hour</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + (courtRows || '<tr><td colspan="6" class="text-secondary">No courts are available in this data source.</td></tr>') + '</tbody></table></div>';
     }
-    var stateText = dataMode === "demo" ? "Demo Mode · changes stay in browser memory" : "Court Service · API Mode is read-only";
-    var modeNotice = editable ? pendingWriteNotice() : (dataMode === "demo" ? demoNotice("Court catalogue is fictional in Demo Mode. Admin catalogue is read-only.") : "");
+    var stateText = dataMode === "demo" ? "Demo Mode · changes stay in browser memory" : (authUser && authUser.role === "ADMIN" ? "Court Service · ADMIN catalogue management" : "Court Service · API catalogue");
+    var modeNotice = editable || (dataMode === "api" && authUser && authUser.role === "ADMIN")
+      ? pendingWriteNotice()
+      : (dataMode === "demo" ? demoNotice("Court catalogue is fictional in Demo Mode. Admin catalogue is read-only.") : "");
     var registryErrors = ["sports", "venues", "courts"].filter(function (key) { return resources[key].status === "error"; }).map(function (key) { return resourceError(key, resources[key].error); }).join("");
     return heading(active, '<button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
       modeNotice + stats("court-registry", [sportCount, venueCount, courtCount, activeVenueCount], dataMode !== "demo") + registryErrors + tabMarkup +
@@ -1498,8 +1502,10 @@
   function apiFormValues(form, resource) {
     var values = Object.fromEntries(new FormData(form).entries());
     values.is_active = form.elements.is_active.checked;
-    if (resource === "venues") {
-      values.owner_id = Number(authUser.id);
+    if (resource === "sports") {
+      values.description = values.description || null;
+    } else if (resource === "venues") {
+      values.owner_id = Number(authUser.role === "ADMIN" ? values.owner_id : authUser.id);
       values.description = values.description || null;
       values.phone = values.phone || null;
     } else if (resource === "courts") {
@@ -1539,7 +1545,8 @@
   }
   function saveApiRecord(form) {
     var resource = form.dataset.crudResource;
-    if (!authUser || authUser.role !== "OWNER" || resource === "sports") {
+    var allowed = authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports"));
+    if (!allowed) {
       toast("This Court Service write is not available for the current role.");
       return;
     }
@@ -1554,7 +1561,7 @@
       crudFormState = null;
       return loadCourtResources(true);
     }).then(function () {
-      var action = (id ? "Updated " : "Created ") + ({ venues: "venue", courts: "court", slots: "time slot" }[resource]);
+      var action = (id ? "Updated " : "Created ") + ({ sports: "sport", venues: "venue", courts: "court", slots: "time slot" }[resource]);
       toast(hasCourtLoadError() ? action + ", but the refreshed list has a load error. Use Retry to reload it." : action + " in Court Service.");
     }).catch(function (error) {
       toast(apiErrorText(error));
@@ -1563,11 +1570,12 @@
   }
   function deactivateDemoRecord(resource, id) {
     if (dataMode !== "demo") {
-      if (!authUser || authUser.role !== "OWNER" || resource === "sports") {
+      var allowed = authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports"));
+      if (!allowed) {
         toast("This Court Service write is not available for the current role.");
         return;
       }
-      var apiLabel = ({ venues: "venue", courts: "court", slots: "time slot" }[resource]);
+      var apiLabel = ({ sports: "sport", venues: "venue", courts: "court", slots: "time slot" }[resource]);
       showActionConfirmation("Deactivate " + apiLabel, "This will mark the Court Service record inactive.", "Deactivate", function () {
         toast("Deactivating " + apiLabel + "...");
         window.CourtApi.delete("/api/v1/" + resourceForApi(resource) + "/" + encodeURIComponent(id)).then(function () {
