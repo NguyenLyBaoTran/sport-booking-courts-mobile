@@ -9,6 +9,11 @@
   var bookingSearch = "";
   var bookingDate = "";
   var bookingStatus = "";
+  var bookingVenueId = "";
+  var ownerBookingVenueIds = [];
+  var ownerBookingsState = { status: "idle", data: [], error: "" };
+  var ownerBookingsRequestId = 0;
+  var ownerBookingCompletionPending = false;
   var venueSearch = "";
   var courtSearch = "";
   var sportSearch = "";
@@ -420,7 +425,8 @@
         bookingDate = selectedDate;
         setCalendarDate(picker, selectedDate);
         closeCalendarPicker(picker, false);
-        applyBookingFilters();
+        if (dataMode === "demo") applyBookingFilters();
+        else loadOwnerBookings();
       } else {
         setCalendarDate(picker, selectedDate);
         var error = picker.closest("form") && picker.closest("form").querySelector('[data-field-error="slot_date"]');
@@ -916,7 +922,27 @@
         stats("admin-bookings", demoBookingStats()) + panel("All bookings", '<div class="toolbar admin-filter-toolbar" data-filter-toolbar><input class="form-control" type="search" data-table-search data-admin-search placeholder="Search booking, customer or venue" aria-label="Search bookings"><select class="form-select" data-status-filter aria-label="Filter booking status"><option value="">All statuses</option><option>Confirmed</option><option>Checked in</option><option>Pending</option><option>Completed</option><option>Cancelled</option></select><button class="btn btn-outline-secondary" type="button" data-filter-reset>Reset filters</button></div>' + table(["Booking ID", "Customer", "Venue", "Court", "Start time", "Amount", "Status"], adminRows) + '<div class="table-foot" data-filter-count>Showing ' + adminRows.length + ' records</div>', "Admin sample screen; search and status filters affect only these fictional rows");
     }
     if (dataMode !== "demo") {
-      return heading(active) + bookingModeNotice() + panel("Owner bookings", '<div class="panel-body text-secondary">Booking API is waiting for S1. No booking request has been sent.</div>', "No live or mock bookings are shown in API Mode");
+      var venueOptions = ownerBookingVenueIds.map(function (id) {
+        return '<option value="' + esc(id) + '" ' + (bookingVenueId === String(id) ? "selected" : "") + '>Venue #' + esc(id) + '</option>';
+      }).join("");
+      var apiToolbar = '<div class="toolbar booking-filter-toolbar"><input class="form-control" type="search" data-booking-search value="' + esc(bookingSearch) + '" placeholder="Search booking, user, venue or court ID" aria-label="Search booking details">' +
+        '<select class="form-select" data-booking-venue aria-label="Filter by venue"><option value="">All venues</option>' + venueOptions + '</select>' +
+        calendarPickerMarkup("booking-filter", "Filter booking date", bookingDate) + '<select class="form-select" data-booking-status aria-label="Filter booking status"><option value="">All statuses</option>' +
+        ["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "EXPIRED"].map(function (status) { return '<option value="' + status + '" ' + (bookingStatus === status ? "selected" : "") + '>' + status + '</option>'; }).join("") +
+        '</select><button class="btn btn-outline-secondary" type="button" data-booking-clear>Clear filters</button><button class="btn btn-outline-secondary" type="button" data-booking-retry ' + (ownerBookingsState.status === "loading" ? "disabled" : "") + '>Refresh</button></div>';
+      var apiContent = "";
+      if (ownerBookingsState.status === "idle" || ownerBookingsState.status === "loading") {
+        apiContent = '<div class="panel-body text-secondary" role="status">Loading bookings...</div>';
+      } else if (ownerBookingsState.status === "error") {
+        apiContent = '<div class="panel-body"><div class="alert alert-danger mb-0" role="alert">' + esc(ownerBookingErrorMessage(ownerBookingsState.error)) + ' <button class="btn btn-sm btn-outline-danger ms-2" type="button" data-booking-retry>Retry</button></div></div>';
+      } else {
+        var apiBookings = filteredOwnerBookings();
+        if (!ownerBookingsState.data.length) {
+          var filtersActive = bookingVenueId || bookingDate || bookingStatus;
+          apiContent = '<div class="panel-body text-secondary" role="status">' + (filtersActive ? "No bookings match these filters." : "No bookings are available for your venues.") + '</div>';
+        } else apiContent = '<div class="table-wrap"><table class="table"><thead><tr><th>Booking ID</th><th>User ID</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Total amount</th><th>Status</th><th>Actions</th></tr></thead><tbody id="owner-booking-rows" aria-live="polite">' + ownerBookingRowsMarkup(apiBookings) + '</tbody></table></div><div class="table-foot" data-booking-count>Showing ' + apiBookings.length + ' of ' + ownerBookingsState.data.length + ' bookings</div>';
+      }
+      return heading(active) + bookingModeNotice() + panel("Owner bookings", apiToolbar + apiContent, "Live booking data from Booking Service", "", "calendar-panel-card");
     }
     var filtered = filteredDemoBookings();
     var body = '<div class="toolbar booking-filter-toolbar"><input class="form-control" type="search" data-booking-search value="' + esc(bookingSearch) + '" placeholder="Search booking ID or customer" aria-label="Search booking ID or customer">' +
@@ -933,6 +959,43 @@
         (!bookingDate || booking.date === bookingDate) && (!bookingStatus || booking.status === bookingStatus);
     });
   }
+  function loadOwnerBookings() {
+    if (dataMode === "demo" || !authUser || authUser.role !== "OWNER") return Promise.resolve([]);
+    var requestId = ++ownerBookingsRequestId;
+    ownerBookingsState = { status: "loading", data: ownerBookingsState.data, error: "" };
+    render();
+    return window.OwnerBookingsApi.list({ venue_id: bookingVenueId, date: bookingDate, status: bookingStatus }).then(function (bookings) {
+      if (!Array.isArray(bookings)) throw new Error("Booking Service returned an invalid list response.");
+      if (requestId !== ownerBookingsRequestId) return [];
+      bookings.forEach(function (booking) {
+        if (booking && Number.isInteger(Number(booking.venue_id)) && !ownerBookingVenueIds.includes(Number(booking.venue_id))) ownerBookingVenueIds.push(Number(booking.venue_id));
+      });
+      ownerBookingVenueIds.sort(function (left, right) { return left - right; });
+      ownerBookingsState = { status: "loaded", data: bookings, error: "" };
+      render();
+      return bookings;
+    }).catch(function (error) {
+      if (requestId === ownerBookingsRequestId) {
+        ownerBookingsState = { status: "error", data: [], error: error };
+        render();
+      }
+      return [];
+    });
+  }
+  function filteredOwnerBookings() {
+    var query = bookingSearch.trim().toLowerCase();
+    return ownerBookingsState.data.filter(function (booking) {
+      var text = [booking.id, booking.user_id, booking.venue_id, booking.court_id, booking.time_slot_id].join(" ").toLowerCase();
+      return !query || text.indexOf(query) >= 0;
+    });
+  }
+  function ownerBookingRowsMarkup(bookings) {
+    if (!bookings.length) return '<tr><td colspan="9" class="text-secondary">No bookings match this search.</td></tr>';
+    return bookings.map(function (booking) {
+      var complete = booking.status === "CHECKED_IN" ? '<button class="btn btn-sm btn-success" type="button" data-booking-complete="' + esc(booking.id) + '" ' + (ownerBookingCompletionPending ? "disabled" : "") + '>Complete Booking</button>' : "";
+      return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.user_id) + '</td><td>Venue #' + esc(booking.venue_id) + '</td><td>Court #' + esc(booking.court_id) + '</td><td>' + apiDate(booking.slot_date) + '</td><td>' + apiTime(booking.start_time) + ' - ' + apiTime(booking.end_time) + '</td><td>' + esc(formatBookingAmount(Number(booking.total_amount))) + '</td><td>' + statusBadge(booking.status) + '</td><td class="table-actions"><div class="table-action-group"><button class="btn btn-sm btn-outline-secondary" type="button" data-booking-detail="' + esc(booking.id) + '">Details</button>' + complete + '</div></td></tr>';
+    }).join("");
+  }
   function bookingRowsMarkup(bookings) {
     if (!bookings.length) return '<tr><td colspan="9" class="text-secondary">No bookings match these filters.</td></tr>';
     return bookings.map(function (booking) {
@@ -944,6 +1007,13 @@
     var rows = document.getElementById("owner-booking-rows");
     if (!rows) return;
     bookingSearch = (document.querySelector("[data-booking-search]") || {}).value || "";
+    if (dataMode !== "demo") {
+      var apiBookings = filteredOwnerBookings();
+      rows.innerHTML = ownerBookingRowsMarkup(apiBookings);
+      var apiCount = document.querySelector("[data-booking-count]");
+      if (apiCount) apiCount.textContent = "Showing " + apiBookings.length + " of " + ownerBookingsState.data.length + " bookings";
+      return;
+    }
     var bookingDateInput = document.querySelector("[data-booking-date]");
     bookingDate = bookingDateInput ? bookingDateInput.dataset.dateValue || "" : "";
     bookingStatus = (document.querySelector("[data-booking-status]") || {}).value || "";
@@ -954,7 +1024,58 @@
   }
   function bookingModeNotice() {
     return '<div class="alert alert-warning py-2 small" role="status"><strong>' + (dataMode === "demo" ? "Demo Mode:" : "API Mode:") + '</strong> ' +
-      (dataMode === "demo" ? "Booking data below is mock data and is never sent to Booking Service." : "Owner Booking API contract and JWT integration are pending S1; this screen does not call an unconfirmed endpoint.") + '</div>';
+      (dataMode === "demo" ? "Booking data below is mock data and is never sent to Booking Service." : "Live booking data is loaded from Booking Service using your authenticated Owner session.") + '</div>';
+  }
+  function ownerBookingErrorMessage(error) {
+    var status = error && error.status;
+    if (status === 401) return "Your session expired or you are not signed in. Sign in again.";
+    if (status === 403) return "This account does not have Owner permission to view these bookings.";
+    if (status === 404) return "Booking was not found or is outside your Owner access.";
+    if (status === 409) return "Booking is no longer in a state that allows this action.";
+    if (status === 422) return "The booking filters or request are invalid. Check them and try again.";
+    if (status === 503) return "Booking Service is temporarily unavailable.";
+    if (status === 504) return "Booking Service timed out. Try again.";
+    if (status === 0) return "Could not connect to the API Gateway.";
+    return "Could not complete the Booking Service request. Try again.";
+  }
+  function loadOwnerBookingDetail(bookingId) {
+    toast("Loading booking details...");
+    return window.OwnerBookingsApi.detail(bookingId).then(function (booking) {
+      bookingDetail(booking);
+    }).catch(function (error) {
+      toast(ownerBookingErrorMessage(error));
+    });
+  }
+  function refreshOwnerBookingAfterCompletion(bookingId) {
+    return loadOwnerBookings().then(function () {
+      return window.OwnerBookingsApi.detail(bookingId);
+    }).then(function (booking) {
+      bookingDetail(booking);
+    });
+  }
+  function completeOwnerBooking(booking, button) {
+    if (!booking || booking.status !== "CHECKED_IN") {
+      toast("Only CHECKED_IN bookings can be completed.");
+      return;
+    }
+    if (ownerBookingCompletionPending) return;
+    if (!window.confirm("Complete booking " + booking.id + "?")) return;
+    ownerBookingCompletionPending = true;
+    if (button) { button.disabled = true; button.textContent = "Completing..."; }
+    window.OwnerBookingsApi.complete(booking.id).then(function () {
+      toast("Booking completed.");
+      return refreshOwnerBookingAfterCompletion(booking.id);
+    }).catch(function (error) {
+      toast(ownerBookingErrorMessage(error));
+      if (error && error.status === 409) {
+        loadOwnerBookings().then(function () {
+          return window.OwnerBookingsApi.detail(booking.id);
+        }).then(bookingDetail).catch(function () {});
+      }
+    }).finally(function () {
+      ownerBookingCompletionPending = false;
+      if (currentRoute() === "owner-bookings" && dataMode !== "demo") render();
+    });
   }
   function formatBookingAmount(value) {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value);
@@ -964,13 +1085,18 @@
     return '<span class="badge-soft ' + (styles[status] || "neutral") + '">' + esc(status) + '</span>';
   }
   function bookingDetail(booking) {
-    var customerRows = [["Name", booking.customer.name]];
-    if (booking.customer.email) customerRows.push(["Email", booking.customer.email]);
-    if (booking.customer.phone) customerRows.push(["Phone", booking.customer.phone]);
-    var bookingRows = [["Venue", booking.venue], ["Court", booking.court], ["Date", apiDate(booking.date)], ["Time", booking.start_time + " - " + booking.end_time], ["Total amount", formatBookingAmount(booking.total_amount)]];
+    var apiBooking = dataMode !== "demo";
+    var customerRows = apiBooking ? [["User ID", booking.user_id]] : [["Name", booking.customer.name]];
+    if (!apiBooking && booking.customer.email) customerRows.push(["Email", booking.customer.email]);
+    if (!apiBooking && booking.customer.phone) customerRows.push(["Phone", booking.customer.phone]);
+    var bookingRows = apiBooking
+      ? [["Venue ID", booking.venue_id], ["Court ID", booking.court_id], ["Time Slot ID", booking.time_slot_id], ["Date", apiDate(booking.slot_date)], ["Time", booking.start_time + " - " + booking.end_time], ["Total amount", formatBookingAmount(Number(booking.total_amount))]]
+      : [["Venue", booking.venue], ["Court", booking.court], ["Date", apiDate(booking.date)], ["Time", booking.start_time + " - " + booking.end_time], ["Total amount", formatBookingAmount(booking.total_amount)]];
+    if (apiBooking && booking.expires_at) bookingRows.push(["Expires at", booking.expires_at]);
+    if (apiBooking && booking.created_at) bookingRows.push(["Created at", booking.created_at]);
     var statusRows = [];
-    if (booking.payment_status) statusRows.push(["Payment", booking.payment_status]);
-    if (booking.checkin_status) statusRows.push(["QR check-in", booking.checkin_status]);
+    if (!apiBooking && booking.payment_status) statusRows.push(["Payment", booking.payment_status]);
+    if (!apiBooking && booking.checkin_status) statusRows.push(["QR check-in", booking.checkin_status]);
     function detailSection(title, rows) {
       return '<section class="booking-detail-section"><h3>' + title + '</h3><div class="booking-detail-grid">' + rows.map(function (row) {
         return '<div class="detail-row"><span>' + esc(row[0]) + '</span><strong>' + esc(row[1]) + '</strong></div>';
@@ -978,10 +1104,13 @@
     }
     var host = document.getElementById("booking-detail-modal-host");
     if (!host) { host = document.createElement("div"); host.id = "booking-detail-modal-host"; document.body.appendChild(host); }
-    host.innerHTML = '<div class="modal fade" id="booking-detail-modal" tabindex="-1" aria-labelledby="booking-detail-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable booking-detail-modal"><div class="modal-content"><div class="modal-header align-items-start"><div><p class="eyebrow mb-1">Booking details</p><h2 class="modal-title fs-6" id="booking-detail-title">' + esc(booking.id) + '</h2></div><div class="d-flex align-items-center gap-2">' + statusBadge(booking.status) + '<button type="button" class="btn-close ms-2" data-modal-close aria-label="Close"></button></div></div><div class="modal-body">' + detailSection("Customer", customerRows) + detailSection("Court and booking", bookingRows) + (statusRows.length ? detailSection("Payment and check-in", statusRows) : "") + '</div><div class="modal-footer">' + (booking.status === "CHECKED_IN" && dataMode === "demo" ? '<button type="button" class="btn btn-success" data-booking-complete="' + esc(booking.id) + '">Complete Booking</button>' : "") + '</div></div></div></div>';
+    host.innerHTML = '<div class="modal fade" id="booking-detail-modal" tabindex="-1" aria-labelledby="booking-detail-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable booking-detail-modal"><div class="modal-content"><div class="modal-header align-items-start"><div><p class="eyebrow mb-1">Booking details</p><h2 class="modal-title fs-6" id="booking-detail-title">' + esc(booking.id) + '</h2></div><div class="d-flex align-items-center gap-2">' + statusBadge(booking.status) + '<button type="button" class="btn-close ms-2" data-modal-close aria-label="Close"></button></div></div><div class="modal-body">' + detailSection("Customer", customerRows) + detailSection("Court and booking", bookingRows) + (statusRows.length ? detailSection("Payment and check-in", statusRows) : "") + '</div><div class="modal-footer">' + (booking.status === "CHECKED_IN" ? '<button type="button" class="btn btn-success" data-booking-complete="' + esc(booking.id) + '">Complete Booking</button>' : "") + '</div></div></div></div>';
     var modal = document.getElementById("booking-detail-modal");
     var completeButton = modal.querySelector("[data-booking-complete]");
-    if (completeButton) completeButton.addEventListener("click", function () { completeDemoBooking(booking.id); });
+    if (completeButton) completeButton.addEventListener("click", function () {
+      if (apiBooking) completeOwnerBooking(booking, completeButton);
+      else completeDemoBooking(booking.id);
+    });
     showManagedModal(modal, host);
   }
   function showManagedModal(modal, host) {
@@ -1631,7 +1760,9 @@
         modeSelect.disabled = true;
         stopQrScanner().then(function (stopped) {
           if (stopped) {
-            dataMode = nextMode; scannerState = "idle"; scanResult = null; crudFormState = null; render();
+            dataMode = nextMode; scannerState = "idle"; scanResult = null; crudFormState = null;
+            if (nextMode === "api" && currentRoute() === "owner-bookings") ownerBookingsState.status = "idle";
+            render();
           } else {
             modeSelect.disabled = false; modeSelect.value = dataMode;
           }
@@ -1642,6 +1773,7 @@
       scannerState = "idle";
       scanResult = null;
       crudFormState = null;
+      if (nextMode === "api" && currentRoute() === "owner-bookings") ownerBookingsState.status = "idle";
       render();
     });
     document.querySelectorAll("[data-crud-open]").forEach(function (el) {
@@ -1727,25 +1859,47 @@
     var bookingSearchInput = document.querySelector("[data-booking-search]");
     if (bookingSearchInput) bookingSearchInput.addEventListener("input", applyBookingFilters);
     var bookingStatusInput = document.querySelector("[data-booking-status]");
-    if (bookingStatusInput) bookingStatusInput.addEventListener("change", applyBookingFilters);
+    if (bookingStatusInput) bookingStatusInput.addEventListener("change", function () {
+      bookingStatus = bookingStatusInput.value || "";
+      if (dataMode === "demo") applyBookingFilters();
+      else loadOwnerBookings();
+    });
+    var bookingVenueInput = document.querySelector("[data-booking-venue]");
+    if (bookingVenueInput) bookingVenueInput.addEventListener("change", function () {
+      bookingVenueId = bookingVenueInput.value || "";
+      loadOwnerBookings();
+    });
     var bookingClear = document.querySelector("[data-booking-clear]");
     if (bookingClear) bookingClear.addEventListener("click", function () {
-      bookingSearch = ""; bookingDate = ""; bookingStatus = "";
+      bookingSearch = ""; bookingDate = ""; bookingStatus = ""; bookingVenueId = "";
       if (bookingSearchInput) bookingSearchInput.value = "";
       var bookingDatePicker = document.querySelector('[data-calendar-picker][data-calendar-id="booking-filter"]');
       if (bookingDatePicker) { setCalendarDate(bookingDatePicker, ""); closeCalendarPicker(bookingDatePicker, false); }
       if (bookingStatusInput) bookingStatusInput.value = "";
-      applyBookingFilters();
+      if (bookingVenueInput) bookingVenueInput.value = "";
+      if (dataMode === "demo") applyBookingFilters();
+      else loadOwnerBookings();
       if (bookingSearchInput) bookingSearchInput.focus();
+    });
+    document.querySelectorAll("[data-booking-retry]").forEach(function (button) {
+      button.addEventListener("click", loadOwnerBookings);
     });
     var bookingRowsHost = document.getElementById("owner-booking-rows");
     if (bookingRowsHost) bookingRowsHost.addEventListener("click", function (event) {
       var detailButton = event.target.closest("[data-booking-detail]");
       var completeButton = event.target.closest("[data-booking-complete]");
       if (detailButton) {
-        var booking = demoBookings.find(function (item) { return item.id === detailButton.dataset.bookingDetail; });
-        if (booking) bookingDetail(booking);
-      } else if (completeButton) completeDemoBooking(completeButton.dataset.bookingComplete);
+        if (dataMode === "demo") {
+          var booking = demoBookings.find(function (item) { return item.id === detailButton.dataset.bookingDetail; });
+          if (booking) bookingDetail(booking);
+        } else loadOwnerBookingDetail(detailButton.dataset.bookingDetail);
+      } else if (completeButton) {
+        if (dataMode === "demo") completeDemoBooking(completeButton.dataset.bookingComplete);
+        else {
+          var apiBooking = ownerBookingsState.data.find(function (item) { return String(item.id) === completeButton.dataset.bookingComplete; });
+          if (apiBooking) completeOwnerBooking(apiBooking, completeButton);
+        }
+      }
     });
     var scannerStart = document.querySelector("[data-scanner-start]");
     if (scannerStart) scannerStart.addEventListener("click", startQrScanner);
@@ -1851,6 +2005,7 @@
     if (dataMode === "api" && courtScreens.indexOf(active) >= 0 && Object.keys(courtResources).every(function (key) { return courtResources[key].status === "idle"; })) {
       loadCourtResources(false);
     }
+    if (active === "owner-bookings" && dataMode === "api" && ownerBookingsState.status === "idle") loadOwnerBookings();
   }
   function restoreAuthSession() {
     if (authRestorePromise) return authRestorePromise;

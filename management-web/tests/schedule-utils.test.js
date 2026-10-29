@@ -109,7 +109,7 @@ test("all date controls share one read-only calendar picker with direct month/ye
 test("calendar assets and the updated app use cache versions", () => {
   assert.match(htmlSource, /assets\/css\/app\.css\?v=20261025-shared-calendar-1/);
   assert.match(htmlSource, /assets\/js\/schedule-utils\.js\?v=20261025-shared-calendar-1/);
-  assert.match(htmlSource, /assets\/js\/app\.js\?v=20261026-admin-time-slots-1/);
+  assert.match(htmlSource, /assets\/js\/app\.js\?v=20261029-owner-bookings-1/);
 });
 
 test("Schedule Date, Venue, Court, Status and date Search filters combine", () => {

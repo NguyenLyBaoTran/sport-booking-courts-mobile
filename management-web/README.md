@@ -77,13 +77,13 @@ The older backend-owned seed data remains separate from browser Demo Mode. To se
 
 ## Owner Booking Management (Step 7)
 
-Open the Owner **Bookings** screen from the sidebar. In API Mode, the page displays that the Booking management API and its response contract are not implemented, and shows no live or sample booking records. The frontend does not call a guessed Booking endpoint.
+Open the Owner **Bookings** screen from the sidebar. In API Mode, the page calls the approved `GET /api/v1/owner/bookings` endpoint through the Gateway with the session Bearer token. Venue, date, and status filters are sent to Booking Service; text search filters the loaded response locally. List and detail views use only contract fields, show IDs where related display names are not part of the schema, and never render `qr_token`. Detail uses `GET /api/v1/owner/bookings/{booking_id}`. **Complete Booking** appears only for `CHECKED_IN`, asks for confirmation, and calls `POST /api/v1/owner/bookings/{booking_id}/complete`; the UI refreshes list and detail after success or a `409`. Loading, empty, filter-empty, and safe API error states are shown without falling back to mock rows.
 
 Switch the shared Owner data mode selector to **Demo Mode** to view six fictional bookings covering `PENDING`, `CONFIRMED`, `CHECKED_IN`, `COMPLETED`, `CANCELLED`, and `EXPIRED`. The list is sorted newest first and supports Booking ID/customer search, booking date and status filters. Typing updates only the table rows, so the search field keeps focus and caret position. Booking details group customer and court information, show payment/check-in status only when provided, and offer **Complete Booking** only for `CHECKED_IN`. Confirm the action to change that record to `COMPLETED` in browser memory. Reload restores the original sample dataset.
 
-Demo booking data is local UI-only mock data. It does not use MySQL, call Booking Service, or alter Court Service data. Demo booking data remains independent of the authenticated account; no Booking endpoint is called.
+Demo booking data is local UI-only mock data. It does not use MySQL, call Booking Service, or alter Court Service data. Demo booking data remains independent of the authenticated account; no Booking endpoint is called while Demo Mode is selected.
 
-Waiting for S1: Owner booking list/detail route and response shapes, pagination/filter contract, Owner authorization for these routes, payment and check-in field definitions, and the completion API behavior. The shared JWT issue/verification contract is already documented; the Booking endpoints are not implemented. The V5 route names are planning proposals and are not treated as an active API contract here. Completion in API Mode remains unavailable until S1 provides the contract and authenticated integration.
+The UI follows [the approved Owner Booking & QR contract](../docs/api/owner-booking-qr-contract.md). The inspected S1 source does not yet implement the public Owner list/detail/completion routes, so API Mode will show the upstream error until those S1 endpoints are integrated and available. No live end-to-end integration is claimed.
 
 ## Owner QR Scanner & Demo Check-in (Step 8)
 
@@ -107,7 +107,7 @@ API Mode shows that the Booking Check-in endpoint and response contract are not 
 
 ## Demo screens
 
-Bookings, QR Check-in, Revenue, and the Admin People directory remain sample UI because their services are not connected. Authenticated Profile shows the User Service account read-only; Demo Profile remains fictional. No sample data is used as a fallback when a Court Service request fails.
+Owner Bookings supports API Mode and retains its separate Demo Mode samples. QR Check-in API Mode, Revenue, and the Admin People directory remain pending their service/UI integration. Authenticated Profile shows the User Service account read-only; Demo Profile remains fictional. No sample data is used as a fallback when an API request fails.
 
 ## Admin Demo Mode
 
