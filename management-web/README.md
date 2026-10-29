@@ -103,11 +103,11 @@ A successful check-in displays the booking ID, court, date and time. The corresp
 
 If the preview does not start, verify camera permission, close other apps using the webcam, and confirm the page uses localhost or HTTPS. Permission denial, missing or busy camera, and CDN load failures appear in the scanner result area. Start/stop and page navigation wait for camera cleanup; the QR preview stays mounted while a scan is active. If cleanup itself fails, use **Stop Camera** to retry before leaving the page.
 
-API Mode shows that the Booking Check-in endpoint and response contract are not implemented by S1. The shared JWT contract exists, but no check-in API is available to authorize. It neither processes tokens nor sends a check-in request or changes state. V5's proposed `POST /api/v1/owner/checkins` route remains unconfirmed. S1 must provide the route/response contract and server-side token/status/ownership/replay checks before API integration.
+In API Mode, the same camera and a manual token field send `POST /api/v1/owner/checkins` through the Gateway with the session Bearer token. The browser sends only `qr_token`; it never sends `owner_id` or `X-Internal-Token`, and the token is not rendered or logged. Check-in status remains server-owned: the page reports the response and marks Owner Bookings data stale so it reloads when next opened. API errors are translated to safe messages. The browser does not fall back to Demo tokens or records. Camera access requires localhost or HTTPS, permission, and the `html5-qrcode` CDN to load. The UI and route are contract-wired, but live integration still depends on S1's Booking internal check-in being reachable through the configured services; this task does not claim an end-to-end backend run.
 
 ## Demo screens
 
-Owner Bookings supports API Mode and retains its separate Demo Mode samples. QR Check-in API Mode, Revenue, and the Admin People directory remain pending their service/UI integration. Authenticated Profile shows the User Service account read-only; Demo Profile remains fictional. No sample data is used as a fallback when an API request fails.
+Owner Bookings and QR Check-in support API Mode and retain separate Demo Mode samples. Revenue and the Admin People directory remain pending their service/UI integration. Authenticated Profile shows the User Service account read-only; Demo Profile remains fictional. No sample data is used as a fallback when an API request fails.
 
 ## Admin Demo Mode
 
@@ -129,7 +129,7 @@ In Owner QR Check-in Demo Mode, checking a manual token or scanning a QR display
 3. Log in with a real account. The inspected S1 branch registration creates USER accounts only; it does not supply a seeded OWNER or ADMIN account. Do not change a role or seed an account by bypassing Auth.
 4. OWNER can write Venue/Court/Time Slot resources via the existing Court Service contract; ADMIN can manage Sports, Venue, Court, and Time Slot resources. Demo Mode remains local and does not call the API.
 
-This frontend integration is contract-based; end-to-end login and mutations have not been verified with a real S1 token/account in the current local environment. Booking lists, Booking completion, QR check-in, User directory, Payment, and Revenue APIs are still unimplemented in the inspected S1 branch and remain visibly marked as demo/pending.
+This frontend integration is contract-based; end-to-end login, Owner Booking operations, and QR check-in have not been verified with real services in the current local environment. Booking list/detail/completion public endpoints, User directory, Payment, and Revenue APIs remain unimplemented in the inspected S1 branch. QR check-in calls the S2 adapter, which depends on the existing S1 internal check-in API.
 
 ## Automated tests
 

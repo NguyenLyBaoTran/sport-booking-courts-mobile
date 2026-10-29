@@ -29,6 +29,7 @@
   var lastScannedText = "";
   var lastScanAt = 0;
   var scanProcessing = false;
+  var ownerCheckinPending = false;
   var scanResult = null;
   var crudFormState = null;
   var courtResources = {
@@ -1318,14 +1319,13 @@
     var demo = dataMode === "demo";
     var statusLabel = { idle: "IDLE", loading: "STARTING", scanning: "SCANNING", stopping: "STOPPING", success: "SUCCESS", error: "ERROR" }[scannerState] || "IDLE";
     var cameraFrameClass = ["idle", "success", "error"].indexOf(scannerState) >= 0 && !scannerInstance ? "qr-camera-frame--idle" : "qr-camera-frame--active";
-    var result = scanResult ? '<div class="alert ' + (scanResult.ok ? "alert-success" : "alert-danger") + '" role="status"><strong>' + esc(scanResult.title) + '</strong><p class="mb-1 mt-2">' + esc(scanResult.message) + '</p>' +
-      (scanResult.booking ? '<div class="small">' + esc(scanResult.booking.id + " | " + scanResult.booking.court + " | " + scanResult.booking.date + " " + scanResult.booking.start_time + " - " + scanResult.booking.end_time) + '</div>' : "") + '</div>' : '<p class="text-secondary small" data-scan-result>No QR result yet.</p>';
+    var result = scanResult ? '<div class="alert ' + (scanResult.ok ? "alert-success" : "alert-danger") + '" role="status"><strong>' + esc(scanResult.title) + '</strong><p class="mb-1 mt-2">' + esc(scanResult.message) + '</p>' + scanResultBookingMarkup() + '</div>' : '<p class="text-secondary small" data-scan-result>No QR result yet.</p>';
     var controls = '<div class="qr-camera-controls"><button class="btn btn-success" data-scanner-start ' + (["loading", "scanning", "stopping"].indexOf(scannerState) >= 0 ? "disabled" : "") + '>Start Camera</button><button class="btn btn-outline-secondary" data-scanner-stop ' + (["loading", "scanning", "stopping"].indexOf(scannerState) < 0 && !scannerInstance && !qrScanner ? "disabled" : "") + '>Stop Camera</button></div>';
     var cameraPanel = '<div class="scanner-frame qr-camera-frame ' + cameraFrameClass + '"><div id="qr-reader" aria-label="Camera preview"></div>' + (scannerState === "idle" ? '<div class="qr-camera-placeholder"><i class="bi bi-qr-code-scan"></i><strong>Camera preview</strong><small>Start the camera when you are ready to scan.</small></div>' : "") + '</div><div class="qr-scanner-footer"><div class="qr-scanner-toolbar"><div class="qr-scanner-status qr-scanner-status--' + scannerState + '" role="status" data-scanner-status>' + statusLabel + '</div>' + controls + '</div><div class="qr-scanner-result" data-scanner-result-host>' + result + '</div></div>';
-    var notice = demo ? demoNotice("Demo Only: scan one of the QR tokens from this page or enter it manually below. No real booking token is shown or accepted.") : bookingModeNotice();
-    var manual = demo ? '<div class="panel-body"><label class="form-label" for="demo-qr-token">Demo QR token input</label><div class="input-group"><input class="form-control" id="demo-qr-token" autocomplete="off" placeholder="Enter a Demo Only QR token"><button class="btn btn-outline-secondary" data-demo-qr-submit>Check token</button></div><small class="text-secondary">Manual input is for Demo Mode testing only.</small></div>' : '<div class="panel-body text-secondary">Booking Check-in API contract and JWT are pending S1. API Mode does not process scanned tokens or change booking status.</div>';
+    var notice = demo ? demoNotice("Demo Only: scan one of the QR tokens from this page or enter it manually below. No real booking token is shown or accepted.") : '<div class="alert alert-warning py-2 small" role="status"><strong>API Mode:</strong> check-in is sent to the authenticated Owner API. No sample token is used.</div>';
+    var manual = demo ? '<div class="panel-body"><label class="form-label" for="demo-qr-token">Demo QR token input</label><div class="input-group"><input class="form-control" id="demo-qr-token" autocomplete="off" placeholder="Enter a Demo Only QR token"><button class="btn btn-outline-secondary" data-demo-qr-submit>Check token</button></div><small class="text-secondary">Manual input is for Demo Mode testing only.</small></div>' : '<div class="panel-body"><label class="form-label" for="owner-qr-token">QR token</label><div class="input-group"><input class="form-control" id="owner-qr-token" autocomplete="off" placeholder="Scan a booking QR or enter its token"><button class="btn btn-outline-primary" type="button" data-owner-qr-submit>Check in</button></div><small class="text-secondary">The token is sent securely to the check-in API and is never shown in the result.</small></div>';
     var examples = demo ? '<div class="panel-body"><p class="small text-secondary mb-2">Demo Only test tokens</p><div class="qr-demo-token-list">' + demoBookings.map(function (booking) { return '<div class="qr-demo-token"><span><small>' + esc(booking.status) + '</small><br><code>' + esc(booking.qr_token) + '</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="' + esc(booking.qr_token) + '">Copy</button></div>'; }).join("") + '<div class="qr-demo-token"><span><small>INVALID</small><br><code>demo-qr-invalid</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="demo-qr-invalid">Copy</button></div></div></div>' : '<div class="panel-body text-secondary">No demo tokens are shown in API Mode.</div>';
-    return heading(active) + notice + '<div class="scanner-layout mb-3">' + panel("QR Check-in", cameraPanel, "Camera access starts only after you press Start Camera") + panel("Check-in result", manual + examples, demo ? "Demo Only" : "API integration pending") + '</div>';
+    return heading(active) + notice + '<div class="scanner-layout mb-3">' + panel("QR Check-in", cameraPanel, "Camera access starts only after you press Start Camera") + panel("Check-in result", manual + examples, demo ? "Demo Only" : "Live check-in through Court Service") + '</div>';
   }
   function checkDemoQr(token) {
     if (dataMode !== "demo") {
@@ -1351,11 +1351,62 @@
     updateScannerResult();
     updateScannerState(cameraRunning ? "SCANNING" : scannerState.toUpperCase());
   }
+  function scanResultBookingMarkup() {
+    if (!scanResult || !scanResult.booking) return "";
+    if (dataMode === "demo") {
+      var demoBooking = scanResult.booking;
+      return '<div class="small">' + esc(demoBooking.id + " | " + demoBooking.court + " | " + demoBooking.date + " " + demoBooking.start_time + " - " + demoBooking.end_time) + '</div>';
+    }
+    var apiBooking = scanResult.booking;
+    return '<div class="small">Booking #' + esc(apiBooking.id) + ' · ' + esc(apiBooking.status) + (apiBooking.checked_in_at ? ' · ' + esc(apiBooking.checked_in_at) : '') + '</div>';
+  }
+  function ownerCheckinErrorMessage(error) {
+    var status = error && error.status;
+    if (status === 401) return "Your session is missing or expired. Sign in again.";
+    if (status === 403) return "This account does not have Owner permission to check in bookings.";
+    if (status === 404) return "QR token is invalid, booking was not found, or it is outside your Owner access.";
+    if (status === 409) return "This booking was already checked in or is not ready for check-in.";
+    if (status === 422) return "The QR token is invalid. Check the token and try again.";
+    if (status === 503) return "Check-in service is temporarily unavailable.";
+    if (status === 504) return "Check-in service timed out. Try again.";
+    if (status === 0) return "Could not connect to the API Gateway.";
+    return "Could not check in this booking. Try again.";
+  }
+  function submitOwnerCheckin(qrToken) {
+    if (dataMode === "demo") { checkDemoQr(qrToken); return Promise.resolve(); }
+    if (ownerCheckinPending) return Promise.resolve();
+    if (!String(qrToken || "").trim()) {
+      setScanResult(false, "QR token required", "Scan a booking QR or enter its token first.");
+      return Promise.resolve();
+    }
+    ownerCheckinPending = true;
+    var submit = document.querySelector("[data-owner-qr-submit]");
+    if (submit) { submit.disabled = true; submit.textContent = "Checking..."; }
+    if (qrScanner && dataMode !== "demo") stopQrScanner();
+    updateScannerState("CHECKING IN");
+    return window.OwnerCheckinApi.checkIn(qrToken).then(function (result) {
+      setScanResult(true, "Check-in successful", "The booking was checked in.", {
+        id: result && result.booking_id,
+        status: result && result.status || "CHECKED_IN",
+        checked_in_at: result && result.checked_in_at
+      });
+      ownerBookingsState.status = "idle";
+    }).catch(function (error) {
+      setScanResult(false, "Check-in failed", ownerCheckinErrorMessage(error));
+    }).finally(function () {
+      ownerCheckinPending = false;
+      var input = document.getElementById("owner-qr-token");
+      var button = document.querySelector("[data-owner-qr-submit]");
+      if (input) input.disabled = false;
+      if (button) { button.disabled = false; button.textContent = "Check in"; }
+      if (qrScanner && qrScanner.isScanning) updateScannerState("SCANNING");
+    });
+  }
   function updateScannerResult() {
     var host = document.querySelector("[data-scanner-result-host]");
     if (!host) return;
     if (!scanResult) { host.innerHTML = '<p class="text-secondary small" data-scan-result>No QR result yet.</p>'; return; }
-    host.innerHTML = '<div class="alert ' + (scanResult.ok ? "alert-success" : "alert-danger") + '" role="status"><strong>' + esc(scanResult.title) + '</strong><p class="mb-1 mt-2">' + esc(scanResult.message) + '</p>' + (scanResult.booking ? '<div class="small">' + esc(scanResult.booking.id + " | " + scanResult.booking.court + " | " + scanResult.booking.date + " " + scanResult.booking.start_time + " - " + scanResult.booking.end_time) + '</div>' : "") + '</div>';
+    host.innerHTML = '<div class="alert ' + (scanResult.ok ? "alert-success" : "alert-danger") + '" role="status"><strong>' + esc(scanResult.title) + '</strong><p class="mb-1 mt-2">' + esc(scanResult.message) + '</p>' + scanResultBookingMarkup() + '</div>';
   }
   function updateScannerState(label) {
     var status = document.querySelector("[data-scanner-status]");
@@ -1400,7 +1451,6 @@
       });
       return;
     }
-    if (dataMode !== "demo") { scannerState = "error"; scanResult = { ok: false, title: "API Mode", message: "Booking Check-in API is pending S1. Scanning is disabled and no request was sent.", booking: null }; updateScannerState("ERROR"); updateScannerResult(); return; }
     if (!window.Html5Qrcode) { scannerState = "error"; scanResult = { ok: false, title: "Scanner library unavailable", message: window.Html5QrcodeLoadError || "html5-qrcode is still loading or could not be loaded. Check your internet/CDN access, then reload this page.", booking: null }; updateScannerState("ERROR"); updateScannerResult(); return; }
     scannerStarting = true; scannerState = "loading"; scanResult = null; updateScannerState("STARTING - requesting camera permission"); updateScannerResult();
     var epoch = ++scannerEpoch;
@@ -1422,7 +1472,7 @@
           var now = Date.now();
           if (scanProcessing || (decodedText === lastScannedText && now - lastScanAt < 2500)) return;
           scanProcessing = true; lastScannedText = decodedText; lastScanAt = now;
-          try { checkDemoQr(decodedText); } finally { scanProcessing = false; }
+          try { submitOwnerCheckin(decodedText).finally(function () { scanProcessing = false; }); } catch (error) { scanProcessing = false; }
         }, function () {});
       });
     }).then(function () {
@@ -1907,6 +1957,8 @@
     if (scannerStop) scannerStop.addEventListener("click", function () { stopQrScanner(); });
     var demoQrSubmit = document.querySelector("[data-demo-qr-submit]");
     if (demoQrSubmit) demoQrSubmit.addEventListener("click", function () { checkDemoQr((document.getElementById("demo-qr-token").value || "").trim()); });
+    var ownerQrSubmit = document.querySelector("[data-owner-qr-submit]");
+    if (ownerQrSubmit) ownerQrSubmit.addEventListener("click", function () { submitOwnerCheckin((document.getElementById("owner-qr-token").value || "").trim()); });
     document.querySelectorAll("[data-copy-qr]").forEach(function (el) {
       el.addEventListener("click", function () {
         var token = el.dataset.copyQr;
