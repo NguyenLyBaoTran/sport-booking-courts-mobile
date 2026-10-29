@@ -1,14 +1,49 @@
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
+DEFAULT_ALLOWED_ORIGINS = ("http://localhost:8080", "http://127.0.0.1:8080")
+
+
+def get_allowed_origins() -> list[str]:
+    configured = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    raw_origins = [item.strip() for item in configured.split(",") if item.strip()]
+    if not raw_origins:
+        return list(DEFAULT_ALLOWED_ORIGINS)
+
+    origins = set()
+    for origin in raw_origins:
+        parsed = urlsplit(origin)
+        if (
+            origin == "*"
+            or parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError("CORS_ALLOWED_ORIGINS must contain explicit HTTP(S) origins")
+        origins.add(origin)
+    return sorted(origins)
+
 app = FastAPI(title="Sports Court Booking API Gateway")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=get_allowed_origins(),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Accept", "Authorization", "Content-Type", "Idempotency-Key"],
+)
 
 SERVICE_URLS = {
     "user": os.getenv("USER_SERVICE_URL", "http://127.0.0.1:8001").rstrip("/"),
@@ -18,11 +53,14 @@ SERVICE_URLS = {
 }
 
 PUBLIC_PREFIXES = {
+    "/api/v1/owner/checkins": "court",
+    "/api/v1/owner/bookings": "booking",
     "/api/v1/auth": "user",
     "/api/v1/users": "user",
     "/api/v1/sports": "court",
     "/api/v1/venues": "court",
     "/api/v1/courts": "court",
+    "/api/v1/time-slots": "court",
     "/api/v1/bookings": "booking",
     "/api/v1/payments": "payment",
 }
@@ -82,7 +120,7 @@ async def proxy(path: str, request: Request):
 
     headers = {
         name: request.headers[name]
-        for name in ("authorization", "content-type", "accept")
+        for name in ("authorization", "content-type", "accept", "idempotency-key")
         if name in request.headers
     }
 

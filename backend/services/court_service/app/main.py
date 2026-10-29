@@ -4,8 +4,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.routes import router as api_router
 
 app = FastAPI(title="Court Service")
+app.include_router(api_router)
 
 
 @app.get("/health")

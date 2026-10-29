@@ -33,15 +33,28 @@ render.experimental.xml
 google-services.json
 
 # Backend local configuration and Python artifacts
+.env
+!.env.example
 .venv/
+venv/
 backend/.env
 backend/.venv/
+__pycache__/
+*.py[cod]
 backend/**/__pycache__/
 backend/**/*.py[cod]
 backend/.pytest_cache/
 backend/.mypy_cache/
 backend/.ruff_cache/
 backend/*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+*.tmp
+*.sqlite
+*.sqlite3
+*.db
 
 # Android Profiling
 *.hprof
