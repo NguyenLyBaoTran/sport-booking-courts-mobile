@@ -53,6 +53,8 @@ SERVICE_URLS = {
 }
 
 PUBLIC_PREFIXES = {
+    "/api/v1/owner/checkins": "court",
+    "/api/v1/owner/bookings": "booking",
     "/api/v1/auth": "user",
     "/api/v1/users": "user",
     "/api/v1/sports": "court",

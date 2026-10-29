@@ -11,6 +11,8 @@ import main
 
 class FakeUpstreamClient:
     captured_request: dict[str, Any] | None = None
+    response_status = 200
+    response_body = b"[]"
 
     def __init__(self, **kwargs):
         pass
@@ -24,9 +26,9 @@ class FakeUpstreamClient:
     async def request(self, **kwargs):
         type(self).captured_request = kwargs
         return httpx.Response(
-            status_code=200,
+            status_code=type(self).response_status,
             headers={"content-type": "application/json"},
-            content=b"[]",
+            content=type(self).response_body,
         )
 
 
@@ -38,6 +40,8 @@ class UnavailableUpstreamClient(FakeUpstreamClient):
 class GatewayTests(unittest.TestCase):
     def setUp(self):
         FakeUpstreamClient.captured_request = None
+        FakeUpstreamClient.response_status = 200
+        FakeUpstreamClient.response_body = b"[]"
         self.client = TestClient(main.app)
 
     def tearDown(self):
@@ -189,6 +193,101 @@ class GatewayTests(unittest.TestCase):
         hidden = self.client.post("/api/v1/internal/slots/12/hold?booking_id=44")
         self.assertEqual(hidden.status_code, 404)
         self.assertIsNone(FakeUpstreamClient.captured_request)
+
+    def test_owner_booking_list_routes_to_booking_with_query_and_authorization(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.get(
+                "/api/v1/owner/bookings?venue_id=12&date=2026-10-29&status=CONFIRMED",
+                headers={"Authorization": "Bearer owner-token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        assert FakeUpstreamClient.captured_request is not None
+        captured = FakeUpstreamClient.captured_request
+        self.assertEqual(captured["method"], "GET")
+        self.assertEqual(
+            captured["url"],
+            "http://127.0.0.1:8003/api/v1/owner/bookings?venue_id=12&date=2026-10-29&status=CONFIRMED",
+        )
+        self.assertEqual(captured["headers"]["authorization"], "Bearer owner-token")
+
+    def test_owner_booking_detail_routes_to_booking_service(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.get(
+                "/api/v1/owner/bookings/42",
+                headers={"Authorization": "Bearer owner-token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        assert FakeUpstreamClient.captured_request is not None
+        self.assertEqual(FakeUpstreamClient.captured_request["method"], "GET")
+        self.assertEqual(
+            FakeUpstreamClient.captured_request["url"],
+            "http://127.0.0.1:8003/api/v1/owner/bookings/42",
+        )
+
+    def test_owner_booking_complete_routes_to_booking_service(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.post(
+                "/api/v1/owner/bookings/42/complete",
+                headers={"Authorization": "Bearer owner-token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        assert FakeUpstreamClient.captured_request is not None
+        self.assertEqual(FakeUpstreamClient.captured_request["method"], "POST")
+        self.assertEqual(
+            FakeUpstreamClient.captured_request["url"],
+            "http://127.0.0.1:8003/api/v1/owner/bookings/42/complete",
+        )
+        self.assertEqual(FakeUpstreamClient.captured_request["content"], b"")
+
+    def test_owner_checkin_routes_to_court_and_forwards_body_and_authorization(self):
+        body = {"qr_token": "opaque-qr-token"}
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.post(
+                "/api/v1/owner/checkins",
+                json=body,
+                headers={
+                    "Authorization": "Bearer owner-token",
+                    "X-Internal-Token": "client-must-not-forward",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        assert FakeUpstreamClient.captured_request is not None
+        captured = FakeUpstreamClient.captured_request
+        self.assertEqual(captured["method"], "POST")
+        self.assertEqual(captured["url"], "http://127.0.0.1:8002/api/v1/owner/checkins")
+        self.assertEqual(captured["content"], b'{"qr_token":"opaque-qr-token"}')
+        self.assertEqual(captured["headers"]["authorization"], "Bearer owner-token")
+        self.assertNotIn("x-internal-token", captured["headers"])
+
+    def test_owner_routes_preserve_upstream_authorization_and_conflict_statuses(self):
+        for status_code in (401, 403, 404, 409):
+            with self.subTest(status_code=status_code):
+                FakeUpstreamClient.response_status = status_code
+                FakeUpstreamClient.response_body = b'{"detail":"upstream response"}'
+                with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+                    response = self.client.post(
+                        "/api/v1/owner/checkins",
+                        json={"qr_token": "opaque-qr-token"},
+                        headers={"Authorization": "Bearer owner-token"},
+                    )
+
+                self.assertEqual(response.status_code, status_code)
+                self.assertEqual(response.content, b'{"detail":"upstream response"}')
+
+    def test_internal_booking_and_court_paths_are_not_public(self):
+        for path in (
+            "/api/v1/internal/slots/12/hold?booking_id=44",
+            "/api/v1/internal/bookings/check-in",
+        ):
+            with self.subTest(path=path):
+                FakeUpstreamClient.captured_request = None
+                response = self.client.post(path)
+                self.assertEqual(response.status_code, 404)
+                self.assertIsNone(FakeUpstreamClient.captured_request)
 
 
 if __name__ == "__main__":
