@@ -64,7 +64,7 @@ class GatewayTests(unittest.TestCase):
                     headers={
                         "Origin": "http://localhost:8080",
                         "Access-Control-Request-Method": method,
-                        "Access-Control-Request-Headers": "authorization,content-type",
+                        "Access-Control-Request-Headers": "authorization,content-type,idempotency-key",
                     },
                 )
                 self.assertEqual(response.status_code, 200)
@@ -74,6 +74,7 @@ class GatewayTests(unittest.TestCase):
                 )
                 self.assertIn(method, response.headers["access-control-allow-methods"])
                 self.assertIn("authorization", response.headers["access-control-allow-headers"].lower())
+                self.assertIn("idempotency-key", response.headers["access-control-allow-headers"].lower())
 
     def test_configured_origin_is_allowed_without_wildcard(self):
         with patch.dict(os.environ, {"CORS_ALLOWED_ORIGINS": "http://localhost:3000"}):
@@ -98,6 +99,81 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(
             headers["authorization"],
             "Bearer test-only-placeholder",
+        )
+
+    def test_gateway_forwards_idempotency_key_to_payment_service(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.post(
+                "/api/v1/payments/process",
+                json={"booking_id": 42, "mock_result": "SUCCESS"},
+                headers={"Idempotency-Key": "payment-attempt-42"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        captured_request = FakeUpstreamClient.captured_request
+        self.assertIsNotNone(captured_request)
+        assert captured_request is not None
+        self.assertEqual(
+            captured_request["url"],
+            "http://127.0.0.1:8004/api/v1/payments/process",
+        )
+        headers = captured_request.get("headers")
+        assert isinstance(headers, dict)
+        self.assertEqual(headers["idempotency-key"], "payment-attempt-42")
+
+    def test_payment_route_works_without_idempotency_key(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.post(
+                "/api/v1/payments/process",
+                json={"booking_id": 42, "mock_result": "SUCCESS"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        captured_request = FakeUpstreamClient.captured_request
+        self.assertIsNotNone(captured_request)
+        assert captured_request is not None
+        headers = captured_request.get("headers")
+        assert isinstance(headers, dict)
+        self.assertNotIn("idempotency-key", headers)
+
+    def test_gateway_does_not_forward_client_internal_token(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.post(
+                "/api/v1/payments/process",
+                json={"booking_id": 42, "mock_result": "SUCCESS"},
+                headers={
+                    "Idempotency-Key": "payment-attempt-42",
+                    "X-Internal-Token": "must-not-reach-payment-service",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        captured_request = FakeUpstreamClient.captured_request
+        self.assertIsNotNone(captured_request)
+        assert captured_request is not None
+        headers = captured_request.get("headers")
+        assert isinstance(headers, dict)
+        self.assertEqual(headers["idempotency-key"], "payment-attempt-42")
+        self.assertNotIn("x-internal-token", headers)
+
+    def test_existing_booking_and_payment_routes_keep_their_destinations(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            booking = self.client.get("/api/v1/bookings")
+        self.assertEqual(booking.status_code, 200)
+        assert FakeUpstreamClient.captured_request is not None
+        self.assertEqual(
+            FakeUpstreamClient.captured_request["url"],
+            "http://127.0.0.1:8003/api/v1/bookings",
+        )
+
+        FakeUpstreamClient.captured_request = None
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            payment = self.client.get("/api/v1/payments")
+        self.assertEqual(payment.status_code, 200)
+        assert FakeUpstreamClient.captured_request is not None
+        self.assertEqual(
+            FakeUpstreamClient.captured_request["url"],
+            "http://127.0.0.1:8004/api/v1/payments",
         )
 
     def test_gateway_routes_time_slots_and_does_not_expose_internal_contract(self):

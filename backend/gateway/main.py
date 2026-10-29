@@ -42,7 +42,7 @@ app.add_middleware(
     allow_origins=get_allowed_origins(),
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Accept", "Authorization", "Content-Type"],
+    allow_headers=["Accept", "Authorization", "Content-Type", "Idempotency-Key"],
 )
 
 SERVICE_URLS = {
@@ -118,7 +118,7 @@ async def proxy(path: str, request: Request):
 
     headers = {
         name: request.headers[name]
-        for name in ("authorization", "content-type", "accept")
+        for name in ("authorization", "content-type", "accept", "idempotency-key")
         if name in request.headers
     }
 
