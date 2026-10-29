@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
+from fastapi import HTTPException, status
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -14,6 +17,11 @@ Base = declarative_base()
 
 
 def get_db():
+    if engine is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Booking database is not configured",
+        )
     db = SessionLocal()
     try:
         yield db

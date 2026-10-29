@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.routes import router
 
 app = FastAPI(title="Booking Service")
+app.include_router(router, prefix="/api/v1")
 
 
 @app.get("/health")

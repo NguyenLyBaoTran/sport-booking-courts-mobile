@@ -1,0 +1,60 @@
+@startuml Authentication_Sequence
+
+title Authentication Sequence Diagram
+
+hide footbox
+autonumber
+
+<style>
+participant {
+    Padding 35
+}
+</style>
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam sequence {
+    ArrowColor #475569
+    LifeLineBorderColor #94A3B8
+    LifeLineBackgroundColor white
+    ParticipantBorderColor #64748B
+    ParticipantBackgroundColor #EAF2F8
+    ParticipantFontColor #1E293B
+    ActorBorderColor #64748B
+    ActorFontColor #1E293B
+    GroupBorderColor #CBD5E1
+    GroupBackgroundColor white
+}
+
+actor User
+participant "Login UI" as UI
+participant "Auth API" as API
+database "Database" as DB
+
+User -> UI: Enter email and password
+User -> UI: Click Login
+
+UI -> API: POST /api/v1/auth/login
+activate API
+
+API -> DB: Find user by email
+activate DB
+DB --> API: Return user record
+deactivate DB
+
+API -> API: Verify password hash
+API -> API: Check account status
+
+alt Login successful
+    API -> API: Generate JWT
+    API --> UI: 200 OK - JWT and user info
+    UI --> User: Display home screen by role
+else Login failed
+    API --> UI: 401 Unauthorized
+    UI --> User: Display login error
+end
+
+deactivate API
+
+@enduml
