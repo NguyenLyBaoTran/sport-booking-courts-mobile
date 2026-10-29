@@ -1,14 +1,17 @@
+from __future__ import annotations
+
 import secrets
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
+from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app import integrations
-from app.auth import Principal, current_principal, require_customer, require_internal_token
+from app.auth import Principal, current_principal, require_customer, require_internal_token, require_owner
 from app.database import get_db
 from app.models import Booking
 from app.schemas import (
@@ -16,6 +19,8 @@ from app.schemas import (
     BookingCompletion,
     BookingCreate,
     BookingResponse,
+    OwnerBookingCompletionResponse,
+    OwnerBookingResponse,
     PaymentContext,
 )
 
@@ -43,6 +48,65 @@ def _owned_booking(db: Session, booking_id: int, principal: Principal) -> Bookin
         raise HTTPException(status_code=404, detail="Booking not found")
     _expire_if_needed(booking, db)
     return booking
+
+
+def _complete_booking(db: Session, booking_id: int, owner_id: int) -> dict:
+    booking = db.scalar(select(Booking).where(Booking.id == booking_id).with_for_update())
+    if booking is None or booking.owner_id != owner_id:
+        raise HTTPException(status_code=404, detail="Booking not found for this owner")
+    if booking.status != "CHECKED_IN":
+        raise HTTPException(status_code=409, detail="Only checked-in bookings can be completed")
+    booking.status = "COMPLETED"
+    booking.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    return {
+        "booking_id": booking.id,
+        "status": booking.status,
+        "completed_at": booking.completed_at,
+    }
+
+
+@router.get("/owner/bookings", response_model=list[OwnerBookingResponse], tags=["owner"])
+def list_owner_bookings(
+    venue_id: Optional[int] = Query(default=None, gt=0),
+    slot_date: Optional[date] = Query(default=None, alias="date"),
+    booking_status: Optional[Literal["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "EXPIRED"]] = Query(default=None, alias="status"),
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+):
+    require_owner(principal)
+    query = select(Booking).where(Booking.owner_id == principal.user_id)
+    if venue_id is not None:
+        query = query.where(Booking.venue_id == venue_id)
+    if slot_date is not None:
+        query = query.where(Booking.slot_date == slot_date)
+    bookings = list(db.scalars(query.order_by(Booking.created_at.desc())))
+    if booking_status is not None:
+        return [booking for booking in bookings if booking.status == booking_status]
+    return bookings
+
+
+@router.get("/owner/bookings/{booking_id}", response_model=OwnerBookingResponse, tags=["owner"])
+def get_owner_booking(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+):
+    require_owner(principal)
+    booking = db.get(Booking, booking_id)
+    if booking is None or booking.owner_id != principal.user_id:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    return booking
+
+
+@router.post("/owner/bookings/{booking_id}/complete", response_model=OwnerBookingCompletionResponse, tags=["owner"])
+def complete_owner_booking(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+):
+    require_owner(principal)
+    return _complete_booking(db, booking_id, principal.user_id)
 
 
 @router.post(
@@ -160,7 +224,7 @@ def cancel_booking(
 @router.get("/internal/bookings/{booking_id}/payment-context", tags=["internal"])
 def payment_context(
     booking_id: int,
-    x_internal_token: str | None = Header(default=None),
+    x_internal_token: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     require_internal_token(x_internal_token)
@@ -184,7 +248,7 @@ def payment_context(
 @router.post("/internal/bookings/{booking_id}/confirm", tags=["internal"])
 def confirm_booking(
     booking_id: int,
-    x_internal_token: str | None = Header(default=None),
+    x_internal_token: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     require_internal_token(x_internal_token)
@@ -207,7 +271,7 @@ def confirm_booking(
 @router.post("/internal/bookings/check-in", tags=["internal"])
 def check_in_booking(
     payload: BookingCheckIn,
-    x_internal_token: str | None = Header(default=None),
+    x_internal_token: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     require_internal_token(x_internal_token)
@@ -233,28 +297,16 @@ def check_in_booking(
 def complete_booking(
     booking_id: int,
     payload: BookingCompletion,
-    x_internal_token: str | None = Header(default=None),
+    x_internal_token: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     require_internal_token(x_internal_token)
-    booking = db.scalar(select(Booking).where(Booking.id == booking_id).with_for_update())
-    if booking is None or booking.owner_id != payload.owner_id:
-        raise HTTPException(status_code=404, detail="Booking not found for this owner")
-    if booking.status != "CHECKED_IN":
-        raise HTTPException(status_code=409, detail="Only checked-in bookings can be completed")
-    booking.status = "COMPLETED"
-    booking.completed_at = datetime.now(timezone.utc)
-    db.commit()
-    return {
-        "booking_id": booking.id,
-        "status": booking.status,
-        "completed_at": booking.completed_at,
-    }
+    return _complete_booking(db, booking_id, payload.owner_id)
 
 
 @router.post("/internal/bookings/expire", tags=["internal"])
 def expire_bookings(
-    x_internal_token: str | None = Header(default=None),
+    x_internal_token: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ):
     require_internal_token(x_internal_token)

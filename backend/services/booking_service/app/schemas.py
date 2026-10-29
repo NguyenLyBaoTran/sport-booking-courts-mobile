@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from datetime import date, datetime, time
 from decimal import Decimal
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -23,9 +26,34 @@ class BookingResponse(BaseModel):
     end_time: time
     status: str
     total_amount: Decimal
-    expires_at: datetime | None
-    qr_token: str | None
+    expires_at: Optional[datetime]
+    qr_token: Optional[str]
     created_at: datetime
+
+
+class OwnerBookingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    time_slot_id: int
+    court_id: int
+    venue_id: int
+    slot_date: date
+    start_time: time
+    end_time: time
+    status: str
+    total_amount: Decimal
+    expires_at: Optional[datetime]
+    checked_in_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    created_at: datetime
+
+
+class OwnerBookingCompletionResponse(BaseModel):
+    booking_id: int
+    status: str
+    completed_at: datetime
 
 
 class PaymentContext(BaseModel):
@@ -33,7 +61,7 @@ class PaymentContext(BaseModel):
     user_id: int
     status: str
     total_amount: Decimal
-    expires_at: datetime | None
+    expires_at: Optional[datetime]
 
 
 class BookingCheckIn(BaseModel):

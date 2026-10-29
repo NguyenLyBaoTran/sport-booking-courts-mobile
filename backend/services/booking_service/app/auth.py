@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -15,7 +18,7 @@ class Principal:
 
 
 def current_principal(
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> Principal:
     secret = os.getenv("JWT_SECRET_KEY", "").strip()
     if not secret or credentials is None:
@@ -38,7 +41,7 @@ def current_principal(
     return principal
 
 
-def require_internal_token(token: str | None) -> None:
+def require_internal_token(token: Optional[str]) -> None:
     expected = os.getenv("INTERNAL_SERVICE_TOKEN", "").strip()
     if not expected or token != expected:
         raise HTTPException(status_code=403, detail="Internal service access required")
@@ -47,3 +50,8 @@ def require_internal_token(token: str | None) -> None:
 def require_customer(principal: Principal) -> None:
     if principal.role != "USER":
         raise HTTPException(status_code=403, detail="Customer account required")
+
+
+def require_owner(principal: Principal) -> None:
+    if principal.role != "OWNER":
+        raise HTTPException(status_code=403, detail="Owner account required")

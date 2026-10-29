@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError

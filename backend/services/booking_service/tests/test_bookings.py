@@ -1,5 +1,5 @@
 from collections.abc import Generator
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -296,3 +296,195 @@ def test_expiration_releases_slot(client: TestClient, monkeypatch: pytest.Monkey
     )
     assert expired_booking.status_code == 200
     assert expired_booking.json()["status"] == "EXPIRED"
+
+
+def test_owner_booking_list_scope_filters_and_projection(client: TestClient) -> None:
+    with app.state.test_session() as db:
+        own = Booking(
+            user_id=1, time_slot_id=10, court_id=4, venue_id=12, owner_id=22,
+            slot_date=date(2026, 10, 29), start_time=time(18, 0), end_time=time(19, 0),
+            status="CONFIRMED", total_amount=Decimal("180.00"), qr_token="q" * 32,
+        )
+        foreign = Booking(
+            user_id=2, time_slot_id=11, court_id=5, venue_id=12, owner_id=23,
+            slot_date=date(2026, 10, 29), start_time=time(19, 0), end_time=time(20, 0),
+            status="CONFIRMED", total_amount=Decimal("200.00"), qr_token="r" * 32,
+        )
+        db.add_all([own, foreign])
+        db.commit()
+        own_id = own.id
+
+    response = client.get(
+        "/api/v1/owner/bookings?venue_id=12&date=2026-10-29&status=CONFIRMED",
+        headers={"Authorization": f"Bearer {_token(22, 'OWNER')}"},
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+    assert response.json()[0]["id"] == own_id
+    assert "qr_token" not in response.json()[0]
+
+
+def test_owner_booking_detail_role_and_scope(client: TestClient) -> None:
+    with app.state.test_session() as db:
+        own = Booking(
+            user_id=1, time_slot_id=10, court_id=4, venue_id=12, owner_id=22,
+            slot_date=date(2026, 10, 29), start_time=time(18, 0), end_time=time(19, 0),
+            status="CONFIRMED", total_amount=Decimal("180.00"), qr_token="q" * 32,
+        )
+        foreign = Booking(
+            user_id=2, time_slot_id=11, court_id=5, venue_id=13, owner_id=23,
+            slot_date=date(2026, 10, 29), start_time=time(19, 0), end_time=time(20, 0),
+            status="CONFIRMED", total_amount=Decimal("200.00"), qr_token="r" * 32,
+        )
+        db.add_all([own, foreign])
+        db.commit()
+        own_id, foreign_id = own.id, foreign.id
+
+    owner_headers = {"Authorization": f"Bearer {_token(22, 'OWNER')}"}
+    detail = client.get(f"/api/v1/owner/bookings/{own_id}", headers=owner_headers)
+    foreign_detail = client.get(f"/api/v1/owner/bookings/{foreign_id}", headers=owner_headers)
+
+    assert detail.status_code == 200
+    assert "qr_token" not in detail.json()
+    assert foreign_detail.status_code == 404
+    assert client.get("/api/v1/owner/bookings", headers={}).status_code == 401
+    assert client.get(
+        "/api/v1/owner/bookings",
+        headers={"Authorization": f"Bearer {_token(22, 'USER')}"},
+    ).status_code == 403
+
+
+def test_owner_booking_filters_reject_invalid_values(client: TestClient) -> None:
+    headers = {"Authorization": f"Bearer {_token(22, 'OWNER')}"}
+    assert client.get("/api/v1/owner/bookings?status=UNKNOWN", headers=headers).status_code == 422
+    assert client.get("/api/v1/owner/bookings?date=not-a-date", headers=headers).status_code == 422
+    assert client.get("/api/v1/owner/bookings?venue_id=0", headers=headers).status_code == 422
+
+
+def test_public_owner_completion_reuses_state_rules(client: TestClient) -> None:
+    with app.state.test_session() as db:
+        own = Booking(
+            user_id=1, time_slot_id=10, court_id=4, venue_id=12, owner_id=22,
+            slot_date=date(2026, 10, 29), start_time=time(18, 0), end_time=time(19, 0),
+            status="CHECKED_IN", total_amount=Decimal("180.00"),
+        )
+        foreign = Booking(
+            user_id=2, time_slot_id=11, court_id=5, venue_id=13, owner_id=23,
+            slot_date=date(2026, 10, 29), start_time=time(19, 0), end_time=time(20, 0),
+            status="CHECKED_IN", total_amount=Decimal("200.00"),
+        )
+        db.add_all([own, foreign])
+        db.commit()
+        own_id, foreign_id = own.id, foreign.id
+
+    headers = {"Authorization": f"Bearer {_token(22, 'OWNER')}"}
+    completed = client.post(f"/api/v1/owner/bookings/{own_id}/complete", headers=headers)
+    repeated = client.post(f"/api/v1/owner/bookings/{own_id}/complete", headers=headers)
+    other_owner = client.post(f"/api/v1/owner/bookings/{foreign_id}/complete", headers=headers)
+
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "COMPLETED"
+    assert completed.json()["completed_at"]
+    assert repeated.status_code == 409
+    assert other_owner.status_code == 404
+
+
+def test_owner_gets_do_not_expire_or_release_bookings(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    released: list[tuple[int, int]] = []
+    monkeypatch.setattr(
+        "app.routes.integrations.release_slot",
+        lambda slot_id, booking_id: released.append((slot_id, booking_id)) or {},
+    )
+    with app.state.test_session() as db:
+        booking = Booking(
+            user_id=1, time_slot_id=10, court_id=4, venue_id=12, owner_id=22,
+            slot_date=date(2026, 10, 29), start_time=time(18, 0), end_time=time(19, 0),
+            status="PENDING", total_amount=Decimal("180.00"),
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+        )
+        db.add(booking)
+        db.commit()
+        booking_id = booking.id
+
+    headers = {"Authorization": f"Bearer {_token(22, 'OWNER')}"}
+    listed = client.get("/api/v1/owner/bookings?status=PENDING", headers=headers)
+    detailed = client.get(f"/api/v1/owner/bookings/{booking_id}", headers=headers)
+
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+    assert listed.json()[0]["status"] == "PENDING"
+    assert detailed.status_code == 200
+    assert detailed.json()["status"] == "PENDING"
+    assert released == []
+    with app.state.test_session() as db:
+        assert db.get(Booking, booking_id).status == "PENDING"
+
+
+def test_public_owner_completion_rejects_other_invalid_state(client: TestClient) -> None:
+    with app.state.test_session() as db:
+        booking = Booking(
+            user_id=1, time_slot_id=10, court_id=4, venue_id=12, owner_id=22,
+            slot_date=date(2026, 10, 29), start_time=time(18, 0), end_time=time(19, 0),
+            status="CONFIRMED", total_amount=Decimal("180.00"),
+        )
+        db.add(booking)
+        db.commit()
+        booking_id = booking.id
+
+    response = client.post(
+        f"/api/v1/owner/bookings/{booking_id}/complete",
+        headers={"Authorization": f"Bearer {_token(22, 'OWNER')}"},
+    )
+
+    assert response.status_code == 409
+
+
+def test_owner_auth_rejects_expired_admin_and_missing_jwt(client: TestClient) -> None:
+    expired = jwt.encode(
+        {
+            "sub": "22",
+            "role": "OWNER",
+            "iat": datetime.now(timezone.utc) - timedelta(minutes=20),
+            "exp": datetime.now(timezone.utc) - timedelta(minutes=10),
+        },
+        SECRET,
+        algorithm="HS256",
+    )
+
+    assert client.get(
+        "/api/v1/owner/bookings",
+        headers={"Authorization": f"Bearer {expired}"},
+    ).status_code == 401
+    assert client.get(
+        "/api/v1/owner/bookings",
+        headers={"Authorization": f"Bearer {_token(22, 'ADMIN')}"},
+    ).status_code == 403
+    assert client.get("/api/v1/owner/bookings/{booking_id}").status_code == 401
+
+
+def test_owner_venue_filter_outside_scope_returns_empty(client: TestClient) -> None:
+    with app.state.test_session() as db:
+        db.add(Booking(
+            user_id=1, time_slot_id=10, court_id=4, venue_id=12, owner_id=22,
+            slot_date=date(2026, 10, 29), start_time=time(18, 0), end_time=time(19, 0),
+            status="CONFIRMED", total_amount=Decimal("180.00"),
+        ))
+        db.commit()
+
+    response = client.get(
+        "/api/v1/owner/bookings?venue_id=999",
+        headers={"Authorization": f"Bearer {_token(22, 'OWNER')}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_owner_completion_missing_booking_returns_404(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/owner/bookings/999999/complete",
+        headers={"Authorization": f"Bearer {_token(22, 'OWNER')}"},
+    )
+
+    assert response.status_code == 404

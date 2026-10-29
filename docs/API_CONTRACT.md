@@ -36,6 +36,9 @@ JWT ký HS256, claims `sub` (user ID dạng chuỗi), `role`, `iat`, `exp`.
 | GET | `/bookings` | USER | Danh sách booking của chính user |
 | GET | `/bookings/{booking_id}` | USER | Chi tiết booking của chính user |
 | POST | `/bookings/{booking_id}/cancel` | USER | Hủy booking PENDING |
+| GET | `/owner/bookings` | OWNER | Danh sách booking thuộc owner, hỗ trợ filter `venue_id`, `date`, `status` |
+| GET | `/owner/bookings/{booking_id}` | OWNER | Chi tiết booking thuộc owner |
+| POST | `/owner/bookings/{booking_id}/complete` | OWNER | Chuyển CHECKED_IN sang COMPLETED |
 
 Create body:
 
@@ -55,6 +58,12 @@ Iteration 1; các trạng thái khác trả `409`.
 Booking hết hạn được chuyển thành EXPIRED và slot được release khi đọc booking đã
 hết hạn hoặc khi job nội bộ gọi endpoint expire. Scheduler cần gọi endpoint expire
 định kỳ để cập nhật các booking không được người dùng đọc lại.
+
+Owner list/detail chỉ trả booking có `owner_id` khớp JWT `sub`; kết quả không chứa
+`qr_token`. Owner list nhận filter tùy chọn `venue_id` nguyên dương, `date` theo
+định dạng `YYYY-MM-DD`, và `status` thuộc danh sách trạng thái hợp lệ. Detail và
+booking của owner khác trả `404`. Public completion chỉ cho phép trạng thái
+`CHECKED_IN`; trạng thái khác hoặc complete lặp lại trả `409`.
 
 ## Mock Payment
 
