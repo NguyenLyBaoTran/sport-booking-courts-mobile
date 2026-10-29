@@ -113,3 +113,12 @@ class TimeSlotOutput(BaseModel):
     start_time: time
     end_time: time
     is_active: bool
+
+
+class OwnerCheckInInput(InputModel):
+    qr_token: str = Field(min_length=32, max_length=128)
+
+    @field_validator("qr_token", mode="before")
+    @classmethod
+    def trim_qr_token(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value

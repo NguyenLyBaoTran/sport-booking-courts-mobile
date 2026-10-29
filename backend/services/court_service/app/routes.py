@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.booking_integration import check_in_booking
 from app.database import get_db
 from app.models import Court, Sport, TimeSlot, Venue
 from app.security import JWTConfigurationError, JWTError, Principal, decode_access_token
@@ -19,6 +20,7 @@ from app.schemas import (
     SportOutput,
     TimeSlotInput,
     TimeSlotOutput,
+    OwnerCheckInInput,
     VenueInput,
     VenueOutput,
 )
@@ -66,6 +68,12 @@ def require_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin role required",
         )
+    return principal
+
+
+def require_owner(principal: Principal = Depends(get_current_principal)) -> Principal:
+    if principal.role != "OWNER":
+        raise HTTPException(status_code=403, detail="Owner role required")
     return principal
 
 
@@ -421,6 +429,14 @@ def list_time_slots(
 @router.get("/time-slots/{slot_id}", response_model=TimeSlotOutput)
 def read_time_slot(slot_id: int, db: Session = Depends(get_db)):
     return get_or_404(db, TimeSlot, slot_id, "Time slot")
+
+
+@router.post("/owner/checkins", tags=["owner"])
+async def owner_check_in(
+    payload: OwnerCheckInInput,
+    principal: Principal = Depends(require_owner),
+):
+    return await check_in_booking(principal.user_id, payload.qr_token)
 
 
 def validate_slot_court(db: Session, court_id: int, principal: Principal) -> None:
