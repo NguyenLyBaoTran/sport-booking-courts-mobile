@@ -58,6 +58,7 @@
     ["admin-dashboard", "Dashboard", "bi-grid-1x2"],
     ["people", "Users & Owners", "bi-people"],
     ["admin-venues", "Venues & Courts", "bi-buildings"],
+    ["admin-schedule", "Time Slots", "bi-calendar3"],
     ["admin-bookings", "Bookings", "bi-journal-check"],
     ["checkins", "Check-ins", "bi-qr-code"],
     ["admin-profile", "Profile", "bi-person-circle"]
@@ -73,6 +74,7 @@
     "admin-dashboard": ["System overview", "Admin Dashboard", "Live Court Service catalogue; Booking and revenue APIs are not connected."],
     people: ["Directory", "Users & Court Owners", "Review customer and court owner accounts."],
     "admin-venues": ["Platform registry", "Venue & Court", "Review the sports, venue, and court catalogue."],
+    "admin-schedule": ["Platform operations", "Time Slot Management", "Manage Court Service time slots across all venues."],
     "admin-bookings": ["Platform activity", "Global Bookings", "Search and monitor bookings across all venues."],
     checkins: ["Platform activity", "Check-in Management", "Review recent booking check-ins."],
     "admin-profile": ["Account settings", "Admin Profile", "Manage your administrator account details."]
@@ -133,10 +135,10 @@
   }
   function modeToolbar() {
     var demo = dataMode === "demo";
-    var adminRegistry = currentRoute() === "admin-dashboard" || currentRoute() === "admin-venues";
+    var adminRegistry = currentRoute() === "admin-dashboard" || currentRoute() === "admin-venues" || currentRoute() === "admin-schedule";
     var message = demo
-      ? (adminRegistry ? "Fictional Court catalogue in memory. Admin registry is read-only; reload restores starter data." : "Changes stay in this browser tab memory and reset when the page is reloaded. No API request is sent.")
-      : (adminRegistry ? "Live Court Service data. ADMIN can manage Sports, Venues and Courts." : (authUser && authUser.role === "OWNER" ? "Live Court Service data. Venue, Court and Time Slot writes use your authenticated Owner account." : "Live Court Service catalogue."));
+      ? (adminRegistry && currentRoute() !== "admin-schedule" ? "Fictional Court catalogue in memory. Admin registry is read-only; reload restores starter data." : "Changes stay in this browser tab memory and reset when the page is reloaded. No API request is sent.")
+      : (adminRegistry ? "Live Court Service data. ADMIN can manage Sports, Venues, Courts and Time Slots." : (authUser && authUser.role === "OWNER" ? "Live Court Service data. Venue, Court and Time Slot writes use your authenticated Owner account." : "Live Court Service catalogue."));
     return '<section class="court-mode-bar" aria-label="Court data mode"><div><strong>' +
       (demo ? "Demo Mode" : "API Mode") + '</strong><small>' + message +
       '</small></div><label class="small mb-0" for="court-data-mode">Data mode</label><select id="court-data-mode" class="form-select" aria-label="Select data mode"><option value="api" ' +
@@ -467,7 +469,7 @@
     return '<button type="button" class="btn btn-sm ' + (style || "btn-outline-secondary") + '" data-crud-open="' + esc(resource) + '" data-crud-id="' + esc(id === undefined ? "" : id) + '">' + esc(label) + "</button>";
   }
   function crudDeleteButton(resource, id) {
-    var enabled = dataMode === "demo" || (authUser && authUser.role === "OWNER" && resource !== "sports");
+    var enabled = dataMode === "demo" || (authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts", "slots"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports")));
     return '<button type="button" class="btn btn-sm btn-outline-danger" data-crud-delete="' + esc(resource) + '" data-crud-id="' + esc(id) + '" ' + (!enabled ? 'disabled title="This action is not available for this account"' : "") + '>Delete</button>';
   }
   function formInput(label, name, value, type, attributes, full) {
@@ -544,7 +546,7 @@
     if (dataMode === "api" && resource === "slots" && resources.courts.status === "loaded" && !resources.courts.data.length) {
       prerequisiteNotice = '<div class="crud-field-full alert alert-warning py-2 small" role="status">No Courts are available. Create a Venue and Court with an existing Sport before adding Time Slots.</div>';
     }
-    var apiWritable = dataMode === "api" && authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports"));
+    var apiWritable = dataMode === "api" && authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts", "slots"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports"));
     var canSave = dataMode === "demo" || apiWritable;
     var save = dataMode === "demo"
       ? '<button type="submit" class="btn btn-success">Save in Demo Mode</button>'
@@ -1117,12 +1119,12 @@
       modeNotice + stats("court-registry", [sportCount, venueCount, courtCount, activeVenueCount], dataMode !== "demo") + registryErrors + tabMarkup +
       '<section class="panel-card registry-panel" id="registry-panel" role="tabpanel" aria-labelledby="registry-tab-' + registryTab + '"><div class="panel-head"><div><h2>' + (registryTab === "sports" ? "Sports" : registryTab === "venues" ? "Venues" : "Courts") + '</h2><p>' + stateText + '</p></div></div>' + controls + form + '<div class="registry-content">' + content + '</div><div class="registry-empty alert alert-light" data-registry-empty hidden>No records match these filters.</div></section>';
   }
-  function schedulePage() {
+  function schedulePage(adminView) {
     var resources = currentResources(true);
     var courts = resources.courts;
     var venues = resources.venues;
     var slotsState = dataMode === "demo" ? resources.slots : scheduleState;
-    var canManageApi = dataMode === "api" && authUser && authUser.role === "OWNER" && window.CourtApi.hasAccessToken();
+    var canManageApi = dataMode === "api" && authUser && (authUser.role === "OWNER" || (adminView && authUser.role === "ADMIN")) && window.CourtApi.hasAccessToken();
     var rows = "";
     var statusBlock = "";
     if (slotsState.status === "loading" || slotsState.status === "idle") statusBlock = '<div class="panel-body">Loading time slots...</div>';
@@ -1139,7 +1141,7 @@
           sportName: sport && sport.name
         }, scheduleFilters);
       });
-      if (!visibleSlots.length) statusBlock = '<div class="panel-body text-secondary">No time slots match this filter. The active flag does not indicate booking availability.</div>';
+      if (!visibleSlots.length) statusBlock = '<div class="panel-body text-secondary" role="status">' + (slotsState.data.length ? "No time slots match this filter." : "No time slots are available yet. Add one after a Court is configured.") + ' The active flag does not indicate booking availability.</div>';
       else {
         rows = visibleSlots.map(function (slot) {
           var court = courts.data.find(function (item) { return item.id === slot.court_id; });
@@ -1165,10 +1167,10 @@
     var refreshing = dataMode !== "demo" && slotsState.status === "loading";
     var scheduleActions = '<div class="page-heading-actions schedule-heading-actions"><button class="btn btn-outline-secondary" type="button" data-schedule-retry ' + (refreshing ? 'disabled aria-busy="true"' : '') + '><i class="bi bi-arrow-clockwise me-1"></i>' + (refreshing ? "Loading..." : "Refresh") + '</button>' +
       ((dataMode === "demo" || canManageApi) ? crudOpenButton("slots", null, "Add time slot", "btn-success") : "") + '</div>';
-    return relationErrors + heading("schedule", scheduleActions) + pendingWriteNotice() +
+    return relationErrors + heading(adminView ? "admin-schedule" : "schedule", scheduleActions) + pendingWriteNotice() +
       stats("court-overview", [resources.sports.status === "loaded" ? resources.sports.data.length : "?", venues.status === "loaded" ? venues.data.length : "?", courts.status === "loaded" ? courts.data.length : "?", activeSlots], true) +
       '<p class="small text-secondary mt-2">Time is displayed in local wall-clock format from the API. No timezone conversion is applied.</p>' +
-      panel("Court schedule",
+      panel(adminView ? "Time slots" : "Court schedule",
         '<div class="toolbar schedule-toolbar"><input class="form-control schedule-search" type="search" data-schedule-search data-focus-key="schedule-search" value="' + esc(scheduleFilters.search) + '" placeholder="Search venue, court, sport, time, or date (e.g. 23/10)" aria-label="Search schedule details or a date">' +
         calendarPickerMarkup("schedule-filter", "Filter date", scheduleFilters.date) +
         '<select class="form-select" data-schedule-venue data-focus-key="schedule-venue" aria-label="Filter by venue"><option value="">All venues</option>' + venueOptions + '</select>' +
@@ -1389,7 +1391,7 @@
   function pageFor(active) {
     if (active === "dashboard" || active === "admin-dashboard") return dashboard(active);
     if (active === "venues" || active === "admin-venues") return venuePage(active, active === "admin-venues");
-    if (active === "schedule") return schedulePage();
+    if (active === "schedule" || active === "admin-schedule") return schedulePage(active === "admin-schedule");
     if (active === "owner-bookings") return bookingPage(active, false);
     if (active === "admin-bookings") return bookingPage(active, true);
     if (active === "qr-checkin") return checkinPage(active, false);
@@ -1535,7 +1537,7 @@
   function apiErrorText(error) {
     if (error.status === 401) return "Your session expired. Sign in again.";
     if (error.status === 403) return "You do not have permission to change this record.";
-    if (error.status === 409) return "This change conflicts with existing Court Service data.";
+    if (error.status === 409) return "Court Service rejected this conflicting change. A slot with an active HOLD or booking cannot be edited or deactivated; other conflicts may be overlaps or constraints.";
     if (error.status === 422) return "Please check the form: " + error.message;
     if (error.status === 503) return "Court Service is temporarily unavailable or this operation is not enabled.";
     return error.message || "Court Service request failed.";
@@ -1545,7 +1547,7 @@
   }
   function saveApiRecord(form) {
     var resource = form.dataset.crudResource;
-    var allowed = authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports"));
+    var allowed = authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts", "slots"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports"));
     if (!allowed) {
       toast("This Court Service write is not available for the current role.");
       return;
@@ -1570,7 +1572,7 @@
   }
   function deactivateDemoRecord(resource, id) {
     if (dataMode !== "demo") {
-      var allowed = authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports"));
+      var allowed = authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts", "slots"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports"));
       if (!allowed) {
         toast("This Court Service write is not available for the current role.");
         return;
@@ -1838,11 +1840,11 @@
     var content = pageFor(active);
     var ownerCourtScreens = ["dashboard", "venues", "schedule"];
     if (!admin && (ownerCourtScreens.indexOf(active) >= 0 || active === "owner-bookings" || active === "qr-checkin")) content = modeToolbar() + content;
-    if (admin && ["admin-dashboard", "admin-venues"].indexOf(active) >= 0) content = modeToolbar() + content;
+    if (admin && ["admin-dashboard", "admin-venues", "admin-schedule"].indexOf(active) >= 0) content = modeToolbar() + content;
     renderShell(content, admin, active);
     wireActions();
     if (active === "venues" || active === "admin-venues") applyRegistryFilters();
-    var courtScreens = ["dashboard", "admin-dashboard", "venues", "admin-venues", "schedule"];
+    var courtScreens = ["dashboard", "admin-dashboard", "venues", "admin-venues", "schedule", "admin-schedule"];
     if (active === "qr-checkin" && dataMode === "demo" && !window.Html5Qrcode) {
       window.addEventListener("load", function () { updateScannerState(); }, { once: true });
     }
