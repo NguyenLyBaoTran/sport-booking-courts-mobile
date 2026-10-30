@@ -1,0 +1,49 @@
+Project court_service_erd {
+  database_type: "MySQL"
+  Note: "Court Service owns these four tables in sports_court_db. venues.owner_id logically references a User Service user, and bookings in Booking Service logically reference time_slots.id. Neither reference is a cross-database foreign key."
+}
+
+Table sports {
+  id int [pk, increment]
+  name varchar(100) [not null, unique]
+  description text
+  is_active boolean [not null, default: true]
+}
+
+Table venues {
+  id int [pk, increment]
+  owner_id int [not null, note: "Logical reference to a User Service user; no physical foreign key"]
+  name varchar(200) [not null]
+  address varchar(255) [not null]
+  description text
+  phone varchar(20)
+  is_active boolean [not null, default: true]
+  created_at datetime [not null]
+}
+
+Table courts {
+  id int [pk, increment]
+  venue_id int [not null]
+  sport_id int [not null]
+  name varchar(100) [not null]
+  description text
+  price_per_hour decimal(12,2) [not null]
+  is_active boolean [not null, default: true]
+}
+
+Table time_slots {
+  id int [pk, increment, note: "Stable ID referenced logically by Booking Service"]
+  court_id int [not null]
+  slot_date date [not null]
+  start_time time [not null]
+  end_time time [not null]
+  is_active boolean [not null, default: true]
+
+  indexes {
+    (court_id, slot_date, start_time, end_time) [unique]
+  }
+}
+
+Ref: courts.venue_id > venues.id
+Ref: courts.sport_id > sports.id
+Ref: time_slots.court_id > courts.id

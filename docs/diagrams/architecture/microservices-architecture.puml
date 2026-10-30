@@ -1,0 +1,44 @@
+@startuml
+left to right direction
+skinparam componentStyle rectangle
+
+actor "Customer" as customer
+actor "Owner / Admin" as owner
+component "Android Customer App" as android
+component "Owner/Admin Management Web" as web
+component "API Gateway\n:8000" as gateway
+
+component "User Service\n:8001" as user_service
+component "Court Service\n:8002" as court_service
+component "Booking Service\n:8003" as booking_service
+component "Payment Service\n:8004" as payment_service
+
+database "sports_user_db" as user_db
+database "sports_court_db\n(sports, venues, courts, time_slots)" as court_db
+database "sports_booking_db" as booking_db
+database "sports_payment_db" as payment_db
+
+customer --> android
+owner --> web
+android --> gateway : REST API
+web --> gateway : REST API
+
+gateway --> user_service
+gateway --> court_service
+gateway --> booking_service
+gateway --> payment_service
+
+user_service --> user_db
+court_service --> court_db
+booking_service --> booking_db
+payment_service --> payment_db
+
+note right of court_service
+  venues.owner_id refers logically
+  to a user owned by User Service.
+  Booking Service refers logically
+  to time_slots.id.
+  No cross-database foreign keys.
+end note
+
+@enduml
