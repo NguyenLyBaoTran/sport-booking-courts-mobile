@@ -130,6 +130,30 @@ class CourtAuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"service": "court", "status": "ok"})
 
+    def test_admin_catalogue_summary_is_aggregate_and_admin_only(self):
+        url = "/api/v1/admin/catalogue/summary"
+        self.assertEqual(self.client.get(url).status_code, 401)
+        self.assertEqual(
+            self.client.get(url, headers=self._headers(role="OWNER")).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.get(url, headers=self._headers(role="USER")).status_code,
+            403,
+        )
+
+        response = self.client.get(url, headers=self._headers(role="ADMIN", user_id=3))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(
+            response.json(),
+            {
+                "sports": {"total": 1, "active": 1},
+                "venues": {"total": 2, "active": 2},
+                "courts": {"total": 3, "active": 3},
+                "time_slots": {"total": 1, "active": 1},
+            },
+        )
+
     def _headers(self, role="OWNER", user_id=10, token=None):
         return {"Authorization": f"Bearer {token or make_token(role, user_id)}"}
 

@@ -13,29 +13,46 @@ function section(startText, endText) {
   return source.slice(start, end);
 }
 
-test("API Mode does not present Admin booking or check-in mocks as live data", () => {
+test("Admin API Mode uses paginated read-only booking and check-in endpoints without Demo fallback", () => {
   const bookings = section("  function bookingPage(active, admin)", "  function filteredDemoBookings()");
   const checkins = section("  function checkinPage(active, admin)", "  function checkDemoQr(");
 
-  assert.match(bookings, /if \(dataMode !== "demo"\)[\s\S]*System-wide booking management is not available yet/);
+  assert.match(source, /kind === "bookings" \? window\.AdminManagementApi\.listBookings/);
+  assert.match(bookings, /data-admin-booking-detail/);
+  assert.match(bookings, /System-wide booking records · read-only/);
+  assert.doesNotMatch(bookings, /booking\.qr_token/);
   assert.match(bookings, /var adminRows = bookingRows\(true\)/);
-  assert.match(checkins, /if \(dataMode !== "demo"\)[\s\S]*System-wide check-in history is not available yet/);
+  assert.match(source, /window\.AdminManagementApi\.listCheckins/);
+  assert.match(checkins, /History recorded on bookings · read-only/);
   assert.match(checkins, /var adminRows = data\.checkins/);
 });
 
 test("API Mode Admin dashboard marks unavailable summaries without sample totals", () => {
   const dashboard = section("  function dashboard(active)", "  function anyAdminDataError(resources)");
 
-  assert.match(dashboard, /\["—", "—", "—", "—"\]/);
+  assert.match(dashboard, /\["—", adminCatalogueSummary\.data \? adminCatalogueSummary\.data\.venues\.total/);
   assert.match(dashboard, /Account and booking summaries are not available yet/);
   assert.match(dashboard, /dataMode === "demo" \? '<p class="text-secondary small">Sample totals/);
+  assert.match(dashboard, /Loading catalogue summary/);
+  assert.match(dashboard, /summary\.time_slots\.total/);
 });
 
-test("API Mode Admin Users and Owner Revenue show unavailable states while Demo remains available", () => {
+test("Admin catalogue summary is loaded from the Admin-only aggregate endpoint", () => {
+  const loader = section("  function loadAdminCatalogueSummary(force)", "  function refreshSchedule()");
+
+  assert.match(loader, /authUser\.role !== "ADMIN"/);
+  assert.match(loader, /\/api\/v1\/admin\/catalogue\/summary/);
+  assert.match(loader, /adminCatalogueSummary = \{ status: "loaded", data: summary/);
+  assert.match(loader, /The catalogue summary response is invalid/);
+});
+
+test("Admin Users API Mode uses account APIs while Demo and unavailable Revenue remain separate", () => {
   const people = section("  function peoplePage()", "  function profilePage(");
   const revenue = section("  function revenuePage()", "  function peoplePage()");
 
-  assert.match(people, /if \(dataMode !== "demo"\)[\s\S]*Account management is not available yet/);
+  assert.match(source, /window\.AdminManagementApi\.listUsers/);
+  assert.match(source, /window\.AdminManagementApi\.setUserActive/);
+  assert.match(people, /You cannot change your own account status/);
   assert.match(people, /var rows = data\.people/);
   assert.match(revenue, /if \(dataMode !== "demo"\)[\s\S]*Revenue information is not available yet/);
   assert.match(revenue, /var values = \[42, 61/);

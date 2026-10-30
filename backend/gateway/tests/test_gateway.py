@@ -289,6 +289,40 @@ class GatewayTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 404)
                 self.assertIsNone(FakeUpstreamClient.captured_request)
 
+    def test_admin_catalogue_summary_routes_to_court_and_forwards_authorization(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.get(
+                "/api/v1/admin/catalogue/summary",
+                headers={"Authorization": "Bearer admin-token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        assert FakeUpstreamClient.captured_request is not None
+        self.assertEqual(
+            FakeUpstreamClient.captured_request["url"],
+            "http://127.0.0.1:8002/api/v1/admin/catalogue/summary",
+        )
+        self.assertEqual(
+            FakeUpstreamClient.captured_request["headers"]["authorization"],
+            "Bearer admin-token",
+        )
+
+    def test_admin_prefixes_route_only_to_their_owning_services(self):
+        cases = (
+            ("/api/v1/admin/users?page=2", "http://127.0.0.1:8001/api/v1/admin/users?page=2"),
+            ("/api/v1/admin/bookings/42", "http://127.0.0.1:8003/api/v1/admin/bookings/42"),
+            ("/api/v1/admin/checkins?status=CHECKED_IN", "http://127.0.0.1:8003/api/v1/admin/checkins?status=CHECKED_IN"),
+        )
+        for path, expected_url in cases:
+            with self.subTest(path=path):
+                FakeUpstreamClient.captured_request = None
+                with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+                    response = self.client.get(path, headers={"Authorization": "Bearer admin-token"})
+                self.assertEqual(response.status_code, 200)
+                assert FakeUpstreamClient.captured_request is not None
+                self.assertEqual(FakeUpstreamClient.captured_request["url"], expected_url)
+                self.assertEqual(FakeUpstreamClient.captured_request["headers"]["authorization"], "Bearer admin-token")
+
 
 if __name__ == "__main__":
     unittest.main()

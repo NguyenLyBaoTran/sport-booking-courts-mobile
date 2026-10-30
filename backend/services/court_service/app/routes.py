@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -226,6 +226,28 @@ def list_sports(is_active: bool | None = None, db: Session = Depends(get_db)):
     if is_active is not None:
         query = query.where(Sport.is_active == is_active)
     return db.scalars(query.order_by(Sport.id)).all()
+
+
+@router.get("/admin/catalogue/summary", dependencies=[Depends(require_admin)], tags=["admin"])
+def admin_catalogue_summary(db: Session = Depends(get_db)):
+    """Return aggregate catalogue counts without loading every catalogue row."""
+    def counts(model):
+        total = db.scalar(select(func.count()).select_from(model)) or 0
+        active = db.scalar(
+            select(func.count()).select_from(model).where(model.is_active.is_(True))
+        ) or 0
+        return {"total": total, "active": active}
+
+    try:
+        return {
+            "sports": counts(Sport),
+            "venues": counts(Venue),
+            "courts": counts(Court),
+            "time_slots": counts(TimeSlot),
+        }
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Catalogue summary is unavailable") from None
 
 
 @router.get("/sports/{sport_id}", response_model=SportOutput)

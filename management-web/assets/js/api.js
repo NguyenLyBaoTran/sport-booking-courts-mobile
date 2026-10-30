@@ -71,6 +71,7 @@
     get: function (path) { return request(path); },
     post: function (path, body, authenticated) { return request(path, { method: "POST", body: body, auth: authenticated !== false }); },
     put: function (path, body) { return request(path, { method: "PUT", body: body }); },
+    patch: function (path, body) { return request(path, { method: "PATCH", body: body }); },
     delete: function (path) { return request(path, { method: "DELETE" }); },
     login: function (email, password) {
       return request("/api/v1/auth/login", { method: "POST", body: { email: email, password: password }, auth: false });

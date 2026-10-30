@@ -39,6 +39,14 @@
   var scheduleState = { status: "idle", data: [], error: "" };
   var scheduleRefreshPromise = null;
   var courtLoadPromise = null;
+  var adminCatalogueSummary = { status: "idle", data: null, error: "" };
+  var adminCatalogueSummaryPromise = null;
+  var adminUsersState = { status: "idle", data: null, error: "", requestId: 0 };
+  var adminBookingsState = { status: "idle", data: null, error: "", requestId: 0 };
+  var adminCheckinsState = { status: "idle", data: null, error: "", requestId: 0 };
+  var adminUsersFilters = { page: 1, page_size: 25, q: "", role: "", is_active: "" };
+  var adminBookingsFilters = { page: 1, page_size: 25, booking_id: "", status: "", date_from: "", date_to: "", venue_id: "", court_id: "", owner_id: "", user_id: "" };
+  var adminCheckinsFilters = { page: 1, page_size: 25, booking_id: "", date_from: "", date_to: "", venue_id: "", court_id: "", checked_in_by: "" };
   var authUser = null;
   var demoRole = readDemoRole();
   var authRestorePromise = null;
@@ -85,7 +93,8 @@
   };
   var statSets = {
     dashboard: [["bi-calendar-check", "Today’s bookings"], ["bi-people", "Active customers"], ["bi-building", "My venues"], ["bi-currency-exchange", "Revenue this month"]],
-    "admin-dashboard": [["bi-people", "Users"], ["bi-buildings", "Owners"], ["bi-journal-check", "Bookings"], ["bi-currency-exchange", "Booking value"]],
+    "admin-dashboard": [["bi-people", "Users"], ["bi-buildings", "Venues"], ["bi-grid-3x3", "Courts"], ["bi-journal-check", "Bookings"]],
+    "admin-dashboard-demo": [["bi-people", "Users"], ["bi-buildings", "Owners"], ["bi-journal-check", "Bookings"], ["bi-currency-exchange", "Booking value"]],
     venues: [["bi-buildings", "My venues"], ["bi-grid-3x3", "Total courts"], ["bi-clock-history", "Available slots"], ["bi-check-circle", "Open venues"]],
     bookings: [["bi-journal-check", "Bookings today"], ["bi-currency-exchange", "Revenue today"], ["bi-check2-circle", "Checked in"], ["bi-hourglass-split", "Needs attention"]],
     revenue: [["bi-currency-exchange", "Revenue this month"], ["bi-graph-up-arrow", "Revenue this week"], ["bi-wallet2", "Pending payout"], ["bi-calendar2-check", "Paid out this month"]],
@@ -227,6 +236,70 @@
     });
     return courtLoadPromise;
   }
+  function loadAdminCatalogueSummary(force) {
+    if (dataMode !== "api" || !authUser || authUser.role !== "ADMIN") return Promise.resolve();
+    if (adminCatalogueSummaryPromise) return adminCatalogueSummaryPromise;
+    if (!force && adminCatalogueSummary.status !== "idle") return Promise.resolve();
+    adminCatalogueSummary = { status: "loading", data: adminCatalogueSummary.data, error: "" };
+    adminCatalogueSummaryPromise = window.CourtApi.get("/api/v1/admin/catalogue/summary").then(function (summary) {
+      ["sports", "venues", "courts", "time_slots"].forEach(function (key) {
+        if (!summary || !summary[key] || typeof summary[key].total !== "number" || typeof summary[key].active !== "number") {
+          throw new Error("The catalogue summary response is invalid.");
+        }
+      });
+      adminCatalogueSummary = { status: "loaded", data: summary, error: "" };
+    }).catch(function (error) {
+      adminCatalogueSummary = { status: "error", data: null, error: error.message || "Could not load catalogue summary." };
+    }).finally(function () {
+      adminCatalogueSummaryPromise = null;
+      if (currentRoute() === "admin-dashboard" && dataMode === "api") render();
+    });
+    return adminCatalogueSummaryPromise;
+  }
+  function adminApiErrorMessage(error) {
+    var status = error && error.status;
+    if (status === 401) return "Your session expired or you are not signed in. Sign in again.";
+    if (status === 403) return "This account does not have Admin permission.";
+    if (status === 404) return "The record was not found, or this Admin API is not deployed in the connected service yet.";
+    if (status === 409) return "The account status change conflicts with current Admin safeguards.";
+    if (status === 422) return "The filters or request are invalid.";
+    if (status === 503 || status === 504 || status === 0) return "The management service is temporarily unavailable. Try again.";
+    return "Could not load Admin data. Try again.";
+  }
+  function loadAdminPage(kind, filters) {
+    if (dataMode !== "api" || !authUser || authUser.role !== "ADMIN" || !window.AdminManagementApi) return Promise.resolve();
+    var states = { users: adminUsersState, bookings: adminBookingsState, checkins: adminCheckinsState };
+    var state = states[kind];
+    var requestId = state.requestId + 1;
+    state.requestId = requestId;
+    state.status = "loading";
+    state.error = "";
+    if (currentRoute() === (kind === "users" ? "people" : kind === "bookings" ? "admin-bookings" : "checkins")) render();
+    var load = kind === "users" ? window.AdminManagementApi.listUsers(filters)
+      : (kind === "bookings" ? window.AdminManagementApi.listBookings(filters) : window.AdminManagementApi.listCheckins(filters));
+    return load.then(function (result) {
+      if (state.requestId !== requestId) return;
+      state.status = "loaded";
+      state.data = result;
+    }).catch(function (error) {
+      if (state.requestId !== requestId) return;
+      state.status = "error";
+      state.error = adminApiErrorMessage(error);
+    }).finally(function () {
+      if (state.requestId === requestId && currentRoute() === (kind === "users" ? "people" : kind === "bookings" ? "admin-bookings" : "checkins")) render();
+    });
+  }
+  function adminPagination(kind, result) {
+    if (!result) return "";
+    var pages = Math.max(1, Math.ceil(result.total / result.page_size));
+    return '<div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mt-3"><small class="text-secondary">Page ' + result.page + ' of ' + pages + ' · ' + result.total + ' records</small><div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-page="' + kind + '" data-page="' + Math.max(1, result.page - 1) + '" ' + (result.page <= 1 ? "disabled" : "") + '>Previous</button><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-page="' + kind + '" data-page="' + Math.min(pages, result.page + 1) + '" ' + (result.page >= pages ? "disabled" : "") + '>Next</button></div></div>';
+  }
+  function adminListState(state) {
+    if (state.status === "idle" || state.status === "loading") return '<div class="panel-body text-secondary" role="status">Loading records...</div>';
+    if (state.status === "error") return '<div class="panel-body"><div class="alert alert-warning mb-0" role="alert">' + esc(state.error) + ' <button class="btn btn-sm btn-outline-secondary ms-2" type="button" data-admin-retry>Retry</button></div></div>';
+    if (!state.data || !state.data.items.length) return '<div class="panel-body text-secondary" role="status">No records match these filters.</div>';
+    return "";
+  }
   function refreshSchedule() {
     if (dataMode === "demo") {
       showActionConfirmation("Reset Demo Schedule", "Reset the demo schedule to its original data? Your demo schedule changes will be lost.", "Reset Schedule", function () {
@@ -304,7 +377,7 @@
     var required = options.required ? ' <span class="required-mark" aria-label="required">*</span>' : "";
     var fieldLabel = options.label ? '<label class="form-label" for="calendar-trigger-' + esc(pickerId) + '">' + esc(label) + required + '</label>' : "";
     var hiddenValue = options.fieldName ? '<input type="hidden" name="' + esc(options.fieldName) + '" value="' + esc(selectedDate) + '" data-calendar-field>' : "";
-    var filterAttribute = pickerId === "schedule-filter" ? " data-schedule-date" : (pickerId === "booking-filter" ? " data-booking-date" : "");
+    var filterAttribute = options.filterAttribute || (pickerId === "schedule-filter" ? " data-schedule-date" : (pickerId === "booking-filter" ? " data-booking-date" : ""));
     return '<div class="calendar-picker" data-calendar-picker data-calendar-id="' + esc(pickerId) + '" data-date-value="' + esc(selectedDate) + '">' + fieldLabel + hiddenValue +
       '<button type="button" class="form-control calendar-date-trigger' + (options.required ? ' calendar-date-required' : '') + '" id="calendar-trigger-' + esc(pickerId) + '" data-calendar-toggle data-date-value="' + esc(selectedDate) + '"' + filterAttribute + ' aria-haspopup="dialog" aria-expanded="false" aria-label="' + esc(label) + '"><span class="calendar-date-label">' + esc(displayDate) + '</span><i class="bi bi-calendar3" aria-hidden="true"></i></button>' +
       '<div class="calendar-popover" data-calendar-popover role="dialog" aria-label="Choose ' + esc(label.toLowerCase()) + '" hidden><div class="calendar-navigation"><button type="button" class="btn btn-sm btn-outline-secondary" data-calendar-previous aria-label="Previous month"><i class="bi bi-chevron-left"></i></button><select class="form-select" data-calendar-month aria-label="Calendar month">' + monthOptions + '</select><select class="form-select" data-calendar-year aria-label="Calendar year">' + yearOptions + '</select><button type="button" class="btn btn-sm btn-outline-secondary" data-calendar-next aria-label="Next month"><i class="bi bi-chevron-right"></i></button></div><div class="calendar-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div><div class="calendar-days" data-calendar-days>' + calendarGridMarkup(view, selectedDate) + '</div></div></div>';
@@ -419,6 +492,14 @@
         closeCalendarPicker(picker, false);
         if (dataMode === "demo") applyBookingFilters();
         else loadOwnerBookings();
+      } else if (pickerId.indexOf("admin-bookings-") === 0 || pickerId.indexOf("admin-checkins-") === 0) {
+        var adminKind = pickerId.indexOf("admin-bookings-") === 0 ? "bookings" : "checkins";
+        var adminFilters = adminKind === "bookings" ? adminBookingsFilters : adminCheckinsFilters;
+        adminFilters[pickerId.slice(pickerId.lastIndexOf("-") + 1) === "from" ? "date_from" : "date_to"] = selectedDate;
+        adminFilters.page = 1;
+        setCalendarDate(picker, selectedDate);
+        closeCalendarPicker(picker, false);
+        loadAdminPage(adminKind, adminFilters);
       } else {
         setCalendarDate(picker, selectedDate);
         var error = picker.closest("form") && picker.closest("form").querySelector('[data-field-error="slot_date"]');
@@ -790,9 +871,11 @@
     var set = statSets[type] || statSets.dashboard;
     var ownerDemo = live && dataMode === "demo" && ["dashboard", "venues", "schedule"].indexOf(currentRoute()) >= 0;
     return '<div class="stat-grid">' + values.map(function (value, i) {
-      return '<article class="stat-card ' + (type === "admin-dashboard" && i === 3 ? "admin-highlight" : "") + '"><div class="stat-top"><span>' +
+      var unavailableNote = Array.isArray(unavailable) ? unavailable[i] : (unavailable ? "Not available yet" : "");
+      var note = unavailableNote || (ownerDemo || dataMode === "demo" ? "Demo data" : (live ? "Current catalogue" : "Demo data"));
+      return '<article class="stat-card ' + ((type === "admin-dashboard" || type === "admin-dashboard-demo") && i === 3 ? "admin-highlight" : "") + '"><div class="stat-top"><span>' +
         esc(set[i][1]) + '</span><span class="stat-icon"><i class="bi ' + set[i][0] + '"></i></span></div><div class="stat-value">' + esc(value) +
-        '</div><div class="stat-note">' + (unavailable ? "Not available yet" : (ownerDemo || dataMode === "demo" ? "Demo data" : (live ? "Current catalogue" : "Demo data"))) + '</div></article>';
+        '</div><div class="stat-note">' + esc(note) + '</div></article>';
     }).join("") + "</div>";
   }
   function demoAccountStats() {
@@ -837,6 +920,38 @@
     var venues = resources.venues;
     var courts = resources.courts;
     var slots = resources.slots;
+    if (active === "admin-dashboard") {
+      var activeSlots = slots.status === "loaded" ? slots.data.filter(function (slot) { return slot.is_active; }).length : "?";
+      var accountStats = demoAccountStats();
+      var bookingStats = demoBookingStats();
+      var dashboardValues = dataMode === "demo"
+        ? [accountStats[0], accountStats[2], bookingStats[0], bookingStats[1]]
+        : ["—", adminCatalogueSummary.data ? adminCatalogueSummary.data.venues.total : "—", adminCatalogueSummary.data ? adminCatalogueSummary.data.courts.total : "—", "—"];
+      var dashboardNotes = dataMode === "demo" ? false : [
+        "Not available yet",
+        adminCatalogueSummary.status === "loaded" ? "Court catalogue" : (adminCatalogueSummary.status === "loading" ? "Loading" : "Not available"),
+        adminCatalogueSummary.status === "loaded" ? "Court catalogue" : (adminCatalogueSummary.status === "loading" ? "Loading" : "Not available"),
+        "Not available yet"
+      ];
+      var catalogueSummaryBody;
+      if (dataMode === "demo") {
+        catalogueSummaryBody = '<div class="panel-body"><p class="mb-2">Sports: ' + sports.data.length + '</p><p class="mb-2">Venues: ' + venues.data.length + '</p><p class="mb-2">Courts: ' + courts.data.length + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>';
+      } else if (adminCatalogueSummary.status === "loading" || adminCatalogueSummary.status === "idle") {
+        catalogueSummaryBody = '<div class="panel-body text-secondary" role="status">Loading catalogue summary...</div>';
+      } else if (adminCatalogueSummary.status === "error") {
+        catalogueSummaryBody = '<div class="panel-body"><div class="alert alert-warning mb-0" role="status">Catalogue totals are unavailable. ' + esc(adminCatalogueSummary.error) + '</div></div>';
+      } else {
+        var summary = adminCatalogueSummary.data;
+        catalogueSummaryBody = '<div class="panel-body"><p class="mb-2">Sports: ' + summary.sports.total + ' (' + summary.sports.active + ' active)</p><p class="mb-2">Venues: ' + summary.venues.total + ' (' + summary.venues.active + ' active)</p><p class="mb-2">Courts: ' + summary.courts.total + ' (' + summary.courts.active + ' active)</p><p class="mb-0">Time slots: ' + summary.time_slots.total + ' (' + summary.time_slots.active + ' active)</p></div>';
+      }
+      return heading(active, '<button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
+        (dataMode === "demo" ? demoNotice("Dashboard figures are sample data. The catalogue below reflects the selected data source.") : '<p class="text-secondary small">Account and booking summaries are not available yet.</p>') +
+        stats(dataMode === "demo" ? "admin-dashboard-demo" : "admin-dashboard", dashboardValues, false, dashboardNotes) +
+        (dataMode === "demo" ? '<p class="text-secondary small">Sample totals: ' + accountStats[1] + ' users, ' + accountStats[3] + ' owners pending review, ' + bookingStats[2] + ' checked-in bookings, ' + bookingStats[3] + ' pending bookings.</p>' : "") +
+        (anyAdminDataError(resources) ? resourceError("catalogue information", "One or more lists could not be loaded.") : "") +
+        '<div class="content-grid">' + panel("Court catalogue", catalogueSummaryBody, dataMode === "demo" ? "Demo catalogue" : "Current catalogue") +
+        '</div><div class="mt-3 d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="#/admin-venues">Open venue registry</a><a class="btn btn-outline-secondary btn-sm" href="#/admin-bookings">Open bookings</a></div>';
+    }
     var activeSlots = slots.status === "loaded" ? slots.data.filter(function (slot) { return slot.is_active; }).length : "?";
     var values = [
       sports.status === "loaded" ? sports.data.length : "?",
@@ -844,29 +959,6 @@
       courts.status === "loaded" ? courts.data.length : "?",
       activeSlots
     ];
-    if (active === "admin-dashboard") {
-      var accountStats = demoAccountStats();
-      var bookingStats = demoBookingStats();
-      var dashboardValues = dataMode === "demo"
-        ? [accountStats[0], accountStats[2], bookingStats[0], bookingStats[1]]
-        : ["—", "—", "—", "—"];
-      var adminVenueBody;
-      if (venues.status === "loading" || venues.status === "idle") adminVenueBody = '<div class="panel-body">Loading venue data...</div>';
-      else if (venues.status === "error") adminVenueBody = '<div class="panel-body">' + resourceError("venues", venues.error) + "</div>";
-      else if (!venues.data.length) adminVenueBody = '<div class="panel-body text-secondary">No venues are available in this data source.</div>';
-      else adminVenueBody = '<div class="table-wrap"><table class="table"><thead><tr><th>Venue</th><th>Address</th><th>Courts</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + venues.data.slice(0, 6).map(function (venue) {
-        var linkedCourts = courts.status === "loaded" ? courts.data.filter(function (court) { return court.venue_id === venue.id; }).length : "?";
-        return '<tr><td class="table-primary-text">' + esc(venue.name) + '</td><td>' + esc(venue.address) + '</td><td>' + esc(linkedCourts) + '</td><td>' + courtStatus(venue.is_active) + '</td><td>' + detailButton("venues", venue.id) + '</td></tr>';
-      }).join("") + '</tbody></table></div>';
-      return heading(active, '<button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
-        (dataMode === "demo" ? demoNotice("Dashboard figures are sample data. The catalogue below reflects the selected data source.") : '<p class="text-secondary small">Account and booking summaries are not available yet.</p>') +
-        stats("admin-dashboard", dashboardValues, false, dataMode !== "demo") +
-        (dataMode === "demo" ? '<p class="text-secondary small">Sample totals: ' + accountStats[1] + ' users, ' + accountStats[3] + ' owners pending review, ' + bookingStats[2] + ' checked-in bookings, ' + bookingStats[3] + ' pending bookings.</p>' : "") +
-        (anyAdminDataError(resources) ? resourceError("catalogue information", "One or more lists could not be loaded.") : "") +
-        '<div class="content-grid">' + panel("Venue catalogue", adminVenueBody, dataMode === "demo" ? "Demo data" : "Venue information") +
-        panel("Court catalogue", '<div class="panel-body"><p class="mb-2">Sports: ' + (sports.status === "loaded" ? sports.data.length : "?") + '</p><p class="mb-2">Venues: ' + (venues.status === "loaded" ? venues.data.length : "?") + '</p><p class="mb-2">Courts: ' + (courts.status === "loaded" ? courts.data.length : "?") + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>', dataMode === "demo" ? "Demo catalogue" : "Sports, venues, courts, and schedules") +
-        '</div><div class="mt-3 d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="#/admin-venues">Open venue registry</a><a class="btn btn-outline-secondary btn-sm" href="#/admin-bookings">Open bookings</a></div>';
-    }
     var venueBody;
     if (venues.status === "loading" || venues.status === "idle") venueBody = '<div class="panel-body">Loading venue data...</div>';
     else if (venues.status === "error") venueBody = '<div class="panel-body">' + resourceError("venues", venues.error) + "</div>";
@@ -894,7 +986,15 @@
   function bookingPage(active, admin) {
     if (admin) {
       if (dataMode !== "demo") {
-        return heading(active) + panel("Bookings", '<div class="panel-body"><p class="mb-0 text-secondary">System-wide booking management is not available yet.</p></div>', "Booking overview");
+        var filters = '<div class="toolbar admin-filter-toolbar"><input class="form-control" type="search" data-admin-booking-id value="' + esc(adminBookingsFilters.booking_id) + '" placeholder="Booking ID" aria-label="Search by booking ID"><select class="form-select" data-admin-booking-status aria-label="Filter status"><option value="">All statuses</option>' + ["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "EXPIRED"].map(function (status) { return '<option value="' + status + '" ' + (adminBookingsFilters.status === status ? "selected" : "") + '>' + status + '</option>'; }).join("") + '</select>' + [["venue_id", "Venue ID"], ["court_id", "Court ID"], ["owner_id", "Owner ID"], ["user_id", "User ID"]].map(function (field) { return '<input class="form-control" type="number" min="1" data-admin-booking-field="' + field[0] + '" value="' + esc(adminBookingsFilters[field[0]]) + '" placeholder="' + field[1] + '" aria-label="Filter ' + field[1] + '">'; }).join("") + calendarPickerMarkup("admin-bookings-from", "Date from", adminBookingsFilters.date_from, { filterAttribute: ' data-admin-date-filter="bookings" data-admin-date-field="date_from"' }) + calendarPickerMarkup("admin-bookings-to", "Date to", adminBookingsFilters.date_to, { filterAttribute: ' data-admin-date-filter="bookings" data-admin-date-field="date_to"' }) + '<button class="btn btn-outline-secondary" type="button" data-admin-filter-clear="bookings">Clear filters</button></div>';
+        var content = adminListState(adminBookingsState);
+        if (adminBookingsState.status === "loaded" && adminBookingsState.data.items.length) {
+          var rows = adminBookingsState.data.items.map(function (booking) {
+            return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.user_id) + '</td><td>' + esc(booking.owner_id) + '</td><td>' + esc(booking.venue_id) + '</td><td>' + esc(booking.court_id) + '</td><td>' + apiDate(booking.slot_date) + '</td><td>' + statusBadge(booking.status) + '</td><td>' + esc(booking.total_amount) + '</td><td class="table-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-booking-detail="' + esc(booking.id) + '">Details</button></td></tr>';
+          }).join("");
+          content = '<div class="table-wrap"><table class="table"><thead><tr><th>Booking</th><th>User</th><th>Owner</th><th>Venue</th><th>Court</th><th>Date</th><th>Status</th><th>Amount</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' + adminPagination("bookings", adminBookingsState.data);
+        }
+        return heading(active) + panel("Bookings", filters + content, "System-wide booking records · read-only");
       }
       var adminRows = bookingRows(true);
       return heading(active, actionButton("Export bookings", "bi-download", "Sample booking list exported.", true)) + demoNotice("Sample bookings are shown for preview only.") +
@@ -1132,6 +1232,15 @@
     host.innerHTML = '<div class="modal fade" id="admin-account-modal" tabindex="-1" aria-labelledby="admin-account-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><div><p class="eyebrow mb-1">Demo account details</p><h2 class="modal-title fs-6" id="admin-account-title">' + esc(account[1]) + '</h2></div><button type="button" class="btn-close" data-modal-close aria-label="Close"></button></div><div class="modal-body"><div class="detail-row"><span>Account ID</span><strong>' + esc(account[0]) + '</strong></div><div class="detail-row"><span>Email</span><strong>' + esc(account[2]) + '</strong></div><div class="detail-row"><span>Role</span><strong>' + esc(account[3]) + '</strong></div><div class="detail-row"><span>Joined</span><strong>' + esc(account[4]) + '</strong></div><div class="detail-row"><span>Status</span><strong>' + esc(account[5]) + '</strong></div></div></div></div></div>';
     showManagedModal(document.getElementById("admin-account-modal"), host);
   }
+  function showAdminRecordDetails(title, record, fields) {
+    var host = document.getElementById("admin-record-modal-host");
+    if (!host) { host = document.createElement("div"); host.id = "admin-record-modal-host"; document.body.appendChild(host); }
+    var rows = fields.filter(function (field) { return record[field[0]] !== undefined && record[field[0]] !== null; }).map(function (field) {
+      return '<div class="detail-row"><span>' + esc(field[1]) + '</span><strong>' + esc(record[field[0]]) + '</strong></div>';
+    }).join("");
+    host.innerHTML = '<div class="modal fade" id="admin-record-modal" tabindex="-1" aria-labelledby="admin-record-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-6" id="admin-record-title">' + esc(title) + '</h2><button type="button" class="btn-close" data-modal-close aria-label="Close"></button></div><div class="modal-body">' + rows + '</div></div></div></div>';
+    showManagedModal(document.getElementById("admin-record-modal"), host);
+  }
   function closeManagedModal(modal) {
     if (window.bootstrap && window.bootstrap.Modal) {
       var instance = window.bootstrap.Modal.getInstance(modal);
@@ -1294,7 +1403,15 @@
   function checkinPage(active, admin) {
     if (admin) {
       if (dataMode !== "demo") {
-        return heading(active) + panel("Check-ins", '<div class="panel-body"><p class="mb-0 text-secondary">System-wide check-in history is not available yet.</p></div>', "Check-in overview");
+        var filters = '<div class="toolbar admin-filter-toolbar"><input class="form-control" type="search" data-admin-checkin-booking value="' + esc(adminCheckinsFilters.booking_id) + '" placeholder="Booking ID" aria-label="Filter booking ID">' + [["venue_id", "Venue ID"], ["court_id", "Court ID"], ["checked_in_by", "Owner ID"]].map(function (field) { return '<input class="form-control" type="number" min="1" data-admin-checkin-field="' + field[0] + '" value="' + esc(adminCheckinsFilters[field[0]]) + '" placeholder="' + field[1] + '" aria-label="Filter ' + field[1] + '">'; }).join("") + calendarPickerMarkup("admin-checkins-from", "Date from", adminCheckinsFilters.date_from, { filterAttribute: ' data-admin-date-filter="checkins" data-admin-date-field="date_from"' }) + calendarPickerMarkup("admin-checkins-to", "Date to", adminCheckinsFilters.date_to, { filterAttribute: ' data-admin-date-filter="checkins" data-admin-date-field="date_to"' }) + '<button class="btn btn-outline-secondary" type="button" data-admin-filter-clear="checkins">Clear filters</button></div>';
+        var content = adminListState(adminCheckinsState);
+        if (adminCheckinsState.status === "loaded" && adminCheckinsState.data.items.length) {
+          var rows = adminCheckinsState.data.items.map(function (item) {
+            return '<tr><td class="table-primary-text">' + esc(item.id) + '</td><td>' + esc(item.venue_id) + '</td><td>' + esc(item.court_id) + '</td><td>' + esc(item.checked_in_by || "—") + '</td><td>' + esc(item.checked_in_at || "—") + '</td><td>' + statusBadge(item.status) + '</td><td>' + esc(item.user_id) + '</td><td class="table-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-booking-detail="' + esc(item.id) + '">Booking details</button></td></tr>';
+          }).join("");
+          content = '<div class="table-wrap"><table class="table"><thead><tr><th>Booking</th><th>Venue</th><th>Court</th><th>Checked in by</th><th>Check-in time</th><th>Status</th><th>User</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' + adminPagination("checkins", adminCheckinsState.data);
+        }
+        return heading(active) + panel("Check-ins", filters + content, "History recorded on bookings · read-only");
       }
       var adminRows = data.checkins;
       return heading(active) + demoNotice("Sample check-ins are shown for preview only.") + panel("Recent check-ins", '<div class="toolbar admin-filter-toolbar" data-filter-toolbar><input class="form-control" type="search" data-table-search data-admin-search placeholder="Search check-in, booking or customer" aria-label="Search check-ins"><select class="form-select" data-status-filter aria-label="Filter check-in status"><option value="">All statuses</option><option>Verified</option><option>Manual</option></select><button class="btn btn-outline-secondary" type="button" data-filter-reset>Reset filters</button></div>' + table(["Check-in ID", "Booking", "Customer", "Venue / court", "Check-in time", "Status"], adminRows) + '<div class="table-foot" data-filter-count>Showing ' + adminRows.length + ' records</div>', "Demo records only");
@@ -1534,7 +1651,17 @@
   }
   function peoplePage() {
     if (dataMode !== "demo") {
-      return heading("people") + panel("Users & Owners", '<div class="panel-body"><p class="mb-0 text-secondary">Account management is not available yet.</p></div>', "Account directory");
+      var apiToolbar = '<div class="toolbar admin-filter-toolbar"><input class="form-control" type="search" data-admin-user-q value="' + esc(adminUsersFilters.q) + '" placeholder="Search name or email" aria-label="Search users"><select class="form-select" data-admin-user-role aria-label="Filter role"><option value="">All roles</option>' + ["USER", "OWNER", "ADMIN"].map(function (role) { return '<option value="' + role + '" ' + (adminUsersFilters.role === role ? "selected" : "") + '>' + role + '</option>'; }).join("") + '</select><select class="form-select" data-admin-user-active aria-label="Filter account status"><option value="">All statuses</option><option value="true" ' + (adminUsersFilters.is_active === "true" ? "selected" : "") + '>Active</option><option value="false" ' + (adminUsersFilters.is_active === "false" ? "selected" : "") + '>Inactive</option></select></div>';
+      var usersContent = adminListState(adminUsersState);
+      if (adminUsersState.status === "loaded" && adminUsersState.data.items.length) {
+        var userRows = adminUsersState.data.items.map(function (user) {
+          var isSelf = Number(user.id) === Number(authUser.id);
+          var statusAction = isSelf ? '<button class="btn btn-sm btn-outline-secondary" disabled title="You cannot change your own account status">Current account</button>' : '<button class="btn btn-sm ' + (user.is_active ? "btn-outline-danger" : "btn-outline-success") + '" type="button" data-admin-user-status data-user-id="' + esc(user.id) + '" data-active="' + String(!!user.is_active) + '">' + (user.is_active ? "Deactivate" : "Activate") + '</button>';
+          return '<tr><td>' + esc(user.id) + '</td><td class="table-primary-text">' + esc(user.full_name) + '</td><td>' + esc(user.email) + '</td><td>' + esc(user.role) + '</td><td>' + (user.is_active ? badge("Active") : badge("Inactive")) + '</td><td>' + esc(user.created_at || "—") + '</td><td class="table-actions"><div class="table-action-group"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-user-detail="' + esc(user.id) + '">Details</button>' + statusAction + '</div></td></tr>';
+        }).join("");
+        usersContent = '<div class="table-wrap"><table class="table"><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>' + userRows + '</tbody></table></div>' + adminPagination("users", adminUsersState.data);
+      }
+      return heading("people") + panel("Users & Owners", apiToolbar + usersContent, "Account directory · API data");
     }
     var rows = data.people.map(function (row) {
       var accountId = row[0] || "";
@@ -1862,7 +1989,10 @@
         if (dataMode === "demo") {
           render();
           toast("Demo catalogue refreshed from current in-memory data. No changes were reset.");
-        } else loadCourtResources(true);
+        } else {
+          if (currentRoute() === "admin-dashboard") loadAdminCatalogueSummary(true);
+          else loadCourtResources(true);
+        }
       });
     });
     document.querySelectorAll("[data-resource-detail]").forEach(function (el) {
@@ -1902,6 +2032,95 @@
       if (!button) return;
       var account = data.people.find(function (row) { return row[0] === button.dataset.accountDetail; });
       if (account) showAccountDetails(account);
+    });
+    var adminUserSearch = document.querySelector("[data-admin-user-q]");
+    var adminUserRole = document.querySelector("[data-admin-user-role]");
+    var adminUserActive = document.querySelector("[data-admin-user-active]");
+    function updateAdminUserFilters() {
+      adminUsersFilters = { page: 1, page_size: 25, q: adminUserSearch ? adminUserSearch.value.trim() : "", role: adminUserRole ? adminUserRole.value : "", is_active: adminUserActive ? adminUserActive.value : "" };
+      loadAdminPage("users", adminUsersFilters);
+    }
+    if (adminUserSearch) adminUserSearch.addEventListener("change", updateAdminUserFilters);
+    if (adminUserRole) adminUserRole.addEventListener("change", updateAdminUserFilters);
+    if (adminUserActive) adminUserActive.addEventListener("change", updateAdminUserFilters);
+    var adminBookingId = document.querySelector("[data-admin-booking-id]");
+    var adminBookingStatus = document.querySelector("[data-admin-booking-status]");
+    function updateAdminBookingFilters() {
+      function value(field) { var input = document.querySelector('[data-admin-booking-field="' + field + '"]'); return input ? input.value : ""; }
+      adminBookingsFilters = { page: 1, page_size: 25, booking_id: adminBookingId ? adminBookingId.value.trim() : "", status: adminBookingStatus ? adminBookingStatus.value : "", date_from: adminBookingsFilters.date_from, date_to: adminBookingsFilters.date_to, venue_id: value("venue_id"), court_id: value("court_id"), owner_id: value("owner_id"), user_id: value("user_id") };
+      loadAdminPage("bookings", adminBookingsFilters);
+    }
+    [adminBookingId, adminBookingStatus].forEach(function (control) {
+      if (control) control.addEventListener(control.type === "search" ? "change" : "change", updateAdminBookingFilters);
+      if (control && control.type === "search") control.addEventListener("keydown", function (event) { if (event.key === "Enter") updateAdminBookingFilters(); });
+    });
+    document.querySelectorAll("[data-admin-booking-field]").forEach(function (control) { control.addEventListener("change", updateAdminBookingFilters); });
+    var adminCheckinBooking = document.querySelector("[data-admin-checkin-booking]");
+    function updateAdminCheckinFilters() {
+      function value(field) { var input = document.querySelector('[data-admin-checkin-field="' + field + '"]'); return input ? input.value : ""; }
+      adminCheckinsFilters = { page: 1, page_size: 25, booking_id: adminCheckinBooking ? adminCheckinBooking.value.trim() : "", date_from: adminCheckinsFilters.date_from, date_to: adminCheckinsFilters.date_to, venue_id: value("venue_id"), court_id: value("court_id"), checked_in_by: value("checked_in_by") };
+      loadAdminPage("checkins", adminCheckinsFilters);
+    }
+    [adminCheckinBooking].forEach(function (control) {
+      if (control) control.addEventListener("change", updateAdminCheckinFilters);
+      if (control && control.type === "search") control.addEventListener("keydown", function (event) { if (event.key === "Enter") updateAdminCheckinFilters(); });
+    });
+    document.querySelectorAll("[data-admin-checkin-field]").forEach(function (control) { control.addEventListener("change", updateAdminCheckinFilters); });
+    document.querySelectorAll("[data-admin-page]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var kind = button.dataset.adminPage;
+        var filters = kind === "users" ? adminUsersFilters : (kind === "bookings" ? adminBookingsFilters : adminCheckinsFilters);
+        filters.page = Number(button.dataset.page) || 1;
+        loadAdminPage(kind, filters);
+      });
+    });
+    document.querySelectorAll("[data-admin-retry]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        if (currentRoute() === "people") loadAdminPage("users", adminUsersFilters);
+        else if (currentRoute() === "admin-bookings") loadAdminPage("bookings", adminBookingsFilters);
+        else loadAdminPage("checkins", adminCheckinsFilters);
+      });
+    });
+    document.querySelectorAll("[data-admin-filter-clear]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        if (button.dataset.adminFilterClear === "bookings") {
+          adminBookingsFilters = { page: 1, page_size: 25, booking_id: "", status: "", date_from: "", date_to: "", venue_id: "", court_id: "", owner_id: "", user_id: "" };
+          render();
+          loadAdminPage("bookings", adminBookingsFilters);
+        } else {
+          adminCheckinsFilters = { page: 1, page_size: 25, booking_id: "", date_from: "", date_to: "", venue_id: "", court_id: "", checked_in_by: "" };
+          render();
+          loadAdminPage("checkins", adminCheckinsFilters);
+        }
+      });
+    });
+    document.querySelectorAll("[data-admin-user-detail]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        window.AdminManagementApi.getUser(button.dataset.adminUserDetail).then(function (user) {
+          showAdminRecordDetails("User account " + user.id, user, [["id", "ID"], ["full_name", "Full name"], ["email", "Email"], ["phone", "Phone"], ["role", "Role"], ["is_active", "Active"], ["created_at", "Created"]]);
+        }).catch(function (error) { toast(adminApiErrorMessage(error)); });
+      });
+    });
+    document.querySelectorAll("[data-admin-booking-detail]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        window.AdminManagementApi.getBooking(button.dataset.adminBookingDetail).then(function (booking) {
+          showAdminRecordDetails("Booking " + booking.id, booking, [["id", "ID"], ["user_id", "User ID"], ["owner_id", "Owner ID"], ["venue_id", "Venue ID"], ["court_id", "Court ID"], ["time_slot_id", "Time Slot ID"], ["slot_date", "Date"], ["start_time", "Start time"], ["end_time", "End time"], ["status", "Status"], ["total_amount", "Total amount"], ["checked_in_by", "Checked in by"], ["checked_in_at", "Checked in at"], ["completed_at", "Completed at"], ["created_at", "Created"]]);
+        }).catch(function (error) { toast(adminApiErrorMessage(error)); });
+      });
+    });
+    document.querySelectorAll("[data-admin-user-status]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var nextActive = button.dataset.active !== "true";
+        function saveStatus() {
+          button.disabled = true;
+          window.AdminManagementApi.setUserActive(button.dataset.userId, nextActive).then(function () {
+            toast(nextActive ? "Account activated." : "Account deactivated.");
+            return loadAdminPage("users", adminUsersFilters);
+          }).catch(function (error) { toast(adminApiErrorMessage(error)); }).finally(function () { button.disabled = false; });
+        }
+        if (nextActive) saveStatus();
+        else showActionConfirmation("Deactivate account", "This prevents new login. Existing tokens may remain valid until they expire.", "Deactivate", saveStatus);
+      });
     });
     var bookingSearchInput = document.querySelector("[data-booking-search]");
     if (bookingSearchInput) bookingSearchInput.addEventListener("input", applyBookingFilters);
@@ -2048,14 +2267,18 @@
     renderShell(content, admin, active);
     wireActions();
     if (active === "venues" || active === "admin-venues") applyRegistryFilters();
-    var courtScreens = ["dashboard", "admin-dashboard", "venues", "admin-venues", "schedule", "admin-schedule"];
+    var courtScreens = ["dashboard", "venues", "admin-venues", "schedule", "admin-schedule"];
     if (active === "qr-checkin" && dataMode === "demo" && !window.Html5Qrcode) {
       window.addEventListener("load", function () { updateScannerState(); }, { once: true });
     }
     if (dataMode === "api" && courtScreens.indexOf(active) >= 0 && Object.keys(courtResources).every(function (key) { return courtResources[key].status === "idle"; })) {
       loadCourtResources(false);
     }
+    if (active === "admin-dashboard" && dataMode === "api" && adminCatalogueSummary.status === "idle") loadAdminCatalogueSummary(false);
     if (active === "owner-bookings" && dataMode === "api" && ownerBookingsState.status === "idle") loadOwnerBookings();
+    if (active === "people" && dataMode === "api" && adminUsersState.status === "idle") loadAdminPage("users", adminUsersFilters);
+    if (active === "admin-bookings" && dataMode === "api" && adminBookingsState.status === "idle") loadAdminPage("bookings", adminBookingsFilters);
+    if (active === "checkins" && dataMode === "api" && adminCheckinsState.status === "idle") loadAdminPage("checkins", adminCheckinsFilters);
   }
   function restoreAuthSession() {
     if (authRestorePromise) return authRestorePromise;

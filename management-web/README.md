@@ -17,7 +17,7 @@ This project uses static HTML, CSS, and JavaScript with Bootstrap 5.3.3 and Boot
 
 ## Current implementation status
 
-The integrated Management Web supports API Mode for Owner Booking list, detail, filters, completion, and QR check-in through the Gateway. Admins can manage Sports, Venues, Courts, and Time Slots through Court Service. Demo Mode remains available with separate fictional data. Admin Users, global Bookings, and Check-ins have no management APIs yet; dashboard aggregate metrics and Revenue are also unavailable in API Mode. Bootstrap, Bootstrap Icons, and the QR scanner are served from local assets. See [backend setup](../backend/README.md) for service commands and the [Owner Booking & QR contract](../docs/api/owner-booking-qr-contract.md) for the API details. The linked [S2 Integration Notes](../docs/api/s2-integration-notes.md) records a historical pre-integration audit.
+The integrated Management Web supports API Mode for Owner Booking list, detail, filters, completion, and QR check-in through the Gateway. Admins can manage Sports, Venues, Courts, and Time Slots through Court Service. The Admin Dashboard gets aggregate catalogue counts from `GET /api/v1/admin/catalogue/summary`; User and Booking summary APIs are not yet implemented. Admin Users, global Bookings, and Check-ins screens are wired to the proposed Admin API contract, but the User and Booking endpoints still depend on S1. Until those APIs are deployed, their requests show the upstream unavailable/error state and never use Demo data. Demo Mode remains available with separate fictional data. Revenue is unavailable in API Mode. Bootstrap, Bootstrap Icons, and the QR scanner are served from local assets. See [backend setup](../backend/README.md), the [Owner Booking & QR contract](../docs/api/owner-booking-qr-contract.md), and the [proposed Admin Management API contract](../docs/api/admin-management-api-contract.md).
 
 ## Run locally
 
@@ -119,7 +119,7 @@ In Owner QR Check-in Demo Mode, checking a manual token or scanning a QR display
 3. Sign in with a provisioned OWNER, ADMIN, or USER account. This web app does not create privileged accounts or provide a role bypass. The browser stores the access token in `sessionStorage`, clears it on logout/401, and reads the profile from `/api/v1/users/me`.
 4. OWNER mutations are limited to owned Venues, Courts, and Time Slots. ADMIN can manage Sports, Venues, Courts, and Time Slots system-wide. Owner Booking list/detail/filter/complete and QR check-in use their integrated Gateway routes.
 
-Admin Users, global Bookings, and Check-ins have no management API in this integration. Admin dashboard aggregates and Revenue are unavailable in API Mode; Demo Mode shows clearly labeled fictional data. This documentation does not claim that physical webcam scanning has been verified.
+Admin Users, global Bookings, and Check-ins screens are wired to proposed routes, but their User/Booking APIs are not implemented in this integration; until then, API Mode shows upstream errors and does not fall back to Demo data. The Admin Dashboard shows live Court catalogue aggregates; User and Booking summary metrics and Revenue remain unavailable until their APIs are implemented. Demo Mode shows clearly labeled fictional data. This documentation does not claim that physical webcam scanning has been verified.
 
 ## Automated tests
 
