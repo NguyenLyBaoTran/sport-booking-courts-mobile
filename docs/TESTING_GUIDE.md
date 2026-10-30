@@ -190,6 +190,29 @@ curl -i -X POST http://127.0.0.1:8003/api/v1/internal/bookings/<BOOKING_ID>/comp
 Expected: `COMPLETED`. This direct call only tests Booking's state transition; the
 real integration test must go through Court's Owner-authenticated endpoint.
 
+## Owner/Admin manual demo checklist
+
+Use the local demo accounts and database setup in [Backend README](../backend/README.md#local-demo-setup). Record actual outcomes during the demo; do not pre-mark a manual test as passed.
+
+| ID | Role | Action | Expected result | Actual result | Status |
+|---|---|---|---|---|---|
+| A1 | ADMIN | Login and open dashboard | ADMIN workspace; available catalogue counts come from API | | |
+| A2 | ADMIN | Create, edit, deactivate a test Sport | Changes appear after successful API responses | | |
+| A3 | ADMIN | Create/edit/deactivate a test Venue and Court | System-wide changes persist and remain visible | | |
+| A4 | ADMIN | Create/edit/deactivate future Time Slots | Validation rejects invalid or overlapping slots | | |
+| A5 | ADMIN | Open Users/Owners | Management API is unavailable until S1 provides it | | PENDING S1 |
+| A6 | ADMIN | Open Bookings/Check-ins | Management API is unavailable until S1 provides it | | PENDING S1 |
+| O1 | OWNER | Login and open dashboard | OWNER workspace shows only owned catalogue data | | |
+| O2 | OWNER | Create/edit/deactivate own Venue, Court, and Time Slot | Changes persist through API | | |
+| O3 | OWNER | Open Bookings, filters, and booking detail | Only own venue bookings appear; `qr_token` is hidden | | |
+| O4 | OWNER | Check in a valid Customer QR, then scan it again | First request checks in; duplicate returns `409` | | |
+| O5 | OWNER | Complete a checked-in booking and reload | Status remains `COMPLETED` after reload | | |
+| O6 | OWNER | Try a resource owned by the other demo Owner | Backend denies access without exposing the record | | |
+| C1 | CUSTOMER | Login and browse Sports/Venues/Courts/Time Slots | Public catalogue loads | | |
+| C2 | CUSTOMER | Create a booking and complete mock payment through API | Booking is `PENDING`, then `CONFIRMED`; QR comes from Booking API | | |
+| C3 | CUSTOMER | Open booking history and QR in Android | Booking/history/QR UI is not implemented in current Android client | | PENDING S1 |
+| X1 | ADMIN/OWNER | Logout, then reopen a protected page | Session clears and protected page requires login | | |
+
 ## 7. Expiry and common failures
 
 The automated Booking tests cover expiry and slot release. In a live setup, the

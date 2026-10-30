@@ -167,17 +167,11 @@ python -m app.create_test_account
 ```
 
 Lệnh chỉ chạy khi `APP_ENV=development` hoặc `test`, và in ra User ID sau khi tạo.
-OWNER ID này có thể dùng làm `owner_id` khi seed dữ liệu Court Service. Đăng nhập
-qua `/api/v1/auth/login` để lấy JWT cho web integration test.
+The demo seed resolves Owner IDs by querying the two demo Owner emails; it does not require a fixed `DEMO_OWNER_ID`. Use the login API to obtain JWTs for manual Owner/Admin tests.
 
-### Tài khoản test hiện tại
+### Tài khoản development cũ
 
-Các tài khoản này đang tồn tại trong User DB local:
-
-| Role | Email | User ID | Mật khẩu test |
-|---|---|---:|---|
-| OWNER | `nguyenvana@gmail.com` | `1` | `12345678` |
-| ADMIN | `admin@sportbooking.com` | `3` | `12345678` |
+Các bản local cũ có thể có tài khoản development riêng. Không dựa vào ID Owner/Admin cố định trong seed hoặc ứng dụng; dùng tài khoản E2E được quản lý trong mục [Local demo setup](#local-demo-setup) khi trình diễn.
 
 ## Booking và Payment API
 
@@ -346,25 +340,42 @@ python -m pytest -q
 
 Court tests use an in-memory SQLite database and a test-only JWT secret. They do not run migrations or seed MySQL. Booking Service remains responsible for bookings and does not have its status changed by Court Service time-slot operations.
 
-## Court Service development/demo seed (Step 5)
+## Court Service database setup
 
-`scripts/seed_court_demo.py` creates three sports, two clearly named fictitious venues in Ho Chi Minh City, six courts, and five non-overlapping time slots per court for seven consecutive days. It uses the existing SQLAlchemy models/session and targets only `sports_court_db`; it does not create or alter tables.
+For a new `sports_court_db`, run `python -m app.init_db` from `backend/services/court_service`. For an existing schema missing the reservation columns, follow the one-time migration note in [Local demo setup](#local-demo-setup). Demo data is prepared only with [`backend/database/seed.sql`](database/seed.sql); there is no separate Court-only Python seed command.
 
-Before running the seed, confirm an actual OWNER account ID with S1. The repository plan and API examples do not define a confirmed demo Owner ID. Do not use an illustrative ID from the API Contract. Set `DEMO_OWNER_ID` in the ignored local `backend/.env` file, or pass `--owner-id` on the command line. The script has no default Owner ID and exits before connecting to the database if none is supplied. This workspace has no configured `DEMO_OWNER_ID`, so no venue, court, or time-slot demo data has been inserted.
+## Local demo setup
 
-From the repository root, after confirming the Owner ID and configuring `COURT_DATABASE_URL` for `sports_court_db`:
+The manual demo uses the four development databases configured in `backend/.env`. Keep that file local and verify its database names before running setup commands. Do not run this seed against `sports_*_e2e_test` databases. `backend/e2e/.env` may remain locally for isolated tests but is not used by this guide.
 
-```powershell
-python backend/scripts/seed_court_demo.py
-```
+1. Install dependencies and configure MySQL as described above. Create the four databases with `backend/scripts/create_databases.sql`.
+2. Initialize schemas from the service directories. For a new Court database `create_all` creates the current model schema. For an older existing Court schema missing reservation fields, back up first and apply `backend/migrations/20261026_add_time_slot_reservations.sql` once; do not apply it after initializing a fresh current schema.
 
-Optionally choose the first schedule date (the script covers that day and the following six days):
+   ```powershell
+   cd backend/services/user_service
+   python -m alembic -c alembic.ini upgrade head
+   cd ../court_service
+   python -m app.init_db
+   cd ../booking_service
+   python -m app.init_db
+   cd ../payment_service
+   python -m app.init_db
+   ```
+3. Open [`backend/database/seed.sql`](database/seed.sql) in MySQL Workbench. Review the read-only preflight results and run it only when the target schemas are `sports_user_db` and `sports_court_db`. The SQL inserts demo accounts and Court catalogue/schedule rows only; it does not create Booking, Payment, QR, check-in, or completion states.
+4. Start the five services using the commands in the Run the applications section above. Serve Management Web from `management-web/` with `python -m http.server 8080 --bind 127.0.0.1`; open `http://127.0.0.1:8080`.
 
-```powershell
-python backend/scripts/seed_court_demo.py --start-date 2026-10-24
-```
+All six accounts use `password123` for local demo. The SQL stores only Argon2id hashes generated and verified with the existing User Service hasher. If a demo email already exists, the SQL leaves it untouched; verify it can log in before importing and resolve any role/status conflict manually. Do not use these credentials outside a local demo.
 
-The command-line `--owner-id` option overrides `DEMO_OWNER_ID`. Re-running with the same Owner ID and start date reuses matching records. Existing records are never updated or deleted; conflicting demo-named venues/courts or overlapping active time slots cause the transaction to roll back. Running on a later date seeds the new seven-day range and retains older rows. This seed is for local development/demo only, not production.
+| Role | Email |
+|---|---|
+| ADMIN | `admin.demo@example.com` |
+| OWNER | `owner1.demo@example.com` |
+| OWNER | `owner2.demo@example.com` |
+| CUSTOMER | `customer1.demo@example.com` |
+| CUSTOMER | `customer2.demo@example.com` |
+| CUSTOMER | `customer3.demo@example.com` |
+
+The SQL is idempotent for exact demo names: it inserts only missing rows, never updates or deletes, resolves Owner IDs from the demo emails, and schedules 24 future one-hour slots across eight Courts. If an existing demo email/name has a conflicting role, status, or Owner, stop and resolve it manually before importing. Booking and Payment flows must be exercised through APIs. The current Android client implements authentication only; Customer booking/history/QR UI remains pending S1. Its Auth API base URL is hard-coded in `android-user/app/src/main/java/com/example/sportbooking/api/ApiClient.java`: use the emulator host `10.0.2.2:8001` or the laptop LAN IP with port `8001` when testing on a device; Android source is unchanged by this setup. Manual Owner/Admin/Customer checks are in [Local Test Guide](../docs/TESTING_GUIDE.md#owneradmin-manual-demo-checklist).
 
 After starting Court Service and the Gateway, verify via either API base URL:
 

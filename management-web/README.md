@@ -21,6 +21,8 @@ The integrated Management Web supports API Mode for Owner Booking list, detail, 
 
 ## Run locally
 
+For a local API Mode demo, configure the development databases in `backend/.env`, initialize the service schemas, then import [`backend/database/seed.sql`](../backend/database/seed.sql) in MySQL Workbench. The demo accounts and manual checklist are documented in [`backend/README.md`](../backend/README.md#local-demo-setup) and [`docs/TESTING_GUIDE.md`](../docs/TESTING_GUIDE.md#owneradmin-manual-demo-checklist).
+
 For the full API Mode, start the User, Court, Booking, and Payment services plus the Gateway in separate terminals. Use the commands in [`backend/README.md`](../backend/README.md#chạy-các-ứng-dụng) and configure the shared JWT and internal service settings first. Booking lists and QR check-in require Booking, Court, User, and Gateway; payment confirmation also requires Payment Service.
 
 For a UI-only Demo Mode, or after starting the API services, serve the Management Web from the repository root:
@@ -50,7 +52,7 @@ The frontend calls the Gateway only. Set the single base URL in `assets/js/confi
 
 The Owner and Admin dashboards, Venue & Court registry, and Time Slot pages read live Sports, Venue, Court, and Time Slot data through the Gateway. Registry has independent venue and court search boxes; sport, status, and venue filters remain available. Search filters the loaded data in the browser and does not issue requests while typing. Owner API Mode loads only the authenticated Owner?s venue/court/time-slot catalogue; Admin Time Slots loads the system-wide catalogue. Search and filters apply to loaded records in the browser. Detail buttons fetch the selected resource. API loading, empty, and error states are shown with retry controls.
 
-To populate a local demo, follow the Court Service seed instructions in [`backend/README.md`](../backend/README.md#court-service-developmentdemo-seed-step-5). The seed requires an Owner ID confirmed with S1; without one the database should remain unseeded and these screens show empty states.
+To populate a local demo, use [`backend/database/seed.sql`](../backend/database/seed.sql), which creates the demo Owners and assigns Venues by their database-derived IDs.
 
 Displayed slot status reflects only `is_active`; it does not indicate whether a slot is booked or available. Prices are formatted from the API decimal string for display and are not used for payment calculations.
 
@@ -63,7 +65,7 @@ On the Owner Dashboard, Venue & Court, and Schedule screens, use the data mode s
 
 Court forms require an existing venue and sport, and a positive price with up to two decimal places. Time Slot forms use the shared read-only calendar picker, ask for Venue before Court, require times on 30-minute boundaries, require start time before end time, and reject new or changed start times in the past using Vietnam business time (`Asia/Ho_Chi_Minh`). Existing historical slots can still be viewed and filtered; edits that leave their date and start time unchanged are allowed. Court Service remains authoritative for ownership, past-time, and overlap validation. API errors show permission, conflict, validation, and service-unavailable feedback.
 
-The older backend-owned seed data remains separate from browser Demo Mode. To seed MySQL, follow the Court Service instructions in [`backend/README.md`](../backend/README.md#court-service-developmentdemo-seed-step-5); it requires an Owner ID confirmed with S1.
+MySQL seed records remain separate from browser Demo Mode. Import [`backend/database/seed.sql`](../backend/database/seed.sql) to prepare local API Mode data; it never inserts Booking or Payment states.
 
 ## Owner Booking Management (Step 7)
 
