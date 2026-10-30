@@ -11,7 +11,7 @@ test("Admin Time Slots is a protected route with a dedicated navigation entry", 
   assert.match(appSource, /"admin-schedule": \["Platform operations", "Time Slot Management"/);
   assert.match(appSource, /active === "schedule" \|\| active === "admin-schedule"/);
   assert.match(appSource, /requestedAdmin = active\.indexOf\("admin-"\) === 0/);
-  assert.match(appSource, /var adminModeScreens = \["admin-dashboard", "admin-venues", "admin-schedule", "admin-bookings", "checkins", "people"\]/);
+  assert.doesNotMatch(appSource, /court-mode-bar|court-data-mode/);
 });
 
 test("Admin Time Slots uses live Court Service collections and CRUD endpoints", () => {

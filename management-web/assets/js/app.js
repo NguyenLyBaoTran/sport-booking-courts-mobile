@@ -45,13 +45,14 @@
   var adminBookingsState = { status: "idle", data: null, error: "", requestId: 0 };
   var adminCheckinsState = { status: "idle", data: null, error: "", requestId: 0 };
   var adminUsersFilters = { page: 1, page_size: 25, q: "", role: "", is_active: "" };
-  var adminBookingsFilters = { page: 1, page_size: 25, booking_id: "", status: "", date_from: "", date_to: "", venue_id: "", court_id: "", owner_id: "", user_id: "" };
-  var adminCheckinsFilters = { page: 1, page_size: 25, booking_id: "", date_from: "", date_to: "", venue_id: "", court_id: "", checked_in_by: "" };
+  var adminBookingsFilters = { page: 1, page_size: 25, booking_id: "", user_id: "", status: "", date_from: "", date_to: "" };
+  var adminBookingsSearchBy = "booking_id";
+  var adminCheckinsFilters = { page: 1, page_size: 25, booking_id: "", date_from: "", date_to: "" };
   var authUser = null;
   var demoRole = readDemoRole();
   var authRestorePromise = null;
   var authMessage = "";
-  var loginMode = "demo";
+  var loginMode = "api";
   var loginWorkspace = "OWNER";
   var loginEmailValue = "";
   var scheduleFilters = { search: "", date: "", courtId: "", venueId: "", status: "" };
@@ -64,7 +65,7 @@
     ["owner-bookings", "Bookings", "bi-journal-check"],
     ["qr-checkin", "QR Check-in", "bi-qr-code-scan"],
     ["revenue", "Revenue", "bi-graph-up-arrow"],
-    ["owner-profile", "Profile", "bi-person-circle"]
+    ["owner-profile", "Settings", "bi-gear"]
   ];
   var adminNav = [
     ["admin-dashboard", "Dashboard", "bi-grid-1x2"],
@@ -73,7 +74,7 @@
     ["admin-schedule", "Time Slots", "bi-calendar3"],
     ["admin-bookings", "Bookings", "bi-journal-check"],
     ["checkins", "Check-ins", "bi-qr-code"],
-    ["admin-profile", "Profile", "bi-person-circle"]
+    ["admin-profile", "Settings", "bi-gear"]
   ];
   var info = {
     dashboard: ["Owner dashboard", "Welcome back", "Your venues, courts, and daily operations."],
@@ -82,14 +83,14 @@
     "owner-bookings": ["Owner operations", "Bookings Management", "Manage court reservations across your venues."],
     "qr-checkin": ["Front desk", "QR Check-in", "Verify a booking before play begins."],
     revenue: ["Business overview", "Revenue & Payouts", "Review revenue information for your venues."],
-    "owner-profile": ["Account settings", "Owner Profile", "Your account information."],
+    "owner-profile": ["Preferences", "Settings", "Account information and appearance."],
     "admin-dashboard": ["System overview", "Admin Dashboard", "Review the shared sports and venue catalogue."],
     people: ["Directory", "Users & Court Owners", "Account directory."],
     "admin-venues": ["Platform registry", "Venue & Court", "Review the sports, venue, and court catalogue."],
     "admin-schedule": ["Platform operations", "Time Slot Management", "Manage time slots across all venues."],
     "admin-bookings": ["Platform activity", "Global Bookings", "Review booking activity."],
     checkins: ["Platform activity", "Check-in Management", "Review recent booking check-ins."],
-    "admin-profile": ["Account settings", "Admin Profile", "Your account information."]
+    "admin-profile": ["Preferences", "Settings", "Account information and appearance."]
   };
   var statSets = {
     dashboard: [["bi-calendar-check", "Today’s bookings"], ["bi-people", "Active customers"], ["bi-building", "My venues"], ["bi-currency-exchange", "Revenue this month"]],
@@ -145,18 +146,6 @@
       courts: { status: "loaded", data: demoCourtData.courts, error: "" },
       slots: { status: "loaded", data: demoCourtData.slots, error: "" }
     };
-  }
-  function modeToolbar() {
-    var demo = dataMode === "demo";
-    var adminRegistry = currentRoute() === "admin-dashboard" || currentRoute() === "admin-venues" || currentRoute() === "admin-schedule";
-    var message = demo
-      ? (adminRegistry && currentRoute() !== "admin-schedule" ? "Sample catalogue for preview. Changes reset when you reload." : "Preview changes are saved only in this browser.")
-      : (adminRegistry ? "Manage the shared sports and court catalogue." : (authUser && authUser.role === "OWNER" ? "Manage your venues, courts, schedule, and reservations." : "Review system information."));
-    return '<section class="court-mode-bar" aria-label="Data source"><div><strong>' +
-      (demo ? "Demo data" : "Live data") + '</strong><small>' + message +
-      '</small></div><label class="small mb-0" for="court-data-mode">Data source</label><select id="court-data-mode" class="form-select" aria-label="Select data source"><option value="api" ' +
-      (!demo ? "selected" : "") + '>Live data</option><option value="demo" ' +
-      (demo ? "selected" : "") + '>Demo data</option></select></section>';
   }
   function recordsFor(resource) {
     return demoCourtData[resource];
@@ -256,14 +245,18 @@
     });
     return adminCatalogueSummaryPromise;
   }
-  function adminApiErrorMessage(error) {
+  function adminApiErrorMessage(error, context) {
     var status = error && error.status;
     if (status === 401) return "Your session expired or you are not signed in. Sign in again.";
     if (status === 403) return "This account does not have Admin permission.";
-    if (status === 404) return "The record was not found, or this Admin API is not deployed in the connected service yet.";
-    if (status === 409) return "The account status change conflicts with current Admin safeguards.";
+    if (status === 404) {
+      if (context === "list" || (error && error.detail === "Not Found")) return "This Admin API is not available in the connected service yet.";
+      return "The requested record was not found.";
+    }
+    if (status === 409) return context === "status" ? "The account status change conflicts with current Admin safeguards." : "This request conflicts with the current record state.";
     if (status === 422) return "The filters or request are invalid.";
-    if (status === 503 || status === 504 || status === 0) return "The management service is temporarily unavailable. Try again.";
+    if (status === 0) return "Could not connect to the API Gateway. Check that the management services are running.";
+    if (status >= 500) return "The management service returned a server error. Try again later.";
     return "Could not load Admin data. Try again.";
   }
   function loadAdminPage(kind, filters) {
@@ -284,7 +277,7 @@
     }).catch(function (error) {
       if (state.requestId !== requestId) return;
       state.status = "error";
-      state.error = adminApiErrorMessage(error);
+      state.error = adminApiErrorMessage(error, "list");
     }).finally(function () {
       if (state.requestId === requestId && currentRoute() === (kind === "users" ? "people" : kind === "bookings" ? "admin-bookings" : "checkins")) render();
     });
@@ -297,7 +290,7 @@
   function adminListState(state) {
     if (state.status === "idle" || state.status === "loading") return '<div class="panel-body text-secondary" role="status">Loading records...</div>';
     if (state.status === "error") return '<div class="panel-body"><div class="alert alert-warning mb-0" role="alert">' + esc(state.error) + ' <button class="btn btn-sm btn-outline-secondary ms-2" type="button" data-admin-retry>Retry</button></div></div>';
-    if (!state.data || !state.data.items.length) return '<div class="panel-body text-secondary" role="status">No records match these filters.</div>';
+    if (!state.data || !state.data.items.length) return '<div class="panel-body text-secondary" role="status">No records found.</div>';
     return "";
   }
   function refreshSchedule() {
@@ -373,7 +366,7 @@
     var monthOptions = months.map(function (month, index) { return '<option value="' + index + '" ' + (index === view.month ? "selected" : "") + '>' + month + '</option>'; }).join("");
     var yearOptions = "";
     for (var year = 1900; year <= 2100; year += 1) yearOptions += '<option value="' + year + '" ' + (year === view.year ? "selected" : "") + '>' + year + '</option>';
-    var displayDate = scheduleUtils.formatDateDisplay(selectedDate) || "Choose date";
+    var displayDate = scheduleUtils.formatDateDisplay(selectedDate) || options.emptyLabel || "Choose date";
     var required = options.required ? ' <span class="required-mark" aria-label="required">*</span>' : "";
     var fieldLabel = options.label ? '<label class="form-label" for="calendar-trigger-' + esc(pickerId) + '">' + esc(label) + required + '</label>' : "";
     var hiddenValue = options.fieldName ? '<input type="hidden" name="' + esc(options.fieldName) + '" value="' + esc(selectedDate) + '" data-calendar-field>' : "";
@@ -709,18 +702,32 @@
       sports: [["id", "ID"], ["name", "Name"], ["description", "Description"], ["is_active", "Status"]],
       venues: [["id", "ID"], ["owner_id", "Owner ID"], ["name", "Name"], ["address", "Address"], ["description", "Description"], ["phone", "Phone"], ["is_active", "Status"], ["created_at", "Created"]],
       courts: [["id", "ID"], ["venue_id", "Venue ID"], ["sport_id", "Sport ID"], ["name", "Court"], ["description", "Description"], ["price_per_hour", "Price/hour"], ["is_active", "Status"]],
-      "time-slots": [["id", "ID"], ["court_id", "Court ID"], ["slot_date", "Date"], ["start_time", "Start"], ["end_time", "End"], ["is_active", "Status"]]
+      "time-slots": [["id", "ID"], ["court_id", "Court"], ["venue_id", "Venue"], ["slot_date", "Date"], ["start_time", "Start"], ["end_time", "End"], ["is_active", "Status"]]
     }[resource] || [];
     var title = { sports: "Sport details", venues: "Venue details", courts: "Court details", "time-slots": "Time slot details" }[resource] || "Details";
     var rows = fields.filter(function (field) {
-      return item[field[0]] !== null && item[field[0]] !== undefined && item[field[0]] !== "";
+      return field[0] === "venue_id" && resource === "time-slots"
+        ? item.court_id !== null && item.court_id !== undefined
+        : item[field[0]] !== null && item[field[0]] !== undefined && item[field[0]] !== "";
     }).map(function (field) {
       var value = item[field[0]];
+      if (resource === "time-slots" && field[0] === "court_id") {
+        var detailResources = currentResources(true);
+        var detailCourt = detailResources.courts.data.find(function (court) { return String(court.id) === String(item.court_id); });
+        value = detailCourt ? detailCourt.name : "Court #" + item.court_id;
+      }
+      if (resource === "time-slots" && field[0] === "venue_id") {
+        var venueResources = currentResources(true);
+        var slotCourt = venueResources.courts.data.find(function (court) { return String(court.id) === String(item.court_id); });
+        var detailVenue = slotCourt && venueResources.venues.data.find(function (venue) { return String(venue.id) === String(slotCourt.venue_id); });
+        value = detailVenue ? detailVenue.name : (slotCourt ? "Venue #" + slotCourt.venue_id : "Venue unavailable");
+      }
       if (field[0] === "is_active") value = value ? "Active" : "Inactive";
       if (field[0] === "price_per_hour") value = formatPriceVnd(value);
       else if (field[0] === "start_time" || field[0] === "end_time") value = apiTime(value);
       else value = esc(value === null || value === undefined || value === "" ? "—" : value);
-      return '<div class="detail-row"><span>' + field[1] + '</span><strong>' + value + "</strong></div>";
+      var nowrap = ["Date", "Start", "End"].indexOf(field[1]) >= 0 ? " detail-value--nowrap" : "";
+      return '<div class="detail-row"><span>' + field[1] + '</span><strong class="detail-value' + nowrap + '">' + value + "</strong></div>";
     }).join("");
     var host = document.getElementById("api-detail-modal-host");
     if (!host) {
@@ -828,9 +835,7 @@
       '<div class="app-shell"><aside class="sidebar" id="sidebar"><a class="brand text-decoration-none" href="' + routeLink(admin ? "admin-dashboard" : "dashboard") + '">' +
       '<span class="brand-mark"><i class="bi bi-trophy"></i></span><span>Courtbook<small>Management</small></span></a><div class="side-label">' +
       (admin ? "Administration" : "Operations") + '</div><nav class="side-nav">' + navMarkup(nav, active) + '</nav><div class="side-spacer"></div>' +
-      '<a class="side-link" href="#/login" data-logout><i class="bi bi-box-arrow-left"></i><span>Sign out</span></a><div class="side-user"><span class="avatar">' +
-      esc(initials) + '</span><span><strong>' + esc(name) + "</strong><small>" + esc(email || (admin ? "Administrator" : "Court Owner")) +
-      '</small></span></div></aside><button class="mobile-backdrop" id="mobile-backdrop" aria-label="Close navigation"></button>' +
+      '<a class="side-link side-logout" href="#/login" data-logout><i class="bi bi-box-arrow-left"></i><span>Sign out</span></a></aside><button class="mobile-backdrop" id="mobile-backdrop" aria-label="Close navigation"></button>' +
       '<div class="main-column"><header class="topbar"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="Open navigation"><i class="bi bi-list"></i></button>' +
       '<div class="top-user"><span class="avatar">' + esc(initials) + '</span><div><strong>' + esc(name) + "</strong><small>" +
       esc(authUser ? (authUser.role + " account") : (admin ? "Demo Administrator" : "Demo Owner account")) + '</small></div></header><main class="page-content">' + content +
@@ -843,6 +848,7 @@
       function finishLogout() {
         clearSession();
         dataMode = "api";
+        loginMode = "api";
         authMessage = "";
         location.hash = "#/login";
       }
@@ -922,8 +928,8 @@
     var slots = resources.slots;
     if (active === "admin-dashboard") {
       var activeSlots = slots.status === "loaded" ? slots.data.filter(function (slot) { return slot.is_active; }).length : "?";
-      var accountStats = demoAccountStats();
-      var bookingStats = demoBookingStats();
+      var accountStats = dataMode === "demo" ? demoAccountStats() : [];
+      var bookingStats = dataMode === "demo" ? demoBookingStats() : [];
       var dashboardValues = dataMode === "demo"
         ? [accountStats[0], accountStats[2], bookingStats[0], bookingStats[1]]
         : ["—", adminCatalogueSummary.data ? adminCatalogueSummary.data.venues.total : "—", adminCatalogueSummary.data ? adminCatalogueSummary.data.courts.total : "—", "—"];
@@ -986,7 +992,7 @@
   function bookingPage(active, admin) {
     if (admin) {
       if (dataMode !== "demo") {
-        var filters = '<div class="toolbar admin-filter-toolbar"><input class="form-control" type="search" data-admin-booking-id value="' + esc(adminBookingsFilters.booking_id) + '" placeholder="Booking ID" aria-label="Search by booking ID"><select class="form-select" data-admin-booking-status aria-label="Filter status"><option value="">All statuses</option>' + ["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "EXPIRED"].map(function (status) { return '<option value="' + status + '" ' + (adminBookingsFilters.status === status ? "selected" : "") + '>' + status + '</option>'; }).join("") + '</select>' + [["venue_id", "Venue ID"], ["court_id", "Court ID"], ["owner_id", "Owner ID"], ["user_id", "User ID"]].map(function (field) { return '<input class="form-control" type="number" min="1" data-admin-booking-field="' + field[0] + '" value="' + esc(adminBookingsFilters[field[0]]) + '" placeholder="' + field[1] + '" aria-label="Filter ' + field[1] + '">'; }).join("") + calendarPickerMarkup("admin-bookings-from", "Date from", adminBookingsFilters.date_from, { filterAttribute: ' data-admin-date-filter="bookings" data-admin-date-field="date_from"' }) + calendarPickerMarkup("admin-bookings-to", "Date to", adminBookingsFilters.date_to, { filterAttribute: ' data-admin-date-filter="bookings" data-admin-date-field="date_to"' }) + '<button class="btn btn-outline-secondary" type="button" data-admin-filter-clear="bookings">Clear filters</button></div>';
+        var filters = '<div class="toolbar admin-filter-toolbar admin-booking-filter-toolbar"><select class="form-select" data-admin-booking-search-by aria-label="Search bookings by"><option value="booking_id" ' + (adminBookingsSearchBy === "booking_id" ? "selected" : "") + '>Booking ID</option><option value="user_id" ' + (adminBookingsSearchBy === "user_id" ? "selected" : "") + '>Customer ID</option></select><input class="form-control" type="search" data-admin-booking-search value="' + esc(adminBookingsFilters[adminBookingsSearchBy]) + '" placeholder="Search by ' + (adminBookingsSearchBy === "booking_id" ? "booking ID" : "customer ID") + '" aria-label="Search by ' + (adminBookingsSearchBy === "booking_id" ? "booking ID" : "customer ID") + '"><select class="form-select" data-admin-booking-status aria-label="Filter status"><option value="">All statuses</option>' + ["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "EXPIRED"].map(function (status) { return '<option value="' + status + '" ' + (adminBookingsFilters.status === status ? "selected" : "") + '>' + status + '</option>'; }).join("") + '</select>' + calendarPickerMarkup("admin-bookings-from", "Date from", adminBookingsFilters.date_from, { emptyLabel: "Date from", filterAttribute: ' data-admin-date-filter="bookings" data-admin-date-field="date_from"' }) + calendarPickerMarkup("admin-bookings-to", "Date to", adminBookingsFilters.date_to, { emptyLabel: "Date to", filterAttribute: ' data-admin-date-filter="bookings" data-admin-date-field="date_to"' }) + '<button class="btn btn-outline-secondary" type="button" data-admin-filter-clear="bookings">Clear filters</button></div>';
         var content = adminListState(adminBookingsState);
         if (adminBookingsState.status === "loaded" && adminBookingsState.data.items.length) {
           var rows = adminBookingsState.data.items.map(function (booking) {
@@ -1180,7 +1186,8 @@
     if (!apiBooking && booking.checkin_status) statusRows.push(["QR check-in", booking.checkin_status]);
     function detailSection(title, rows) {
       return '<section class="booking-detail-section"><h3>' + title + '</h3><div class="booking-detail-grid">' + rows.map(function (row) {
-        return '<div class="detail-row"><span>' + esc(row[0]) + '</span><strong>' + esc(row[1]) + '</strong></div>';
+        var nowrap = ["Date", "Time"].indexOf(row[0]) >= 0 ? " detail-value--nowrap" : "";
+        return '<div class="detail-row"><span>' + esc(row[0]) + '</span><strong class="detail-value' + nowrap + '">' + esc(row[1]) + '</strong></div>';
       }).join("") + '</div></section>';
     }
     var host = document.getElementById("booking-detail-modal-host");
@@ -1229,16 +1236,17 @@
       host.id = "admin-account-modal-host";
       document.body.appendChild(host);
     }
-    host.innerHTML = '<div class="modal fade" id="admin-account-modal" tabindex="-1" aria-labelledby="admin-account-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><div><p class="eyebrow mb-1">Demo account details</p><h2 class="modal-title fs-6" id="admin-account-title">' + esc(account[1]) + '</h2></div><button type="button" class="btn-close" data-modal-close aria-label="Close"></button></div><div class="modal-body"><div class="detail-row"><span>Account ID</span><strong>' + esc(account[0]) + '</strong></div><div class="detail-row"><span>Email</span><strong>' + esc(account[2]) + '</strong></div><div class="detail-row"><span>Role</span><strong>' + esc(account[3]) + '</strong></div><div class="detail-row"><span>Joined</span><strong>' + esc(account[4]) + '</strong></div><div class="detail-row"><span>Status</span><strong>' + esc(account[5]) + '</strong></div></div></div></div></div>';
+    host.innerHTML = '<div class="modal fade" id="admin-account-modal" tabindex="-1" aria-labelledby="admin-account-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable admin-account-detail-modal"><div class="modal-content"><div class="modal-header"><div><p class="eyebrow mb-1">Demo account details</p><h2 class="modal-title fs-6" id="admin-account-title">' + esc(account[1]) + '</h2></div><button type="button" class="btn-close" data-modal-close aria-label="Close"></button></div><div class="modal-body"><div class="record-details-grid"><div class="detail-row"><span>Account ID</span><strong>' + esc(account[0]) + '</strong></div><div class="detail-row"><span>Email</span><strong>' + esc(account[2]) + '</strong></div><div class="detail-row"><span>Role</span><strong>' + esc(account[3]) + '</strong></div><div class="detail-row"><span>Joined</span><strong>' + esc(account[4]) + '</strong></div><div class="detail-row"><span>Status</span><strong>' + esc(account[5]) + '</strong></div></div></div></div></div></div>';
     showManagedModal(document.getElementById("admin-account-modal"), host);
   }
   function showAdminRecordDetails(title, record, fields) {
     var host = document.getElementById("admin-record-modal-host");
     if (!host) { host = document.createElement("div"); host.id = "admin-record-modal-host"; document.body.appendChild(host); }
     var rows = fields.filter(function (field) { return record[field[0]] !== undefined && record[field[0]] !== null; }).map(function (field) {
-      return '<div class="detail-row"><span>' + esc(field[1]) + '</span><strong>' + esc(record[field[0]]) + '</strong></div>';
+      var nowrap = /date|time|^start$|^end$/i.test(field[1]) ? " detail-value--nowrap" : "";
+      return '<div class="detail-row"><span>' + esc(field[1]) + '</span><strong class="detail-value' + nowrap + '">' + esc(record[field[0]]) + '</strong></div>';
     }).join("");
-    host.innerHTML = '<div class="modal fade" id="admin-record-modal" tabindex="-1" aria-labelledby="admin-record-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-6" id="admin-record-title">' + esc(title) + '</h2><button type="button" class="btn-close" data-modal-close aria-label="Close"></button></div><div class="modal-body">' + rows + '</div></div></div></div>';
+    host.innerHTML = '<div class="modal fade" id="admin-record-modal" tabindex="-1" aria-labelledby="admin-record-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable admin-record-detail-modal"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-6" id="admin-record-title">' + esc(title) + '</h2><button type="button" class="btn-close" data-modal-close aria-label="Close"></button></div><div class="modal-body"><div class="record-details-grid">' + rows + '</div></div></div></div></div>';
     showManagedModal(document.getElementById("admin-record-modal"), host);
   }
   function closeManagedModal(modal) {
@@ -1349,7 +1357,7 @@
     if (slotsState.status === "loading" || slotsState.status === "idle") statusBlock = '<div class="panel-body">Loading time slots...</div>';
     else if (slotsState.status === "error") statusBlock = '<div class="panel-body">' + resourceError("time slots", slotsState.error) + "</div>";
     else {
-      var visibleSlots = slotsState.data.filter(function (slot) {
+      var filteredSlots = slotsState.data.filter(function (slot) {
         var court = courts.data.find(function (item) { return item.id === slot.court_id; });
         var venue = court && venues.data.find(function (item) { return item.id === court.venue_id; });
         var sport = court && resources.sports.data.find(function (item) { return item.id === court.sport_id; });
@@ -1360,6 +1368,7 @@
           sportName: sport && sport.name
         }, scheduleFilters);
       });
+      var visibleSlots = scheduleUtils.sortScheduleSlots(filteredSlots, courts.data, venues.data);
       if (!visibleSlots.length) statusBlock = '<div class="panel-body text-secondary" role="status">' + (slotsState.data.length ? "No time slots match this filter." : "No time slots are available yet. Add one after a Court is configured.") + ' The active flag does not indicate booking availability.</div>';
       else {
         rows = visibleSlots.map(function (slot) {
@@ -1403,7 +1412,7 @@
   function checkinPage(active, admin) {
     if (admin) {
       if (dataMode !== "demo") {
-        var filters = '<div class="toolbar admin-filter-toolbar"><input class="form-control" type="search" data-admin-checkin-booking value="' + esc(adminCheckinsFilters.booking_id) + '" placeholder="Booking ID" aria-label="Filter booking ID">' + [["venue_id", "Venue ID"], ["court_id", "Court ID"], ["checked_in_by", "Owner ID"]].map(function (field) { return '<input class="form-control" type="number" min="1" data-admin-checkin-field="' + field[0] + '" value="' + esc(adminCheckinsFilters[field[0]]) + '" placeholder="' + field[1] + '" aria-label="Filter ' + field[1] + '">'; }).join("") + calendarPickerMarkup("admin-checkins-from", "Date from", adminCheckinsFilters.date_from, { filterAttribute: ' data-admin-date-filter="checkins" data-admin-date-field="date_from"' }) + calendarPickerMarkup("admin-checkins-to", "Date to", adminCheckinsFilters.date_to, { filterAttribute: ' data-admin-date-filter="checkins" data-admin-date-field="date_to"' }) + '<button class="btn btn-outline-secondary" type="button" data-admin-filter-clear="checkins">Clear filters</button></div>';
+        var filters = '<div class="toolbar admin-filter-toolbar admin-checkin-filter-toolbar"><input class="form-control" type="search" data-admin-checkin-booking value="' + esc(adminCheckinsFilters.booking_id) + '" placeholder="Booking ID" aria-label="Search by booking ID">' + calendarPickerMarkup("admin-checkins-from", "Date from", adminCheckinsFilters.date_from, { emptyLabel: "Date from", filterAttribute: ' data-admin-date-filter="checkins" data-admin-date-field="date_from"' }) + calendarPickerMarkup("admin-checkins-to", "Date to", adminCheckinsFilters.date_to, { emptyLabel: "Date to", filterAttribute: ' data-admin-date-filter="checkins" data-admin-date-field="date_to"' }) + '<button class="btn btn-outline-secondary" type="button" data-admin-filter-clear="checkins">Clear filters</button></div>';
         var content = adminListState(adminCheckinsState);
         if (adminCheckinsState.status === "loaded" && adminCheckinsState.data.items.length) {
           var rows = adminCheckinsState.data.items.map(function (item) {
@@ -1639,7 +1648,7 @@
     var bars = values.map(function (height, i) {
       return '<div class="bar-column"><div class="bar ' + (i === 11 ? "current" : "") + '" style="height:' + height + '%"></div><span>' + months[i] + "</span></div>";
     }).join("");
-    var chart = '<div class="panel-body"><p class="eyebrow mb-2">Gross revenue · This year</p><p class="revenue-total">₫12,450,000</p><p class="text-secondary mb-2" style="font-size:10px"><span class="trend-up"><i class="bi bi-arrow-up-right"></i> 12.8%</span> compared with last month</p><div class="bar-chart">' + bars + '</div><div class="chart-legend"><span>Monthly revenue summary</span><span>Sample data · VND</span></div></div>';
+    var chart = '<div class="panel-body"><p class="eyebrow mb-2">Gross revenue · This year</p><p class="revenue-total">₫12,450,000</p><p class="text-secondary mb-2" style="font-size:13px"><span class="trend-up"><i class="bi bi-arrow-up-right"></i> 12.8%</span> compared with last month</p><div class="bar-chart">' + bars + '</div><div class="chart-legend"><span>Monthly revenue summary</span><span>Sample data · VND</span></div></div>';
     var items = [["Badminton", "₫6,820,000", "55%"], ["Football", "₫3,240,000", "26%"], ["Pickleball", "₫2,390,000", "19%"]];
     var breakdown = '<div class="panel-body quick-list">' + items.map(function (item) {
       return '<div class="quick-item"><span class="quick-icon"><i class="bi bi-trophy"></i></span><span class="flex-grow-1"><strong>' + item[0] + "</strong><small>" + item[2] + " of total revenue</small></span><strong>" + item[1] + "</strong></div>";
@@ -1647,7 +1656,7 @@
     return heading("revenue", actionButton("Download report", "bi-download", "Sample revenue report downloaded.", true)) + demoNotice("Sample figures are shown for preview only.") +
       stats("revenue", ["₫12.45M", "₫4.68M", "₫7.77M", "₫1.24M"]) + '<div class="content-grid">' +
       panel("Revenue overview", chart, "Monthly performance") + panel("Revenue by sport", breakdown, "This month") +
-      '</div><p class="text-secondary mt-3" style="font-size:10px"><i class="bi bi-info-circle me-1"></i>Revenue figures are mock data for this interface preview.</p>';
+      '</div><p class="text-secondary mt-3" style="font-size:13px"><i class="bi bi-info-circle me-1"></i>Revenue figures are mock data for this interface preview.</p>';
   }
   function peoplePage() {
     if (dataMode !== "demo") {
@@ -1674,24 +1683,20 @@
       '<div class="table-wrap"><table class="table"><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th>Status</th><th>Actions</th></tr></thead><tbody id="admin-account-rows">' + rows + '</tbody></table></div><div class="table-foot"><span data-account-count>Showing ' + data.people.length + ' of ' + data.people.length + ' Demo accounts</span></div>', "Demo records only");
   }
   function profilePage(active, admin) {
-    if (authUser) {
-      var accountRows = [["Account ID", authUser.id], ["Full name", authUser.full_name], ["Email", authUser.email], ["Phone", authUser.phone], ["Role", authUser.role], ["Status", authUser.is_active ? "Active" : "Inactive"]].filter(function (row) { return row[1] !== null && row[1] !== undefined && row[1] !== ""; });
-      var details = '<div class="panel-body">' + accountRows.map(function (row) { return '<div class="detail-row"><span>' + esc(row[0]) + '</span><strong>' + esc(row[1]) + '</strong></div>'; }).join("") + '</div>';
-      return heading(active) + '<div class="alert alert-info" role="status">Profile details are available in read-only mode.</div>' + panel("Account information", details, "Your profile");
-    }
-    var name = admin ? "Admin User" : "Nguyễn Văn A";
-    var email = admin ? "admin@sportbooking.vn" : "owner@sportbooking.vn";
-    return heading(active) + demoNotice("Sample profile information is shown for preview only.") + '<div class="profile-layout"><section class="profile-card profile-summary"><span class="avatar">' + (admin ? "AU" : "NA") +
-      "</span><h2>" + name + "</h2><p>" + (admin ? "System Administrator" : "Court Owner") + " · Member since 2025</p>" + badge("Active") +
-      '<div class="profile-divider"></div><div class="detail-row"><span>Account ID</span><strong>' + (admin ? "ADM-0001" : "OWN-0108") +
-      '</strong></div><div class="detail-row"><span>Role</span><strong>' + (admin ? "Administrator" : "Court Owner") + '</strong></div></section>' +
-      '<section class="profile-card"><div class="d-flex justify-content-between align-items-start mb-3"><div><h2 class="h6 fw-bold mb-1">Personal information</h2><p class="text-secondary mb-0" style="font-size:10px">Update your profile details and contact information.</p></div><i class="bi bi-person-vcard text-success fs-5"></i></div>' +
-      '<form id="profile-form" class="row g-3"><div class="col-md-6"><label class="form-label">Full name</label><input class="form-control" value="' + name +
-      '"></div><div class="col-md-6"><label class="form-label">Email address</label><input class="form-control" type="email" value="' + email +
-      '"></div><div class="col-md-6"><label class="form-label">Phone number</label><input class="form-control" value="+84 912 345 678"></div><div class="col-md-6"><label class="form-label">Account role</label><input class="form-control" value="' +
-      (admin ? "Administrator" : "Court Owner") + '" disabled></div><div class="col-12"><label class="form-label">Address</label><input class="form-control" value="Cầu Giấy, Hà Nội"></div><div class="col-12 d-flex justify-content-end"><button class="btn btn-success" type="submit"><i class="bi bi-check2 me-1"></i>Save changes</button></div></form></section></div>';
-  }
-  function pageFor(active) {
+    var demo = !authUser;
+    var name = authUser ? (authUser.full_name || authUser.email || "Account") : (admin ? "Admin User" : "Nguyen Van A");
+    var email = authUser ? (authUser.email || "—") : (admin ? "admin@example.test" : "owner@example.test");
+    var role = authUser ? authUser.role : (admin ? "ADMIN" : "OWNER");
+    var accountId = authUser ? authUser.id : (admin ? "ADM-0001" : "OWN-0108");
+    var isActive = authUser ? !!authUser.is_active : true;
+    var initials = name.split(/\s+/).map(function (part) { return part.charAt(0); }).join("").slice(0, 2).toUpperCase();
+    var account = '<section class="settings-card account-settings-card"><div class="settings-card-heading"><div><h2>Account Information</h2><p>' + (demo ? "Sample account for Demo Mode." : "Your signed-in account details.") + '</p></div></div>' +
+      '<div class="settings-identity"><span class="avatar settings-avatar">' + esc(initials) + '</span><div class="settings-identity-copy"><h3>' + esc(name) + '</h3><p>' + esc(email) + '</p></div></div>' +
+      '<dl class="settings-account-details"><div><dt>Role</dt><dd>' + esc(role) + '</dd></div><div><dt>Account ID</dt><dd>' + esc(accountId) + '</dd></div><div><dt>Status</dt><dd><span class="badge-soft ' + (isActive ? '' : 'danger') + '">' + (isActive ? "Active" : "Inactive") + '</span></dd></div></dl></section>';
+    var selectedTheme = window.ManagementTheme.get();
+    var appearance = '<section class="settings-card appearance-settings-card"><div class="settings-card-heading"><div><h2>Appearance</h2><p>Choose a theme for the management workspace.</p></div><i class="bi bi-palette settings-section-icon" aria-hidden="true"></i></div><div class="settings-theme-options" role="group" aria-label="Color theme"><button type="button" class="settings-theme-choice" data-theme-choice="light" aria-pressed="' + (selectedTheme === "light") + '"><i class="bi bi-sun" aria-hidden="true"></i><span>Light</span></button><button type="button" class="settings-theme-choice" data-theme-choice="dark" aria-pressed="' + (selectedTheme === "dark") + '"><i class="bi bi-moon-stars" aria-hidden="true"></i><span>Dark</span></button></div><p class="settings-theme-feedback" role="status" data-theme-status>Theme preference is saved on this device.</p></section>';
+    return heading(active) + '<div class="settings-layout">' + account + appearance + '</div>';
+  }  function pageFor(active) {
     if (active === "dashboard" || active === "admin-dashboard") return dashboard(active);
     if (active === "venues" || active === "admin-venues") return venuePage(active, active === "admin-venues");
     if (active === "schedule" || active === "admin-schedule") return schedulePage(active === "admin-schedule");
@@ -1915,6 +1920,16 @@
     showManagedModal(modal, host);
   }
   function wireActions() {
+    document.querySelectorAll("[data-theme-choice]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var selectedTheme = window.ManagementTheme.set(button.dataset.themeChoice);
+        document.querySelectorAll("[data-theme-choice]").forEach(function (choice) {
+          choice.setAttribute("aria-pressed", String(choice.dataset.themeChoice === selectedTheme));
+        });
+        var status = document.querySelector("[data-theme-status]");
+        if (status) status.textContent = selectedTheme === "dark" ? "Dark mode is active and saved on this device." : "Light mode is active and saved on this device.";
+      });
+    });
     document.querySelectorAll("[data-registry-tab]").forEach(function (button) {
       button.addEventListener("click", function () {
         registryTab = button.dataset.registryTab;
@@ -1926,29 +1941,6 @@
     if (registrySearch) registrySearch.addEventListener("input", applyRegistryFilters);
     document.querySelectorAll("[data-registry-sport-filter], [data-registry-active-filter], [data-registry-status], [data-registry-venue-filter]").forEach(function (el) {
       el.addEventListener("change", applyRegistryFilters);
-    });
-    var modeSelect = document.getElementById("court-data-mode");
-    if (modeSelect) modeSelect.addEventListener("change", function () {
-      var nextMode = modeSelect.value;
-      if (currentRoute() === "qr-checkin" && (qrScanner || scannerInstance || scannerStarting)) {
-        modeSelect.disabled = true;
-        stopQrScanner().then(function (stopped) {
-          if (stopped) {
-            dataMode = nextMode; scannerState = "idle"; scanResult = null; crudFormState = null;
-            if (nextMode === "api" && currentRoute() === "owner-bookings") ownerBookingsState.status = "idle";
-            render();
-          } else {
-            modeSelect.disabled = false; modeSelect.value = dataMode;
-          }
-        });
-        return;
-      }
-      dataMode = nextMode;
-      scannerState = "idle";
-      scanResult = null;
-      crudFormState = null;
-      if (nextMode === "api" && currentRoute() === "owner-bookings") ownerBookingsState.status = "idle";
-      render();
     });
     document.querySelectorAll("[data-crud-open]").forEach(function (el) {
       el.addEventListener("click", function () {
@@ -2043,29 +2035,28 @@
     if (adminUserSearch) adminUserSearch.addEventListener("change", updateAdminUserFilters);
     if (adminUserRole) adminUserRole.addEventListener("change", updateAdminUserFilters);
     if (adminUserActive) adminUserActive.addEventListener("change", updateAdminUserFilters);
-    var adminBookingId = document.querySelector("[data-admin-booking-id]");
+    var adminBookingSearchBySelect = document.querySelector("[data-admin-booking-search-by]");
+    var adminBookingSearch = document.querySelector("[data-admin-booking-search]");
     var adminBookingStatus = document.querySelector("[data-admin-booking-status]");
     function updateAdminBookingFilters() {
-      function value(field) { var input = document.querySelector('[data-admin-booking-field="' + field + '"]'); return input ? input.value : ""; }
-      adminBookingsFilters = { page: 1, page_size: 25, booking_id: adminBookingId ? adminBookingId.value.trim() : "", status: adminBookingStatus ? adminBookingStatus.value : "", date_from: adminBookingsFilters.date_from, date_to: adminBookingsFilters.date_to, venue_id: value("venue_id"), court_id: value("court_id"), owner_id: value("owner_id"), user_id: value("user_id") };
+      adminBookingsSearchBy = adminBookingSearchBySelect ? adminBookingSearchBySelect.value : "booking_id";
+      var searchValue = adminBookingSearch ? adminBookingSearch.value.trim() : "";
+      adminBookingsFilters = { page: 1, page_size: 25, booking_id: adminBookingsSearchBy === "booking_id" ? searchValue : "", user_id: adminBookingsSearchBy === "user_id" ? searchValue : "", status: adminBookingStatus ? adminBookingStatus.value : "", date_from: adminBookingsFilters.date_from, date_to: adminBookingsFilters.date_to };
       loadAdminPage("bookings", adminBookingsFilters);
     }
-    [adminBookingId, adminBookingStatus].forEach(function (control) {
-      if (control) control.addEventListener(control.type === "search" ? "change" : "change", updateAdminBookingFilters);
+    [adminBookingSearchBySelect, adminBookingSearch, adminBookingStatus].forEach(function (control) {
+      if (control) control.addEventListener("change", updateAdminBookingFilters);
       if (control && control.type === "search") control.addEventListener("keydown", function (event) { if (event.key === "Enter") updateAdminBookingFilters(); });
     });
-    document.querySelectorAll("[data-admin-booking-field]").forEach(function (control) { control.addEventListener("change", updateAdminBookingFilters); });
     var adminCheckinBooking = document.querySelector("[data-admin-checkin-booking]");
     function updateAdminCheckinFilters() {
-      function value(field) { var input = document.querySelector('[data-admin-checkin-field="' + field + '"]'); return input ? input.value : ""; }
-      adminCheckinsFilters = { page: 1, page_size: 25, booking_id: adminCheckinBooking ? adminCheckinBooking.value.trim() : "", date_from: adminCheckinsFilters.date_from, date_to: adminCheckinsFilters.date_to, venue_id: value("venue_id"), court_id: value("court_id"), checked_in_by: value("checked_in_by") };
+      adminCheckinsFilters = { page: 1, page_size: 25, booking_id: adminCheckinBooking ? adminCheckinBooking.value.trim() : "", date_from: adminCheckinsFilters.date_from, date_to: adminCheckinsFilters.date_to };
       loadAdminPage("checkins", adminCheckinsFilters);
     }
     [adminCheckinBooking].forEach(function (control) {
       if (control) control.addEventListener("change", updateAdminCheckinFilters);
       if (control && control.type === "search") control.addEventListener("keydown", function (event) { if (event.key === "Enter") updateAdminCheckinFilters(); });
     });
-    document.querySelectorAll("[data-admin-checkin-field]").forEach(function (control) { control.addEventListener("change", updateAdminCheckinFilters); });
     document.querySelectorAll("[data-admin-page]").forEach(function (button) {
       button.addEventListener("click", function () {
         var kind = button.dataset.adminPage;
@@ -2084,11 +2075,12 @@
     document.querySelectorAll("[data-admin-filter-clear]").forEach(function (button) {
       button.addEventListener("click", function () {
         if (button.dataset.adminFilterClear === "bookings") {
-          adminBookingsFilters = { page: 1, page_size: 25, booking_id: "", status: "", date_from: "", date_to: "", venue_id: "", court_id: "", owner_id: "", user_id: "" };
+          adminBookingsSearchBy = "booking_id";
+          adminBookingsFilters = { page: 1, page_size: 25, booking_id: "", user_id: "", status: "", date_from: "", date_to: "" };
           render();
           loadAdminPage("bookings", adminBookingsFilters);
         } else {
-          adminCheckinsFilters = { page: 1, page_size: 25, booking_id: "", date_from: "", date_to: "", venue_id: "", court_id: "", checked_in_by: "" };
+          adminCheckinsFilters = { page: 1, page_size: 25, booking_id: "", date_from: "", date_to: "" };
           render();
           loadAdminPage("checkins", adminCheckinsFilters);
         }
@@ -2098,14 +2090,14 @@
       button.addEventListener("click", function () {
         window.AdminManagementApi.getUser(button.dataset.adminUserDetail).then(function (user) {
           showAdminRecordDetails("User account " + user.id, user, [["id", "ID"], ["full_name", "Full name"], ["email", "Email"], ["phone", "Phone"], ["role", "Role"], ["is_active", "Active"], ["created_at", "Created"]]);
-        }).catch(function (error) { toast(adminApiErrorMessage(error)); });
+        }).catch(function (error) { toast(adminApiErrorMessage(error, "record")); });
       });
     });
     document.querySelectorAll("[data-admin-booking-detail]").forEach(function (button) {
       button.addEventListener("click", function () {
         window.AdminManagementApi.getBooking(button.dataset.adminBookingDetail).then(function (booking) {
           showAdminRecordDetails("Booking " + booking.id, booking, [["id", "ID"], ["user_id", "User ID"], ["owner_id", "Owner ID"], ["venue_id", "Venue ID"], ["court_id", "Court ID"], ["time_slot_id", "Time Slot ID"], ["slot_date", "Date"], ["start_time", "Start time"], ["end_time", "End time"], ["status", "Status"], ["total_amount", "Total amount"], ["checked_in_by", "Checked in by"], ["checked_in_at", "Checked in at"], ["completed_at", "Completed at"], ["created_at", "Created"]]);
-        }).catch(function (error) { toast(adminApiErrorMessage(error)); });
+        }).catch(function (error) { toast(adminApiErrorMessage(error, "record")); });
       });
     });
     document.querySelectorAll("[data-admin-user-status]").forEach(function (button) {
@@ -2116,7 +2108,7 @@
           window.AdminManagementApi.setUserActive(button.dataset.userId, nextActive).then(function () {
             toast(nextActive ? "Account activated." : "Account deactivated.");
             return loadAdminPage("users", adminUsersFilters);
-          }).catch(function (error) { toast(adminApiErrorMessage(error)); }).finally(function () { button.disabled = false; });
+          }).catch(function (error) { toast(adminApiErrorMessage(error, "status")); }).finally(function () { button.disabled = false; });
         }
         if (nextActive) saveStatus();
         else showActionConfirmation("Deactivate account", "This prevents new login. Existing tokens may remain valid until they expire.", "Deactivate", saveStatus);
@@ -2228,11 +2220,6 @@
       if (code === "BK-2047") document.getElementById("verify-result").classList.remove("d-none");
       else toast(code ? "No matching sample booking. Try BK-2047." : "Enter a booking code to continue.");
     });
-    var profile = document.getElementById("profile-form");
-    if (profile) profile.addEventListener("submit", function (event) {
-      event.preventDefault();
-      toast("Profile changes are shown in this demo only.");
-    });
   }
   function render() {
     var active = currentRoute();
@@ -2260,10 +2247,6 @@
     var admin = active.indexOf("admin-") === 0 || active === "people" || active === "checkins";
     if (!info[active]) active = admin ? "admin-dashboard" : "dashboard";
     var content = pageFor(active);
-    var ownerModeScreens = ["dashboard", "venues", "schedule", "owner-bookings", "qr-checkin", "revenue"];
-    var adminModeScreens = ["admin-dashboard", "admin-venues", "admin-schedule", "admin-bookings", "checkins", "people"];
-    if (!admin && ownerModeScreens.indexOf(active) >= 0) content = modeToolbar() + content;
-    if (admin && adminModeScreens.indexOf(active) >= 0) content = modeToolbar() + content;
     renderShell(content, admin, active);
     wireActions();
     if (active === "venues" || active === "admin-venues") applyRegistryFilters();

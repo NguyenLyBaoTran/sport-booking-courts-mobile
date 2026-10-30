@@ -130,8 +130,10 @@ test("Owner booking Refresh is in the header and Clear filters remains the last 
 test("Venues and Courts controls use responsive toolbar grid and padded bounded cards", () => {
   assert.match(appSource, /registry-toolbar registry-toolbar--' \+ registryTab/);
   const css = fs.readFileSync(path.join(__dirname, "../assets/css/app.css"), "utf8");
-  assert.match(css, /\.venue-grid \{ display: grid; grid-template-columns: repeat\(auto-fill,minmax\(min\(100%,420px\),1fr\)\); align-items: stretch; gap: 16px; padding: 22px; \}/);
-  assert.match(css, /\.venue-card \{ width: min\(100%,560px\); min-width: 0; overflow: hidden; \}/);
+  assert.match(css, /\.venue-grid \{ display: grid; grid-template-columns: repeat\(auto-fill,minmax\(min\(100%,420px\),1fr\)\); align-items: stretch; gap: 12px; padding: 18px; \}/);
+  assert.match(css, /\.venue-card \{ display: flex; width: min\(100%,560px\); min-width: 0; min-height: 100%; flex-direction: column; overflow: hidden; \}/);
+  assert.match(css, /\.venue-cover \{ display: flex; min-height: 72px;/);
+  assert.match(css, /\.venue-body \.registry-row-actions \{ margin-top: auto; \}/);
   assert.match(css, /\.registry-toolbar--courts \{ grid-template-columns:/);
 });
 

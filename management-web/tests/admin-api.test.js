@@ -34,6 +34,14 @@ test("Admin booking and check-in lists use distinct read-only endpoints", async 
   assert.equal(calls[1].url, "/api/v1/admin/checkins?page=1&page_size=25&booking_id=42");
 });
 
+test("Admin booking search can target either a booking ID or supported customer ID filter", async () => {
+  const { api, calls } = loadApi();
+  await api.listBookings({ page: 1, page_size: 25, booking_id: "42" });
+  await api.listBookings({ page: 1, page_size: 25, user_id: "8" });
+  assert.equal(calls[0].url, "/api/v1/admin/bookings?page=1&page_size=25&booking_id=42");
+  assert.equal(calls[1].url, "/api/v1/admin/bookings?page=1&page_size=25&user_id=8");
+});
+
 test("User detail and status update use the safe Admin routes", async () => {
   const { api, calls } = loadApi();
   await api.getUser("u/42");

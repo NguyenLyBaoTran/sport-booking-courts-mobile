@@ -1,6 +1,6 @@
 # S2 Integration Notes
 
-> Historical pre-integration audit. Its branch and blocker statements below describe the review snapshot, not the current `develop` branch. S1/S2 integration was merged by PR #6; use the current [Owner Booking & QR contract](owner-booking-qr-contract.md), [Court Service contract](court-service-api-contract.md), and [Management Web guide](../../management-web/README.md) for integrated behavior and setup.
+> Historical pre-integration audit. Its branch and blocker statements below describe the review snapshot, not the current `develop` branch. S1/S2 integration was merged by PR #6; use the current [Owner Booking & QR contract](owner-booking-qr-contract.md), [Court Service contract](court-service-api-contract.md), and [root README](../../README.md) for integrated behavior and setup.
 
 ## Reviewed branch and contracts
 

@@ -21,28 +21,22 @@ Copy `backend/.env.example` to `backend/.env` if it does not already exist. Set:
 - `COURT_SERVICE_URL` and `BOOKING_SERVICE_URL` to the reachable service URLs.
 - `APP_ENV=development` for the local Owner/Admin account tool.
 
-Create the databases using `backend/scripts/create_databases.sql` or your local
-database tooling. Apply the User Service migration and initialize the development
-Booking/Payment schemas:
+On Windows, install backend dependencies in `backend/.venv`, configure the four
+development URLs in `backend/.env`, and run `setup.bat` from the repository root.
+It creates only the four `sports_*_db` development schemas, applies the User
+Service migration, initializes Court/Booking/Payment schemas, and imports the
+idempotent demo seed after an explicit `SETUP` confirmation. It refuses E2E
+database targets. For macOS/Linux, follow the service-specific initialization
+commands in the [root README](../README.md#first-time-setup).
 
-```bash
-cd backend/services/user_service
-../../../.venv/bin/python -m alembic -c alembic.ini upgrade head
-
-cd ../booking_service
-../../../.venv/bin/python -m app.init_db
-
-cd ../payment_service
-../../../.venv/bin/python -m app.init_db
-```
-
-The Booking/Payment initializer uses `create_all` for local development; it is not
-a production migration strategy. Create a test customer via the register API. To
-create an Owner/Admin, run `python -m app.create_test_account` from the User Service
-directory; its password prompt is hidden, and it prints the new user ID. Run it
-once with role `OWNER` and again with role `ADMIN` if both accounts are needed.
-The password is chosen by the developer and cannot be recovered from the database;
-keep test credentials in a password manager or another private, untracked location.
+The Booking/Payment initializer uses `create_all` for local development; it is
+not a production migration strategy. Create a test customer via the register
+API. To create an Owner/Admin, run `python -m app.create_test_account` from the
+User Service directory; its password prompt is hidden, and it prints the new
+user ID. Run it once with role `OWNER` and again with role `ADMIN` if both
+accounts are needed. The password is chosen by the developer and cannot be
+recovered from the database; keep test credentials in a password manager or
+another private, untracked location.
 
 ## 2. Run automated tests
 
@@ -192,7 +186,7 @@ real integration test must go through Court's Owner-authenticated endpoint.
 
 ## Owner/Admin manual demo checklist
 
-Use the local demo accounts and database setup in [Backend README](../backend/README.md#local-demo-setup). Record actual outcomes during the demo; do not pre-mark a manual test as passed.
+Use the local demo accounts and database setup in the [root README](../README.md#demo-accounts). Record actual outcomes during the demo; do not pre-mark a manual test as passed.
 
 | ID | Role | Action | Expected result | Actual result | Status |
 |---|---|---|---|---|---|

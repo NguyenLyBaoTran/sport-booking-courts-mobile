@@ -42,6 +42,29 @@ test("filters court choices to the selected venue", () => {
   assert.deepEqual(Array.from(utils.courtsForVenue(courts, "missing")), []);
 });
 
+test("schedule sorting uses date, venue, court, start time, then ID after filtering", () => {
+  const utils = loadUtils();
+  const venues = [{ id: 1, name: "Venue Z" }, { id: 2, name: "Venue A" }];
+  const courts = [
+    { id: 10, venue_id: 1, name: "Court A2" },
+    { id: 11, venue_id: 1, name: "Court A1" },
+    { id: 20, venue_id: 2, name: "Court B1" }
+  ];
+  const slots = [
+    { id: 9, court_id: 10, slot_date: "2026-11-01", start_time: "09:00:00" },
+    { id: 5, court_id: 20, slot_date: "2026-10-31", start_time: "09:00:00" },
+    { id: 4, court_id: 11, slot_date: "2026-10-31", start_time: "09:00:00" },
+    { id: 3, court_id: 11, slot_date: "2026-10-31", start_time: "08:00:00" },
+    { id: 2, court_id: 11, slot_date: "2026-10-31", start_time: "09:00:00" },
+    { id: 8, court_id: 10, slot_date: "01/11/2026", start_time: "09:00:00" }
+  ];
+  const sorted = utils.sortScheduleSlots(slots, courts, venues);
+  assert.deepEqual(Array.from(sorted, (slot) => slot.id), [5, 3, 2, 4, 8, 9]);
+  assert.deepEqual(Array.from(slots, (slot) => slot.id), [9, 5, 4, 3, 2, 8]);
+  const filtered = slots.filter((slot) => slot.slot_date === "2026-10-31");
+  assert.deepEqual(Array.from(utils.sortScheduleSlots(filtered, courts, venues), (slot) => slot.id), [5, 3, 2, 4]);
+});
+
 test("Date Filter compares normalized calendar dates and allows clearing", () => {
   const utils = loadUtils();
   assert.equal(utils.matchesDateFilter("2026-10-23", "2026-10-23"), true);
@@ -107,10 +130,12 @@ test("all date controls share one read-only calendar picker with direct month/ye
 });
 
 test("calendar assets and the updated app use cache versions", () => {
-  assert.match(htmlSource, /assets\/css\/app\.css\?v=20261030-cleanup-1/);
+  assert.ok(htmlSource.indexOf("assets/js/theme.js") < htmlSource.indexOf("assets/css/app.css"), "saved theme should apply before styles render");
+  assert.match(htmlSource, /assets\/js\/theme\.js\?v=20261030-theme-1/);
+  assert.match(htmlSource, /assets\/css\/app\.css\?v=20261030-theme-1/);
   assert.match(htmlSource, /assets\/js\/schedule-utils\.js\?v=20261025-shared-calendar-1/);
   assert.match(htmlSource, /assets\/js\/qr-scan-gate\.js\?v=20261030-owner-qr-state-1/);
-  assert.match(htmlSource, /assets\/js\/app\.js\?v=20261030-admin-management-1/);
+  assert.match(htmlSource, /assets\/js\/app\.js\?v=20261030-theme-1/);
 });
 
 test("Schedule Date, Venue, Court, Status and date Search filters combine", () => {

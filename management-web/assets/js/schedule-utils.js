@@ -50,6 +50,34 @@
     return (courts || []).filter(function (court) { return String(court.venue_id) === String(venueId); });
   }
 
+  function sortScheduleSlots(slots, courts, venues) {
+    var courtsById = new Map((courts || []).map(function (court) { return [String(court.id), court]; }));
+    var venuesById = new Map((venues || []).map(function (venue) { return [String(venue.id), venue]; }));
+    function compareText(left, right) {
+      return String(left || "").localeCompare(String(right || ""), undefined, { sensitivity: "base", numeric: true });
+    }
+    function compareId(left, right) {
+      var a = Number(left), b = Number(right);
+      return Number.isFinite(a) && Number.isFinite(b) ? a - b : compareText(left, right);
+    }
+    return (slots || []).slice().sort(function (left, right) {
+      var leftCourt = courtsById.get(String(left.court_id));
+      var rightCourt = courtsById.get(String(right.court_id));
+      var leftVenue = leftCourt && venuesById.get(String(leftCourt.venue_id));
+      var rightVenue = rightCourt && venuesById.get(String(rightCourt.venue_id));
+      var leftDate = parseDateInput(left.slot_date);
+      var rightDate = parseDateInput(right.slot_date);
+      var comparison = compareText(leftDate.valid ? leftDate.iso : left.slot_date, rightDate.valid ? rightDate.iso : right.slot_date);
+      if (comparison) return comparison;
+      comparison = compareText(leftVenue && leftVenue.name, rightVenue && rightVenue.name);
+      if (comparison) return comparison;
+      comparison = compareText(leftCourt && leftCourt.name, rightCourt && rightCourt.name);
+      if (comparison) return comparison;
+      comparison = compareText(String(left.start_time || "").slice(0, 8), String(right.start_time || "").slice(0, 8));
+      return comparison || compareId(left.id, right.id);
+    });
+  }
+
   function matchesDateFilter(filterDate, slotDate) {
     if (!filterDate) return true;
     var filter = parseDateInput(filterDate);
@@ -153,6 +181,7 @@
     parseDateSearch: parseDateSearch,
     matchesDateSearch: matchesDateSearch,
     courtsForVenue: courtsForVenue,
+    sortScheduleSlots: sortScheduleSlots,
     matchesDateFilter: matchesDateFilter,
     formatDateDisplay: formatDateDisplay,
     selectScheduleDate: selectScheduleDate,
