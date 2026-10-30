@@ -17,34 +17,24 @@ This project uses static HTML, CSS, and JavaScript with Bootstrap 5.3.3 and Boot
 
 ## Current implementation status
 
-Court Service provides its catalogue API and the Management Web reads it through the Gateway. The web has a real Auth login flow prepared for the S1 User Service contract and authenticated Owner writes for Venues, Courts, and Time Slots. These paths require the S1 Auth branch to be integrated, a shared local JWT configuration, and a real OWNER account. Booking and QR check-in remain Demo Mode previews because their APIs are not implemented in the inspected S1 branch. User/Auth and Payment integration readiness is summarized in [S2 Integration Notes](../docs/api/s2-integration-notes.md). The old backend remains in place. See `backend/README.md` for backend setup and endpoint details.
+The integrated Management Web supports API Mode for Owner Booking list, detail, filters, completion, and QR check-in through the Gateway. Admins can manage Sports, Venues, Courts, and Time Slots through Court Service. Demo Mode remains available with separate fictional data. Admin Users, global Bookings, and Check-ins have no management APIs yet; dashboard aggregate metrics and Revenue are also unavailable in API Mode. Bootstrap, Bootstrap Icons, and the QR scanner are served from local assets. See [backend setup](../backend/README.md) for service commands and the [Owner Booking & QR contract](../docs/api/owner-booking-qr-contract.md) for the API details. The linked [S2 Integration Notes](../docs/api/s2-integration-notes.md) records a historical pre-integration audit.
 
 ## Run locally
 
-Start Court Service and API Gateway in separate terminals from the repository root:
+For the full API Mode, start the User, Court, Booking, and Payment services plus the Gateway in separate terminals. Use the commands in [`backend/README.md`](../backend/README.md#chạy-các-ứng-dụng) and configure the shared JWT and internal service settings first. Booking lists and QR check-in require Booking, Court, User, and Gateway; payment confirmation also requires Payment Service.
 
-```powershell
-cd backend/services/court_service
-python -m uvicorn app.main:app --reload --port 8002
-```
-
-```powershell
-cd backend/gateway
-python -m uvicorn main:app --reload --port 8000
-```
-
-In another terminal, serve the Management Web:
+For a UI-only Demo Mode, or after starting the API services, serve the Management Web from the repository root:
 
 ```powershell
 cd management-web
 python -m http.server 8080
 ```
 
-Open `http://localhost:8080`. **Sign in** sends credentials to `/api/v1/auth/login` through the Gateway, then validates the returned profile with `/api/v1/users/me`. Use the separate **Demo Owner** or **Demo Admin** buttons for fictional workspaces; those buttons do not create or authenticate an account.
+Open `http://localhost:8080`. **Sign in** sends credentials to `/api/v1/auth/login` through the Gateway, then validates the returned profile with `/api/v1/users/me`. Choose **Demo preview** for fictional Owner or Admin workspaces; Demo Mode does not create or authenticate an account and works without backend services.
 
 ## API Mode and Gateway offline
 
-Start Court Service and the Gateway using the commands above before opening API Mode. The UI keeps API Mode selected if the Gateway is offline; it does not substitute mock catalogue data. The Dashboard, registry, and schedule show **Cannot connect to API Gateway** with a manual Retry button. Check the two service terminals, confirm ports `8002` and `8000`, then press Retry. Requests are not retried continuously.
+Start the services required by the screen before opening API Mode. The UI does not substitute mock data when an API request fails. It shows loading, empty, unavailable, or connection-error states with manual refresh where supported. Verify the relevant service and Gateway terminals, then retry; requests are not retried continuously.
 
 Camera access works only on a secure context: `http://localhost`, `http://127.0.0.1`, or HTTPS. Browser extensions can inject their own scripts and console messages; `onboarding.js` is not part of this repository. The frontend includes `favicon.svg` to avoid a missing favicon request.
 
@@ -83,7 +73,7 @@ Switch the shared Owner data mode selector to **Demo Mode** to view six fictiona
 
 Demo booking data is local UI-only mock data. It does not use MySQL, call Booking Service, or alter Court Service data. Demo booking data remains independent of the authenticated account; no Booking endpoint is called while Demo Mode is selected.
 
-The UI follows [the approved Owner Booking & QR contract](../docs/api/owner-booking-qr-contract.md). The inspected S1 source does not yet implement the public Owner list/detail/completion routes, so API Mode will show the upstream error until those S1 endpoints are integrated and available. No live end-to-end integration is claimed.
+The Owner Booking list, detail, filters, and completion endpoints are implemented by Booking Service and routed through the Gateway in the integrated branch. API Mode uses them directly and does not fall back to Demo rows. The API contract is documented in [Owner Booking & QR](../docs/api/owner-booking-qr-contract.md).
 
 ## Owner QR Scanner & Demo Check-in (Step 8)
 
@@ -103,11 +93,11 @@ A successful check-in displays the booking ID, court, date and time. The corresp
 
 If the preview does not start, verify camera permission, close other apps using the webcam, and confirm the page uses localhost or HTTPS. Permission denial, missing or busy camera, and local library load failures appear in the scanner result area. Start/stop and page navigation wait for camera cleanup; the QR preview stays mounted while a scan is active. If cleanup itself fails, use **Stop Camera** to retry before leaving the page.
 
-In API Mode, the same camera and a manual token field send `POST /api/v1/owner/checkins` through the Gateway with the session Bearer token. The browser sends only `qr_token`; it never sends `owner_id` or `X-Internal-Token`, and the token is not rendered or logged. Check-in status remains server-owned: the page reports the response and marks Owner Bookings data stale so it reloads when next opened. API errors are translated to safe messages. The browser does not fall back to Demo tokens or records. Camera access requires localhost or HTTPS, permission, and the locally served `html5-qrcode` asset. The UI and route are contract-wired, but live integration still depends on S1's Booking internal check-in being reachable through the configured services; this task does not claim an end-to-end backend run.
+In API Mode, the camera and manual token field send `POST /api/v1/owner/checkins` through the Gateway with the session Bearer token. The browser sends only `qr_token`; it never sends `owner_id` or `X-Internal-Token`, and the token is not rendered or logged. Court Service validates the Owner JWT and calls Booking Service's internal check-in endpoint. Booking status remains server-owned; the page reports the API result and refreshes Owner Bookings data when needed. Errors are translated to safe messages, with no fallback to Demo tokens or records. Camera access requires localhost or HTTPS, permission, and the locally served `html5-qrcode` asset. Physical webcam scanning has not been verified in the final browser regression.
 
 ## Demo screens
 
-Owner Bookings and QR Check-in support API Mode and retain separate Demo Mode samples. Revenue and the Admin People directory remain pending their service/UI integration. Authenticated Profile shows the User Service account read-only; Demo Profile remains fictional. No sample data is used as a fallback when an API request fails.
+Owner Bookings and QR Check-in support API Mode and retain separate Demo Mode samples. In API Mode, Admin Users & Owners, global Bookings, and Check-ins show an unavailable state because no management APIs exist for them. Revenue and aggregate dashboard metrics are not connected. Authenticated Profile shows the User Service account read-only; Demo Profile remains fictional. No sample data is used as a fallback when an API request fails.
 
 ## Admin Demo Mode
 
@@ -124,12 +114,12 @@ In Owner QR Check-in Demo Mode, checking a manual token or scanning a QR display
 
 ## Authenticated integration setup
 
-1. Start the User Service (port 8001), Court Service (8002), and Gateway (8000). The User Service routes must implement the verified S1 contract: `POST /api/v1/auth/login` with JSON email/password and `GET /api/v1/users/me` with Bearer authentication.
-2. Configure the same strong `JWT_SECRET_KEY` and `JWT_ALGORITHM=HS256` in the User Service and Court Service local environment. Do not put the secret in this static frontend. The browser stores the access token in `sessionStorage`, clears it on logout/401, and reads the current role/profile from `/users/me`.
-3. Log in with a real account. The inspected S1 branch registration creates USER accounts only; it does not supply a seeded OWNER or ADMIN account. Do not change a role or seed an account by bypassing Auth.
-4. OWNER can write Venue/Court/Time Slot resources via the existing Court Service contract; ADMIN can manage Sports, Venue, Court, and Time Slot resources. Demo Mode remains local and does not call the API.
+1. For the full integrated flow, start the User Service (8001), Court Service (8002), Booking Service (8003), Payment Service (8004), and Gateway (8000) using [`backend/README.md`](../backend/README.md#chạy-các-ứng-dụng). Configure each service's database URLs before startup.
+2. Set the same strong `JWT_SECRET_KEY` and `JWT_ALGORITHM=HS256` in User and Court Service. Set the same `INTERNAL_SERVICE_TOKEN` in Court and Booking Service. Keep these values in local backend environment configuration; never put them in this static frontend.
+3. Sign in with a provisioned OWNER, ADMIN, or USER account. This web app does not create privileged accounts or provide a role bypass. The browser stores the access token in `sessionStorage`, clears it on logout/401, and reads the profile from `/api/v1/users/me`.
+4. OWNER mutations are limited to owned Venues, Courts, and Time Slots. ADMIN can manage Sports, Venues, Courts, and Time Slots system-wide. Owner Booking list/detail/filter/complete and QR check-in use their integrated Gateway routes.
 
-This frontend integration is contract-based; end-to-end login, Owner Booking operations, and QR check-in have not been verified with real services in the current local environment. Booking list/detail/completion public endpoints, User directory, Payment, and Revenue APIs remain unimplemented in the inspected S1 branch. QR check-in calls the S2 adapter, which depends on the existing S1 internal check-in API.
+Admin Users, global Bookings, and Check-ins have no management API in this integration. Admin dashboard aggregates and Revenue are unavailable in API Mode; Demo Mode shows clearly labeled fictional data. This documentation does not claim that physical webcam scanning has been verified.
 
 ## Automated tests
 

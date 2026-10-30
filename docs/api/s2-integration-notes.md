@@ -1,5 +1,7 @@
 # S2 Integration Notes
 
+> Historical pre-integration audit. Its branch and blocker statements below describe the review snapshot, not the current `develop` branch. S1/S2 integration was merged by PR #6; use the current [Owner Booking & QR contract](owner-booking-qr-contract.md), [Court Service contract](court-service-api-contract.md), and [Management Web guide](../../management-web/README.md) for integrated behavior and setup.
+
 ## Reviewed branch and contracts
 
 - Working branch: `feature/s2-court-service`.
@@ -51,9 +53,9 @@ Invoke-RestMethod -Method Post -Uri "$court/api/v1/internal/slots/$($slot.id)/re
 
 After verifying the test, soft-deactivate the Time Slot, Court, Venue, and Sport using their `DELETE /api/v1/{time-slots|courts|venues|sports}/{id}` APIs with the matching Owner or Admin token. Prefer dropping the disposable databases after the run. Never use the sample booking ID against a shared environment.
 
-## Verification state and blockers
+## Verification state and blockers (at the time of this audit)
 
 - Court authorization and reservation behavior are covered with isolated SQLite test databases; these tests do not write to the configured MySQL databases.
 - The S1 API contract expects these paths and payloads; its inspected Booking code calls Court directly, so the Gateway does not need to proxy internal reservation paths.
-- End-to-end Auth/Booking/Payment integration is not claimed. The S1 source was inspected but not merged, no real service stack was started, and no live database migration or API data setup was performed.
-- Before live integration, configure a matching strong JWT secret in User and Court, a matching internal token and hold TTL in Booking and Court, apply the Court migration only to a disposable DB, and use S1-provisioned OWNER/ADMIN credentials. Confirm that Owner/Administrator account provisioning remains an S1-owned prerequisite.
+- At the time of this pre-integration audit, end-to-end Auth/Booking/Payment integration had not yet been run; S1 source had not yet been merged, and no live service stack or database migration had been used.
+- The audit's planned prerequisites were a shared JWT secret in User and Court, a matching internal token and hold TTL in Booking and Court, applying the Court migration only to a disposable DB, and using provisioned OWNER/ADMIN credentials. Treat this as historical planning; use the current backend and Management Web guides for setup.

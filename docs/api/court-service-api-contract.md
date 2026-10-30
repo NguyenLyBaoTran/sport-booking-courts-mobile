@@ -229,14 +229,14 @@ The reservation state is stored on `time_slots` using `reservation_status`, `res
 | Use case | Exists in Court Service now | Other service / future work |
 |---|---|---|
 | Read venues and courts | Public GET list/detail routes; venue list can filter by `owner_id`, courts by `venue_id`/`sport_id` | Reads are public; `owner_id` is not authorization |
-| Manage venues, courts, and schedule | OWNER writes require valid JWT and ownership through related Venue; ADMIN has system-wide API access | Management Web provides OWNER CRUD and ADMIN Sports/Venue/Court CRUD; Admin Time Slot screen is not wired in this iteration. Auth remains unverified end-to-end until S1 is integrated and valid local credentials are available |
-| View bookings and complete booking | Not a Court Service responsibility or route | Implemented on inspected S1 branch; unavailable in this checkout pending integration |
-| QR check-in | Not a Court Service responsibility or route | Implemented on inspected S1 branch; unavailable in this checkout pending integration |
+| Manage venues, courts, and schedule | OWNER writes require valid JWT and ownership through related Venue; ADMIN has system-wide API access | Integrated Management Web provides OWNER Venue/Court/Time Slot CRUD and ADMIN Sports/Venue/Court/Time Slot CRUD. Authentication uses the integrated User Service and requires valid local credentials |
+| View bookings and complete booking | Not a Court Service responsibility or route | Booking Service implements Owner list/detail/complete; Gateway routes these APIs and Management Web consumes them in API Mode |
+| QR check-in | Not a Court Service responsibility or route | Court Service provides the Owner JWT adapter, which calls Booking Service's internal check-in API; Gateway routes the Owner endpoint and Management Web consumes it in API Mode |
 | Dashboard booking/revenue aggregates | Not provided by Court Service | Requires Booking/Payment API or an agreed dashboard aggregation contract from S1 |
 
 Project Plan V5 also lists planned route shapes such as `/venues/{id}/courts`, `/courts/{id}/slots`, `/owner/venues`, `/owner/courts`, and `/owner/slots`; they are not currently implemented. The implemented public Court routes remain under `/api/v1` as documented above.
 
-The inspected S1 branch implements Booking create/list/detail/cancel, internal payment-context/confirm/check-in/complete/expire routes, Payment APIs, and calls the Court reservation paths documented above. Those S1 source changes are not present in this checkout until integration. V5's alternate `/internal/holds/{hold_id}/...`, joined slot lookup, and venue ownership lookup shapes are not part of the inspected S1 contract and are not implemented here.
+The S1 Booking and Payment services and S2 Gateway/Court integrations are merged into `develop`. Booking calls the Court reservation paths documented above; Owner Booking and QR check-in APIs are also routed through the Gateway as described in [the Owner Booking & QR contract](owner-booking-qr-contract.md). V5's alternate `/internal/holds/{hold_id}/...`, joined slot lookup, and venue ownership lookup shapes are not part of the implemented contract.
 
 ## 6. Consistency check
 
