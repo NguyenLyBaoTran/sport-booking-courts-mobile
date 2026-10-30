@@ -26,9 +26,7 @@
   var scannerStopPromise = null;
   var scannerEpoch = 0;
   var scannerState = "idle";
-  var lastScannedText = "";
-  var lastScanAt = 0;
-  var scanProcessing = false;
+  var scannerScanGate = window.QrScanGate.create();
   var ownerCheckinPending = false;
   var scanResult = null;
   var crudFormState = null;
@@ -70,24 +68,24 @@
     ["admin-profile", "Profile", "bi-person-circle"]
   ];
   var info = {
-    dashboard: ["Owner dashboard", "Welcome back", "Live Court Service catalogue; booking and revenue APIs are not connected."],
+    dashboard: ["Owner dashboard", "Welcome back", "Your venues, courts, and daily operations."],
     venues: ["Venue management", "Venue & Court", "Manage your sports venues, courts, and availability."],
     schedule: ["Court operations", "Facility Schedule", "Review your court availability for this week."],
-    "owner-bookings": ["Owner operations", "Bookings Management", "Track and review reservations across your venues."],
-    "qr-checkin": ["Front desk", "QR Check-in Terminal", "Verify a customer booking before check-in."],
-    revenue: ["Business overview", "Revenue & Payouts", "Sample revenue summary for your venues."],
-    "owner-profile": ["Account settings", "Owner Profile", "Manage the contact details associated with your account."],
-    "admin-dashboard": ["System overview", "Admin Dashboard", "Live Court Service catalogue; Booking and revenue APIs are not connected."],
-    people: ["Directory", "Users & Court Owners", "Review customer and court owner accounts."],
+    "owner-bookings": ["Owner operations", "Bookings Management", "Manage court reservations across your venues."],
+    "qr-checkin": ["Front desk", "QR Check-in", "Verify a booking before play begins."],
+    revenue: ["Business overview", "Revenue & Payouts", "Review revenue information for your venues."],
+    "owner-profile": ["Account settings", "Owner Profile", "Your account information."],
+    "admin-dashboard": ["System overview", "Admin Dashboard", "Review the shared sports and venue catalogue."],
+    people: ["Directory", "Users & Court Owners", "Account directory."],
     "admin-venues": ["Platform registry", "Venue & Court", "Review the sports, venue, and court catalogue."],
-    "admin-schedule": ["Platform operations", "Time Slot Management", "Manage Court Service time slots across all venues."],
-    "admin-bookings": ["Platform activity", "Global Bookings", "Search and monitor bookings across all venues."],
+    "admin-schedule": ["Platform operations", "Time Slot Management", "Manage time slots across all venues."],
+    "admin-bookings": ["Platform activity", "Global Bookings", "Review booking activity."],
     checkins: ["Platform activity", "Check-in Management", "Review recent booking check-ins."],
-    "admin-profile": ["Account settings", "Admin Profile", "Manage your administrator account details."]
+    "admin-profile": ["Account settings", "Admin Profile", "Your account information."]
   };
   var statSets = {
     dashboard: [["bi-calendar-check", "Today’s bookings"], ["bi-people", "Active customers"], ["bi-building", "My venues"], ["bi-currency-exchange", "Revenue this month"]],
-    "admin-dashboard": [["bi-people", "Demo accounts"], ["bi-buildings", "Demo owners"], ["bi-journal-check", "Sample bookings"], ["bi-currency-exchange", "Sample booking value"]],
+    "admin-dashboard": [["bi-people", "Users"], ["bi-buildings", "Owners"], ["bi-journal-check", "Bookings"], ["bi-currency-exchange", "Booking value"]],
     venues: [["bi-buildings", "My venues"], ["bi-grid-3x3", "Total courts"], ["bi-clock-history", "Available slots"], ["bi-check-circle", "Open venues"]],
     bookings: [["bi-journal-check", "Bookings today"], ["bi-currency-exchange", "Revenue today"], ["bi-check2-circle", "Checked in"], ["bi-hourglass-split", "Needs attention"]],
     revenue: [["bi-currency-exchange", "Revenue this month"], ["bi-graph-up-arrow", "Revenue this week"], ["bi-wallet2", "Pending payout"], ["bi-calendar2-check", "Paid out this month"]],
@@ -143,13 +141,13 @@
     var demo = dataMode === "demo";
     var adminRegistry = currentRoute() === "admin-dashboard" || currentRoute() === "admin-venues" || currentRoute() === "admin-schedule";
     var message = demo
-      ? (adminRegistry && currentRoute() !== "admin-schedule" ? "Fictional Court catalogue in memory. Admin registry is read-only; reload restores starter data." : "Changes stay in this browser tab memory and reset when the page is reloaded. No API request is sent.")
-      : (adminRegistry ? "Live Court Service data. ADMIN can manage Sports, Venues, Courts and Time Slots." : (authUser && authUser.role === "OWNER" ? "Live Court Service data. Venue, Court and Time Slot writes use your authenticated Owner account." : "Live Court Service catalogue."));
-    return '<section class="court-mode-bar" aria-label="Court data mode"><div><strong>' +
-      (demo ? "Demo Mode" : "API Mode") + '</strong><small>' + message +
-      '</small></div><label class="small mb-0" for="court-data-mode">Data mode</label><select id="court-data-mode" class="form-select" aria-label="Select data mode"><option value="api" ' +
-      (!demo ? "selected" : "") + '>API Mode — live Court Service</option><option value="demo" ' +
-      (demo ? "selected" : "") + '>Demo Mode — in-memory sample data</option></select></section>';
+      ? (adminRegistry && currentRoute() !== "admin-schedule" ? "Sample catalogue for preview. Changes reset when you reload." : "Preview changes are saved only in this browser.")
+      : (adminRegistry ? "Manage the shared sports and court catalogue." : (authUser && authUser.role === "OWNER" ? "Manage your venues, courts, schedule, and reservations." : "Review system information."));
+    return '<section class="court-mode-bar" aria-label="Data source"><div><strong>' +
+      (demo ? "Demo data" : "Live data") + '</strong><small>' + message +
+      '</small></div><label class="small mb-0" for="court-data-mode">Data source</label><select id="court-data-mode" class="form-select" aria-label="Select data source"><option value="api" ' +
+      (!demo ? "selected" : "") + '>Live data</option><option value="demo" ' +
+      (demo ? "selected" : "") + '>Demo data</option></select></section>';
   }
   function recordsFor(resource) {
     return demoCourtData[resource];
@@ -161,13 +159,6 @@
     return String(value).replace(/[&<>"']/g, function (ch) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
     });
-  }
-  function resourceQuery(values) {
-    var query = new URLSearchParams();
-    Object.keys(values).forEach(function (key) {
-      if (values[key] !== "" && values[key] !== null && values[key] !== undefined) query.set(key, values[key]);
-    });
-    return query.toString();
   }
   function fetchCollection(path) {
     return window.CourtApi.get(path).then(function (items) {
@@ -261,7 +252,7 @@
     scheduleRefreshPromise = scheduleUtils.fetchTimeSlotsForCourts(courts, fetchCollection).then(function (slots) {
       courtResources.slots = { status: "loaded", data: slots, error: "" };
       scheduleState = { status: "loaded", data: slots, error: "" };
-      toast("Time slots refreshed from Court Service.");
+      toast("Time slots refreshed.");
     }).catch(function (error) {
       var message = error.message || "Could not load time slots.";
       scheduleState = { status: "error", data: currentSlots, error: message };
@@ -445,9 +436,9 @@
     if (dataMode === "demo") {
       return '<div class="alert alert-info py-2 small" role="status"><strong>Demo Mode:</strong> Changes affect only the in-memory sample data. Reload the page to restore the starter data.</div>';
     }
-    if (authUser && authUser.role === "OWNER") return '<div class="alert alert-info py-2 small" role="status"><strong>API Mode:</strong> Venue, Court and Time Slot changes use your authenticated Owner session. Sports remain read-only.</div>';
-    if (authUser && authUser.role === "ADMIN") return '<div class="alert alert-info py-2 small" role="status"><strong>API Mode:</strong> ADMIN can manage the Court catalogue across the system, including Sports, Venues and Courts.</div>';
-    return '<div class="alert alert-warning py-2 small" role="status"><strong>API Mode:</strong> Catalogue access is read-only.</div>';
+    if (authUser && authUser.role === "OWNER") return '<div class="alert alert-info py-2 small" role="status">You can manage your venues, courts, and time slots. Sports are managed centrally.</div>';
+    if (authUser && authUser.role === "ADMIN") return '<div class="alert alert-info py-2 small" role="status">Manage the shared sports, venue, court, and time slot catalogue.</div>';
+    return '<div class="alert alert-warning py-2 small" role="status">This catalogue is currently read-only.</div>';
   }
   function demoNotice(message) {
     return '<div class="alert alert-info py-2 small" role="status"><strong>Demo:</strong> ' + esc(message) + '</div>';
@@ -470,7 +461,7 @@
   }
   function resourceError(label, error) {
     var gatewayOffline = /failed to fetch|networkerror|connection refused|load failed/i.test(String(error || ""));
-    return '<div class="alert alert-danger d-flex justify-content-between align-items-center gap-2" role="alert"><span>' + (gatewayOffline ? "Cannot connect to API Gateway. Start the API Gateway and Court Service, then retry." : "Could not load " + esc(label) + ": " + esc(error || "Connection error.")) + '</span>' + retryButton() + "</div>";
+    return '<div class="alert alert-danger d-flex justify-content-between align-items-center gap-2" role="alert"><span>' + (gatewayOffline ? "Could not load the latest information. Check your connection and try again." : "Could not load " + esc(label) + ". " + esc(error || "Please try again.")) + '</span>' + retryButton() + "</div>";
   }
   function crudOpenButton(resource, id, label, style) {
     return '<button type="button" class="btn btn-sm ' + (style || "btn-outline-secondary") + '" data-crud-open="' + esc(resource) + '" data-crud-id="' + esc(id === undefined ? "" : id) + '">' + esc(label) + "</button>";
@@ -521,7 +512,7 @@
     } else if (resource === "venues") {
       if (dataMode === "api" && authUser && authUser.role === "ADMIN") fields += formInput("Owner user ID", "owner_id", record && record.owner_id, "number", 'min="1" step="1" required');
       else if (dataMode === "api") fields += '<div class="crud-field-full small text-secondary">Owner ID: ' + esc(authUser ? authUser.id : "Unavailable") + ' (taken from your authenticated account)</div>';
-      else fields += '<div class="crud-field-full small text-secondary">Owner: Demo session (not a real User Service account)</div>';
+      else fields += '<div class="crud-field-full small text-secondary">Owner: Demo preview, not linked to an account</div>';
       fields += formInput("Name", "name", record && record.name, "text", 'maxlength="200" required') +
         formInput("Address", "address", record && record.address, "text", 'maxlength="255" required', true) +
         formTextarea("Description", "description", record && record.description, "") +
@@ -557,9 +548,9 @@
     var canSave = dataMode === "demo" || apiWritable;
     var save = dataMode === "demo"
       ? '<button type="submit" class="btn btn-success">Save in Demo Mode</button>'
-      : '<button type="submit" class="btn btn-success" ' + (canSave ? "" : "disabled") + '>' + (canSave ? "Save to Court Service" : "Read-only") + '</button>';
+      : '<button type="submit" class="btn btn-success" ' + (canSave ? "" : "disabled") + '>' + (canSave ? "Save changes" : "View only") + '</button>';
     return '<form class="crud-form-card" data-crud-form data-crud-resource="' + resource + '" data-crud-id="' + (record ? esc(record.id) : "") + '" novalidate><div class="d-flex justify-content-between align-items-center"><h3>' + title +
-      '</h3><span class="badge-soft ' + (dataMode === "demo" || apiWritable ? "" : "warning") + '">' + (dataMode === "demo" ? "Demo only" : (apiWritable ? (authUser.role === "ADMIN" ? "Authenticated Admin" : "Authenticated Owner") : "API read-only")) + '</span></div><div class="crud-grid">' + prerequisiteNotice + fields +
+      '</h3><span class="badge-soft ' + (dataMode === "demo" || apiWritable ? "" : "warning") + '">' + (dataMode === "demo" ? "Demo only" : (apiWritable ? (authUser.role === "ADMIN" ? "Admin access" : "Owner access") : "View only")) + '</span></div><div class="crud-grid">' + prerequisiteNotice + fields +
       '</div><div class="crud-form-footer">' +
       '<button type="button" class="btn btn-outline-secondary" data-crud-cancel>Cancel</button>' + save + '</div></form>';
   }
@@ -672,16 +663,16 @@
     document.getElementById("app").innerHTML =
       '<main class="login-page"><section class="login-art">' +
       '<div class="login-brand brand p-0"><span class="brand-mark"><i class="bi bi-trophy"></i></span><span>Courtbook<small>Sports Court Booking</small></span></div>' +
-      '<div class="login-message"><p class="eyebrow">Management workspace</p><h1>Run your courts.<br>Keep the game moving.</h1><p>A simple workspace for venue operations, schedules, bookings and check-ins.</p></div>' +
+      '<div class="login-message"><p class="eyebrow">Management workspace</p><h1>Run your courts.<br>Keep the game moving.</h1><p>Manage venues, schedules, reservations, and check-ins.</p></div>' +
       '<div class="login-art-foot">Sports Court Booking ? Management</div></section>' +
-      '<section class="login-form-side"><form class="login-card" id="login-form" novalidate><p class="eyebrow">Welcome back</p><h2>Sign in to your account</h2><p>Choose Demo Mode for a local preview or API Mode to authenticate through User Service.</p>' +
-      '<div class="login-mode-switch" role="group" aria-label="Login mode"><button type="button" class="' + (!isApiMode ? "active" : "") + '" data-login-mode="demo" aria-pressed="' + (!isApiMode) + '">Demo Mode</button><button type="button" class="' + (isApiMode ? "active" : "") + '" data-login-mode="api" aria-pressed="' + isApiMode + '">API Mode</button></div>' +
-      (!isApiMode ? '<div class="login-mode-note" role="status"><strong>Demo only:</strong> no authentication, JWT, or API request. Email and password are not checked.</div><label class="form-label" for="login-workspace">Workspace</label><select class="form-select" id="login-workspace"><option value="OWNER" ' + (loginWorkspace === "OWNER" ? "selected" : "") + '>Court Owner</option><option value="ADMIN" ' + (loginWorkspace === "ADMIN" ? "selected" : "") + '>Admin</option></select>' : '<div class="login-mode-note" role="status">API Mode verifies credentials and the account role through the API Gateway. USER accounts cannot enter this management workspace.</div>') +
+      '<section class="login-form-side"><form class="login-card" id="login-form" novalidate><p class="eyebrow">Welcome back</p><h2>Sign in to your account</h2><p>Access your management workspace.</p>' +
+      '<div class="login-mode-switch" role="group" aria-label="Sign-in option"><button type="button" class="' + (!isApiMode ? "active" : "") + '" data-login-mode="demo" aria-pressed="' + (!isApiMode) + '">Demo preview</button><button type="button" class="' + (isApiMode ? "active" : "") + '" data-login-mode="api" aria-pressed="' + isApiMode + '">Sign in</button></div>' +
+      (!isApiMode ? '<div class="login-mode-note" role="status">Preview with sample data. No account is needed.</div><label class="form-label" for="login-workspace">Workspace</label><select class="form-select" id="login-workspace"><option value="OWNER" ' + (loginWorkspace === "OWNER" ? "selected" : "") + '>Court Owner</option><option value="ADMIN" ' + (loginWorkspace === "ADMIN" ? "selected" : "") + '>Admin</option></select>' : '<div class="login-mode-note" role="status">Sign in with your account. Your role opens the matching workspace.</div>') +
       '<label class="form-label" for="login-email">Email address</label><input class="form-control" id="login-email" type="email" autocomplete="username" value="' + esc(loginEmailValue) + '" placeholder="name@example.com" ' + (isApiMode ? "required" : "") + '>' +
       '<label class="form-label" for="login-password">Password</label><input class="form-control" id="login-password" type="password" autocomplete="current-password" ' + (isApiMode ? "required" : "") + ' placeholder="' + (isApiMode ? "Enter your password" : "Optional in Demo Mode") + '">' +
-      '<button class="btn btn-success w-100" type="submit" data-login-submit>' + (isApiMode ? 'Sign in through API' : 'Open Demo Workspace') + ' <i class="bi bi-arrow-right ms-1"></i></button>' +
+      '<button class="btn btn-success w-100" type="submit" data-login-submit>' + (isApiMode ? 'Sign in' : 'Open workspace') + ' <i class="bi bi-arrow-right ms-1"></i></button>' +
       (authMessage ? '<div class="alert alert-danger mt-3" role="alert">' + esc(authMessage) + '</div>' : '') +
-      '<div class="login-footnote">' + (isApiMode ? 'Requests use the configured Gateway. API errors never switch to Demo Mode.' : 'Demo data is fictional and remains separate from API data.') + '</div></form></section></main>';
+      '<div class="login-footnote">' + (isApiMode ? 'Your sign-in stays in the live workspace.' : 'Sample data stays separate from your account.') + '</div></form></section></main>';
 
     document.querySelectorAll("[data-login-mode]").forEach(function (button) {
       button.addEventListener("click", function () {
@@ -739,8 +730,8 @@
         authUser = null;
         demoRole = "";
         if (error.status === 401) authMessage = "Email or password is incorrect, or the account is inactive.";
-        else if (error.status === 0) authMessage = "Cannot connect to the API Gateway or Auth Service. Check that both services are running.";
-        else if (error.status === 502 || error.status === 503) authMessage = "Auth Service is unavailable through the API Gateway. Try again when it is running.";
+        else if (error.status === 0) authMessage = "Could not connect. Check your connection and try again.";
+        else if (error.status === 502 || error.status === 503) authMessage = "Sign-in is temporarily unavailable. Please try again.";
         else authMessage = error.message || "Could not sign in.";
         renderLogin();
       });
@@ -789,18 +780,19 @@
   function heading(active, action) {
     var item = info[active];
     var title = active === "dashboard" && authUser && authUser.full_name ? "Welcome back, " + authUser.full_name : item[1];
-    return '<div class="page-heading"><div><p class="eyebrow">' + item[0] + "</p><h1>" + esc(title) + "</h1><p>" + item[2] + "</p></div>" + (action || "") + "</div>";
+    var headingClass = active === "owner-bookings" ? " page-heading--bookings" : "";
+    return '<div class="page-heading' + headingClass + '"><div><p class="eyebrow">' + item[0] + "</p><h1>" + esc(title) + "</h1><p>" + item[2] + "</p></div>" + (action || "") + "</div>";
   }
   function actionButton(label, icon, message, outline) {
     return '<button class="btn ' + (outline ? "btn-outline-secondary" : "btn-success") + '" data-toast="' + message + '"><i class="bi ' + icon + ' me-1"></i><span class="desktop-button-text">' + label + "</span></button>";
   }
-  function stats(type, values, live) {
+  function stats(type, values, live, unavailable) {
     var set = statSets[type] || statSets.dashboard;
     var ownerDemo = live && dataMode === "demo" && ["dashboard", "venues", "schedule"].indexOf(currentRoute()) >= 0;
     return '<div class="stat-grid">' + values.map(function (value, i) {
       return '<article class="stat-card ' + (type === "admin-dashboard" && i === 3 ? "admin-highlight" : "") + '"><div class="stat-top"><span>' +
         esc(set[i][1]) + '</span><span class="stat-icon"><i class="bi ' + set[i][0] + '"></i></span></div><div class="stat-value">' + esc(value) +
-        '</div><div class="stat-note">' + (ownerDemo ? "Demo Mode sample" : (live ? 'Court Service - live count' : 'Demo data')) + '</div></article>';
+        '</div><div class="stat-note">' + (unavailable ? "Not available yet" : (ownerDemo || dataMode === "demo" ? "Demo data" : (live ? "Current catalogue" : "Demo data"))) + '</div></article>';
     }).join("") + "</div>";
   }
   function demoAccountStats() {
@@ -839,26 +831,6 @@
     return '<section class="panel-card' + (extraClass ? " " + extraClass : "") + '"><div class="panel-head"><div><h2>' + title + "</h2>" + (subtitle ? "<p>" + subtitle + "</p>" : "") + "</div>" + (action || "") + "</div>" + body + "</section>";
   }
   function bookingRows(admin) { return admin ? data.adminBookings : data.ownerBookings; }
-  function recentBookings(admin) {
-    var headers = admin ? ["Booking ID", "Customer", "Venue", "Court / time", "Amount", "Status"] : ["Booking ID", "Customer", "Court / time", "Start time", "Amount", "Status"];
-    return panel("Recent bookings", table(headers, bookingRows(admin).slice(0, 4)), "The latest activity across your venues");
-  }
-  function quickActions(admin) {
-    var items = admin ? [
-      ["bi-person-plus", "Review new owner", "3 accounts waiting", "Review"],
-      ["bi-building-add", "Venue applications", "2 venues to review", "Open registry"],
-      ["bi-clipboard-data", "View system activity", "Updated moments ago", "View activity"]
-    ] : [
-      ["bi-plus-circle", "Add a venue", "Set up a new location", "Start setup"],
-      ["bi-calendar-plus", "Manage schedule", "Update court availability", "Open schedule"],
-      ["bi-qr-code-scan", "Check in a booking", "Scan customer QR at the desk", "Open check-in"]
-    ];
-    var body = '<div class="panel-body quick-list">' + items.map(function (item) {
-      return '<div class="quick-item"><span class="quick-icon"><i class="bi ' + item[0] + '"></i></span><span class="flex-grow-1"><strong>' +
-        item[1] + "</strong><small>" + item[2] + '</small></span><button class="btn btn-sm btn-outline-secondary" data-toast="Demo action: ' + item[3] + '.">' + item[3] + "</button></div>";
-    }).join("") + "</div>";
-    return panel("Quick actions", body);
-  }
   function dashboard(active) {
     var resources = currentResources(active !== "admin-dashboard" || dataMode === "demo");
     var sports = resources.sports;
@@ -875,6 +847,9 @@
     if (active === "admin-dashboard") {
       var accountStats = demoAccountStats();
       var bookingStats = demoBookingStats();
+      var dashboardValues = dataMode === "demo"
+        ? [accountStats[0], accountStats[2], bookingStats[0], bookingStats[1]]
+        : ["—", "—", "—", "—"];
       var adminVenueBody;
       if (venues.status === "loading" || venues.status === "idle") adminVenueBody = '<div class="panel-body">Loading venue data...</div>';
       else if (venues.status === "error") adminVenueBody = '<div class="panel-body">' + resourceError("venues", venues.error) + "</div>";
@@ -884,18 +859,18 @@
         return '<tr><td class="table-primary-text">' + esc(venue.name) + '</td><td>' + esc(venue.address) + '</td><td>' + esc(linkedCourts) + '</td><td>' + courtStatus(venue.is_active) + '</td><td>' + detailButton("venues", venue.id) + '</td></tr>';
       }).join("") + '</tbody></table></div>';
       return heading(active, '<button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
-        demoNotice("User and Booking services are not connected. Account and booking figures are calculated from the sample rows shown in this interface; Court catalogue data below comes from the selected Court Service source.") +
-        stats("admin-dashboard", [accountStats[0], accountStats[2], bookingStats[0], bookingStats[1]], false) +
-        '<p class="text-secondary small">Sample totals: ' + accountStats[1] + ' users, ' + accountStats[3] + ' owners pending review, ' + bookingStats[2] + ' checked-in bookings, ' + bookingStats[3] + ' pending bookings.</p>' +
-        (anyAdminDataError(resources) ? resourceError("Court Service data", "One or more lists could not be loaded.") : "") +
-        '<div class="content-grid">' + panel("Venue catalogue", adminVenueBody, dataMode === "demo" ? "Demo Mode sample" : "Live data from Court Service") +
-        panel("Court catalogue", '<div class="panel-body"><p class="mb-2">Sports: ' + (sports.status === "loaded" ? sports.data.length : "?") + '</p><p class="mb-2">Venues: ' + (venues.status === "loaded" ? venues.data.length : "?") + '</p><p class="mb-2">Courts: ' + (courts.status === "loaded" ? courts.data.length : "?") + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>', dataMode === "demo" ? "Demo catalogue data" : "Live Court Service GET data") +
+        (dataMode === "demo" ? demoNotice("Dashboard figures are sample data. The catalogue below reflects the selected data source.") : '<p class="text-secondary small">Account and booking summaries are not available yet.</p>') +
+        stats("admin-dashboard", dashboardValues, false, dataMode !== "demo") +
+        (dataMode === "demo" ? '<p class="text-secondary small">Sample totals: ' + accountStats[1] + ' users, ' + accountStats[3] + ' owners pending review, ' + bookingStats[2] + ' checked-in bookings, ' + bookingStats[3] + ' pending bookings.</p>' : "") +
+        (anyAdminDataError(resources) ? resourceError("catalogue information", "One or more lists could not be loaded.") : "") +
+        '<div class="content-grid">' + panel("Venue catalogue", adminVenueBody, dataMode === "demo" ? "Demo data" : "Venue information") +
+        panel("Court catalogue", '<div class="panel-body"><p class="mb-2">Sports: ' + (sports.status === "loaded" ? sports.data.length : "?") + '</p><p class="mb-2">Venues: ' + (venues.status === "loaded" ? venues.data.length : "?") + '</p><p class="mb-2">Courts: ' + (courts.status === "loaded" ? courts.data.length : "?") + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>', dataMode === "demo" ? "Demo catalogue" : "Sports, venues, courts, and schedules") +
         '</div><div class="mt-3 d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="#/admin-venues">Open venue registry</a><a class="btn btn-outline-secondary btn-sm" href="#/admin-bookings">Open bookings</a></div>';
     }
     var venueBody;
     if (venues.status === "loading" || venues.status === "idle") venueBody = '<div class="panel-body">Loading venue data...</div>';
     else if (venues.status === "error") venueBody = '<div class="panel-body">' + resourceError("venues", venues.error) + "</div>";
-    else if (!venues.data.length) venueBody = '<div class="panel-body text-secondary">No venues returned by Court Service.</div>';
+    else if (!venues.data.length) venueBody = '<div class="panel-body text-secondary">No venues found.</div>';
     else {
       venueBody = '<div class="table-wrap"><table class="table"><thead><tr><th>Venue</th><th>Address</th><th>Courts</th><th>Status</th><th></th></tr></thead><tbody>' +
         venues.data.slice(0, 6).map(function (venue) {
@@ -907,10 +882,10 @@
     var gatewayError = anyError && Object.keys(resources).some(function (key) { return resources[key].status === "error" && /failed to fetch|networkerror|connection refused|load failed/i.test(resources[key].error); });
     return heading(active, '<button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
       stats("court-overview", values, true) +
-      '<p class="text-secondary small">' + (dataMode === "demo" ? "Demo sample counts are stored only in browser memory. " : (authUser && authUser.role === "OWNER" ? "Counts are scoped to this authenticated Owner’s Court Service catalogue. " : "Counts are from the public Court Service catalogue. ")) + 'Active slots are administrative records, not booking availability.</p>' +
-      (anyError ? (gatewayError ? resourceError("Court Service data", "Failed to fetch") : resourceError("some Court Service data", "One or more lists could not be loaded.")) : "") +
-      '<div class="content-grid">' + panel("Venue catalogue", venueBody, dataMode === "demo" && active !== "admin-dashboard" ? "Demo Mode sample" : "Live data from Court Service") +
-      panel("Court data", '<div class="panel-body"><p class="mb-2">Sports: ' + (sports.status === "loaded" ? sports.data.length : "?") + '</p><p class="mb-2">Venues: ' + (venues.status === "loaded" ? venues.data.length : "?") + '</p><p class="mb-2">Courts: ' + (courts.status === "loaded" ? courts.data.length : "?") + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>', "No Booking or revenue data is connected") +
+      '<p class="text-secondary small">' + (dataMode === "demo" ? "Sample counts are for preview only. " : "Counts reflect the catalogue shown here. ") + 'Active slots are schedule entries, not booking availability.</p>' +
+      (anyError ? (gatewayError ? resourceError("catalogue information", "Could not load the latest information." ) : resourceError("catalogue information", "One or more lists could not be loaded.")) : "") +
+      '<div class="content-grid">' + panel("Venue catalogue", venueBody, dataMode === "demo" ? "Demo data" : "Your venues") +
+      panel("Court data", '<div class="panel-body"><p class="mb-2">Sports: ' + (sports.status === "loaded" ? sports.data.length : "?") + '</p><p class="mb-2">Venues: ' + (venues.status === "loaded" ? venues.data.length : "?") + '</p><p class="mb-2">Courts: ' + (courts.status === "loaded" ? courts.data.length : "?") + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>', "Sports, venues, courts, and schedules") +
       '</div><div class="mt-3 d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="#/venues">Open venues and courts</a><a class="btn btn-outline-secondary btn-sm" href="#/schedule">Open schedule</a></div>';
   }
   function anyAdminDataError(resources) {
@@ -918,8 +893,11 @@
   }
   function bookingPage(active, admin) {
     if (admin) {
+      if (dataMode !== "demo") {
+        return heading(active) + panel("Bookings", '<div class="panel-body"><p class="mb-0 text-secondary">System-wide booking management is not available yet.</p></div>', "Booking overview");
+      }
       var adminRows = bookingRows(true);
-      return heading(active, actionButton("Export bookings", "bi-download", "Sample booking list exported.", true)) + demoNotice("Booking Service is not connected. Rows and totals below are Demo data.") +
+      return heading(active, actionButton("Export bookings", "bi-download", "Sample booking list exported.", true)) + demoNotice("Sample bookings are shown for preview only.") +
         stats("admin-bookings", demoBookingStats()) + panel("All bookings", '<div class="toolbar admin-filter-toolbar" data-filter-toolbar><input class="form-control" type="search" data-table-search data-admin-search placeholder="Search booking, customer or venue" aria-label="Search bookings"><select class="form-select" data-status-filter aria-label="Filter booking status"><option value="">All statuses</option><option>Confirmed</option><option>Checked in</option><option>Pending</option><option>Completed</option><option>Cancelled</option></select><button class="btn btn-outline-secondary" type="button" data-filter-reset>Reset filters</button></div>' + table(["Booking ID", "Customer", "Venue", "Court", "Start time", "Amount", "Status"], adminRows) + '<div class="table-foot" data-filter-count>Showing ' + adminRows.length + ' records</div>', "Admin sample screen; search and status filters affect only these fictional rows");
     }
     if (dataMode !== "demo") {
@@ -930,7 +908,8 @@
         '<select class="form-select" data-booking-venue aria-label="Filter by venue"><option value="">All venues</option>' + venueOptions + '</select>' +
         calendarPickerMarkup("booking-filter", "Filter booking date", bookingDate) + '<select class="form-select" data-booking-status aria-label="Filter booking status"><option value="">All statuses</option>' +
         ["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "EXPIRED"].map(function (status) { return '<option value="' + status + '" ' + (bookingStatus === status ? "selected" : "") + '>' + status + '</option>'; }).join("") +
-        '</select><button class="btn btn-outline-secondary" type="button" data-booking-clear>Clear filters</button><button class="btn btn-outline-secondary" type="button" data-booking-retry ' + (ownerBookingsState.status === "loading" ? "disabled" : "") + '>Refresh</button></div>';
+        '</select><button class="btn btn-outline-secondary" type="button" data-booking-clear>Clear filters</button></div>';
+      var bookingRefreshAction = '<div class="page-heading-actions booking-header-actions"><button class="btn btn-outline-secondary" type="button" data-booking-retry ' + (ownerBookingsState.status === "loading" ? "disabled" : "") + '><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button></div>';
       var apiContent = "";
       if (ownerBookingsState.status === "idle" || ownerBookingsState.status === "loading") {
         apiContent = '<div class="panel-body text-secondary" role="status">Loading bookings...</div>';
@@ -941,15 +920,15 @@
         if (!ownerBookingsState.data.length) {
           var filtersActive = bookingVenueId || bookingDate || bookingStatus;
           apiContent = '<div class="panel-body text-secondary" role="status">' + (filtersActive ? "No bookings match these filters." : "No bookings are available for your venues.") + '</div>';
-        } else apiContent = '<div class="table-wrap"><table class="table"><thead><tr><th>Booking ID</th><th>User ID</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Total amount</th><th>Status</th><th>Actions</th></tr></thead><tbody id="owner-booking-rows" aria-live="polite">' + ownerBookingRowsMarkup(apiBookings) + '</tbody></table></div><div class="table-foot" data-booking-count>Showing ' + apiBookings.length + ' of ' + ownerBookingsState.data.length + ' bookings</div>';
+        } else apiContent = '<div class="table-wrap booking-list-table-wrap"><table class="table booking-list-table"><thead><tr><th>Booking ID</th><th>User ID</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Total amount</th><th>Status</th><th>Actions</th></tr></thead><tbody id="owner-booking-rows" aria-live="polite">' + ownerBookingRowsMarkup(apiBookings) + '</tbody></table></div><div class="table-foot" data-booking-count>Showing ' + apiBookings.length + ' of ' + ownerBookingsState.data.length + ' bookings</div>';
       }
-      return heading(active) + bookingModeNotice() + panel("Owner bookings", apiToolbar + apiContent, "Live booking data from Booking Service", "", "calendar-panel-card");
+      return heading(active, bookingRefreshAction) + bookingModeNotice() + panel("Owner bookings", apiToolbar + apiContent, "Manage court reservations", "", "calendar-panel-card");
     }
     var filtered = filteredDemoBookings();
     var body = '<div class="toolbar booking-filter-toolbar"><input class="form-control" type="search" data-booking-search value="' + esc(bookingSearch) + '" placeholder="Search booking ID or customer" aria-label="Search booking ID or customer">' +
       calendarPickerMarkup("booking-filter", "Filter booking date", bookingDate) + '<select class="form-select" data-booking-status aria-label="Filter booking status"><option value="">All statuses</option>' +
       ["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "EXPIRED"].map(function (status) { return '<option value="' + status + '" ' + (bookingStatus === status ? "selected" : "") + '>' + status + '</option>'; }).join("") +
-      '</select><button class="btn btn-outline-secondary" data-booking-clear>Clear filters</button></div><div class="table-wrap"><table class="table"><thead><tr><th>Booking ID</th><th>Customer</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Total Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody id="owner-booking-rows" aria-live="polite">' +
+      '</select><button class="btn btn-outline-secondary" data-booking-clear>Clear filters</button></div><div class="table-wrap booking-list-table-wrap"><table class="table booking-list-table"><thead><tr><th>Booking ID</th><th>Customer</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Total Amount</th><th>Status</th><th>Actions</th></tr></thead><tbody id="owner-booking-rows" aria-live="polite">' +
       bookingRowsMarkup(filtered) + '</tbody></table></div><div class="table-foot" data-booking-count>Showing ' + filtered.length + ' of ' + demoBookings.length + ' Demo bookings - newest first</div>';
     return heading(active) + bookingModeNotice() + demoNotice("Sample booking information is fictional and remains in browser memory only.") + panel("Owner bookings", body, "Filter bookings and open a booking for details", "", "calendar-panel-card");
   }
@@ -966,7 +945,7 @@
     ownerBookingsState = { status: "loading", data: ownerBookingsState.data, error: "" };
     render();
     return window.OwnerBookingsApi.list({ venue_id: bookingVenueId, date: bookingDate, status: bookingStatus }).then(function (bookings) {
-      if (!Array.isArray(bookings)) throw new Error("Booking Service returned an invalid list response.");
+      if (!Array.isArray(bookings)) throw new Error("The booking list could not be read.");
       if (requestId !== ownerBookingsRequestId) return [];
       bookings.forEach(function (booking) {
         if (booking && Number.isInteger(Number(booking.venue_id)) && !ownerBookingVenueIds.includes(Number(booking.venue_id))) ownerBookingVenueIds.push(Number(booking.venue_id));
@@ -1024,8 +1003,9 @@
     if (count) count.textContent = "Showing " + filtered.length + " of " + demoBookings.length + " Demo bookings - newest first";
   }
   function bookingModeNotice() {
-    return '<div class="alert alert-warning py-2 small" role="status"><strong>' + (dataMode === "demo" ? "Demo Mode:" : "API Mode:") + '</strong> ' +
-      (dataMode === "demo" ? "Booking data below is mock data and is never sent to Booking Service." : "Live booking data is loaded from Booking Service using your authenticated Owner session.") + '</div>';
+    return dataMode === "demo"
+      ? '<div class="alert alert-warning py-2 small" role="status"><strong>Demo:</strong> Sample bookings are shown for preview.</div>'
+      : '<div class="alert alert-info py-2 small" role="status">Manage court reservations.</div>';
   }
   function ownerBookingErrorMessage(error) {
     var status = error && error.status;
@@ -1034,10 +1014,10 @@
     if (status === 404) return "Booking was not found or is outside your Owner access.";
     if (status === 409) return "Booking is no longer in a state that allows this action.";
     if (status === 422) return "The booking filters or request are invalid. Check them and try again.";
-    if (status === 503) return "Booking Service is temporarily unavailable.";
-    if (status === 504) return "Booking Service timed out. Try again.";
-    if (status === 0) return "Could not connect to the API Gateway.";
-    return "Could not complete the Booking Service request. Try again.";
+    if (status === 503) return "Booking information is temporarily unavailable.";
+    if (status === 504) return "This request took too long. Try again.";
+    if (status === 0) return "Could not connect. Try again in a moment.";
+    return "Could not complete this request. Try again.";
   }
   function loadOwnerBookingDetail(bookingId) {
     toast("Loading booking details...");
@@ -1166,7 +1146,7 @@
   function completeDemoBooking(id) {
     var booking = demoBookings.find(function (item) { return item.id === id; });
     if (!booking || booking.status !== "CHECKED_IN") { toast("Only CHECKED_IN bookings can be completed."); return; }
-    if (dataMode !== "demo") { toast("Booking API and JWT are pending. No request was sent."); return; }
+    if (dataMode !== "demo") { toast("Live check-in is not available here. No request was sent."); return; }
     if (!window.confirm("Complete booking " + booking.id + "?")) return;
     var modal = document.getElementById("booking-detail-modal");
     if (modal) closeManagedModal(modal);
@@ -1202,7 +1182,7 @@
     }
     var canManageRegistry = canManageDemo || (canManageApi && (authUser.role === "ADMIN" || (editable && authUser.role === "OWNER" && registryTab !== "sports")));
     var addButton = canManageRegistry ? crudOpenButton(registryTab, null, "Add " + registryTab.slice(0, -1), "btn-success") : "";
-    var controls = '<div class="registry-toolbar"><div class="input-group registry-search"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input class="form-control border-start-0" data-registry-search data-focus-key="registry-search" type="search" value="' + esc(searchValue) + '" placeholder="' + esc(searchPlaceholder) + '" aria-label="' + esc(searchPlaceholder) + '"></div>' + filters + addButton + '</div>';
+    var controls = '<div class="registry-toolbar registry-toolbar--' + registryTab + '"><div class="input-group registry-search"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input class="form-control border-start-0" data-registry-search data-focus-key="registry-search" type="search" value="' + esc(searchValue) + '" placeholder="' + esc(searchPlaceholder) + '" aria-label="' + esc(searchPlaceholder) + '"></div>' + filters + addButton + '</div>';
     var form = canManageRegistry ? crudFormMarkup(registryTab, resources) : "";
     var content;
     if (registryTab === "sports") {
@@ -1240,7 +1220,7 @@
       }).join("");
       content = '<div class="table-wrap"><table class="table"><thead><tr><th>Court</th><th>Venue</th><th>Sport</th><th>Price per hour</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + (courtRows || '<tr><td colspan="6" class="text-secondary">No courts are available in this data source.</td></tr>') + '</tbody></table></div>';
     }
-    var stateText = dataMode === "demo" ? "Demo Mode · changes stay in browser memory" : (authUser && authUser.role === "ADMIN" ? "Court Service · ADMIN catalogue management" : "Court Service · API catalogue");
+    var stateText = dataMode === "demo" ? "Demo data" : (authUser && authUser.role === "ADMIN" ? "Manage the shared catalogue" : "Sports information");
     var modeNotice = editable || (dataMode === "api" && authUser && authUser.role === "ADMIN")
       ? pendingWriteNotice()
       : (dataMode === "demo" ? demoNotice("Court catalogue is fictional in Demo Mode. Admin catalogue is read-only.") : "");
@@ -1282,7 +1262,7 @@
           actions += '</div>';
           return '<tr><td>' + apiDate(slot.slot_date) + '</td><td>' + esc(venue ? venue.name : (court ? "Venue #" + court.venue_id : "Court #" + slot.court_id)) + '</td><td>' + esc(court ? court.name : "Court #" + slot.court_id) + '</td><td>' + esc(sport ? sport.name : "?") + '</td><td>' + apiTime(slot.start_time) + ' - ' + apiTime(slot.end_time) + '</td><td>' + courtStatus(slot.is_active) + '</td><td class="table-actions">' + actions + '</td></tr>';
         }).join("");
-        statusBlock = '<div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Venue</th><th>Court</th><th>Sport</th><th>Time</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div><div class="table-foot">Active means the slot record is enabled; booking availability is not provided by this API.</div>';
+        statusBlock = '<div class="table-wrap"><table class="table"><thead><tr><th>Date</th><th>Venue</th><th>Court</th><th>Sport</th><th>Time</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div><div class="table-foot">Active status describes the schedule entry, not booking availability.</div>';
       }
     }
     var courtOptions = courts.data.map(function (court) {
@@ -1299,7 +1279,7 @@
       ((dataMode === "demo" || canManageApi) ? crudOpenButton("slots", null, "Add time slot", "btn-success") : "") + '</div>';
     return relationErrors + heading(adminView ? "admin-schedule" : "schedule", scheduleActions) + pendingWriteNotice() +
       stats("court-overview", [resources.sports.status === "loaded" ? resources.sports.data.length : "?", venues.status === "loaded" ? venues.data.length : "?", courts.status === "loaded" ? courts.data.length : "?", activeSlots], true) +
-      '<p class="small text-secondary mt-2">Time is displayed in local wall-clock format from the API. No timezone conversion is applied.</p>' +
+      '<p class="small text-secondary mt-2">Times follow the venue schedule?s local clock.</p>' +
       panel(adminView ? "Time slots" : "Court schedule",
         '<div class="toolbar schedule-toolbar"><input class="form-control schedule-search" type="search" data-schedule-search data-focus-key="schedule-search" value="' + esc(scheduleFilters.search) + '" placeholder="Search venue, court, sport, time, or date (e.g. 23/10)" aria-label="Search schedule details or a date">' +
         calendarPickerMarkup("schedule-filter", "Filter date", scheduleFilters.date) +
@@ -1308,28 +1288,32 @@
         '<select class="form-select" data-schedule-status data-focus-key="schedule-status" aria-label="Filter by status"><option value="">All statuses</option><option value="true" ' + (scheduleFilters.status === "true" ? "selected" : "") + '>Active</option><option value="false" ' + (scheduleFilters.status === "false" ? "selected" : "") + '>Inactive</option></select>' +
         '<button class="btn btn-outline-secondary" type="button" data-schedule-reset>Reset filters</button></div>' +
         ((dataMode === "demo" || canManageApi) ? crudFormMarkup("slots", resources) : "") + statusBlock,
-        dataMode === "demo" ? "Demo Refresh restores Time Slots after confirmation; Venue, Court, Booking and QR Demo data are unchanged" : "Time slots from Court Service - no booked/available state",
+        dataMode === "demo" ? "Demo refresh restores the sample Time Slots." : "Active status describes the schedule entry, not booking availability.",
         "", "calendar-panel-card");
   }
   function checkinPage(active, admin) {
     if (admin) {
+      if (dataMode !== "demo") {
+        return heading(active) + panel("Check-ins", '<div class="panel-body"><p class="mb-0 text-secondary">System-wide check-in history is not available yet.</p></div>', "Check-in overview");
+      }
       var adminRows = data.checkins;
-      return heading(active) + demoNotice("Booking Check-in API is not connected. These fictional rows are read-only sample data; no check-in action is available.") + panel("Recent check-ins", '<div class="toolbar admin-filter-toolbar" data-filter-toolbar><input class="form-control" type="search" data-table-search data-admin-search placeholder="Search check-in, booking or customer" aria-label="Search check-ins"><select class="form-select" data-status-filter aria-label="Filter check-in status"><option value="">All statuses</option><option>Verified</option><option>Manual</option></select><button class="btn btn-outline-secondary" type="button" data-filter-reset>Reset filters</button></div>' + table(["Check-in ID", "Booking", "Customer", "Venue / court", "Check-in time", "Status"], adminRows) + '<div class="table-foot" data-filter-count>Showing ' + adminRows.length + ' records</div>', "Demo records only");
+      return heading(active) + demoNotice("Sample check-ins are shown for preview only.") + panel("Recent check-ins", '<div class="toolbar admin-filter-toolbar" data-filter-toolbar><input class="form-control" type="search" data-table-search data-admin-search placeholder="Search check-in, booking or customer" aria-label="Search check-ins"><select class="form-select" data-status-filter aria-label="Filter check-in status"><option value="">All statuses</option><option>Verified</option><option>Manual</option></select><button class="btn btn-outline-secondary" type="button" data-filter-reset>Reset filters</button></div>' + table(["Check-in ID", "Booking", "Customer", "Venue / court", "Check-in time", "Status"], adminRows) + '<div class="table-foot" data-filter-count>Showing ' + adminRows.length + ' records</div>', "Demo records only");
     }
     var demo = dataMode === "demo";
     var statusLabel = { idle: "IDLE", loading: "STARTING", scanning: "SCANNING", stopping: "STOPPING", success: "SUCCESS", error: "ERROR" }[scannerState] || "IDLE";
     var cameraFrameClass = ["idle", "success", "error"].indexOf(scannerState) >= 0 && !scannerInstance ? "qr-camera-frame--idle" : "qr-camera-frame--active";
     var result = scanResult ? '<div class="alert ' + (scanResult.ok ? "alert-success" : "alert-danger") + '" role="status"><strong>' + esc(scanResult.title) + '</strong><p class="mb-1 mt-2">' + esc(scanResult.message) + '</p>' + scanResultBookingMarkup() + '</div>' : '<p class="text-secondary small" data-scan-result>No QR result yet.</p>';
-    var controls = '<div class="qr-camera-controls"><button class="btn btn-success" data-scanner-start ' + (["loading", "scanning", "stopping"].indexOf(scannerState) >= 0 ? "disabled" : "") + '>Start Camera</button><button class="btn btn-outline-secondary" data-scanner-stop ' + (["loading", "scanning", "stopping"].indexOf(scannerState) < 0 && !scannerInstance && !qrScanner ? "disabled" : "") + '>Stop Camera</button></div>';
+    var scannerBusy = scannerStarting || ["loading", "scanning", "stopping"].indexOf(scannerState) >= 0;
+    var controls = '<div class="qr-camera-controls"><button class="btn btn-success" data-scanner-start ' + (scannerBusy || ownerCheckinPending ? "disabled" : "") + '>Start Camera</button><button class="btn btn-outline-secondary" data-scanner-stop ' + (scannerState === "stopping" || (!scannerInstance && !qrScanner && !scannerStarting) ? "disabled" : "") + '>Stop Camera</button></div>';
     var cameraPanel = '<div class="scanner-frame qr-camera-frame ' + cameraFrameClass + '"><div id="qr-reader" aria-label="Camera preview"></div>' + (scannerState === "idle" ? '<div class="qr-camera-placeholder"><i class="bi bi-qr-code-scan"></i><strong>Camera preview</strong><small>Start the camera when you are ready to scan.</small></div>' : "") + '</div><div class="qr-scanner-footer"><div class="qr-scanner-toolbar"><div class="qr-scanner-status qr-scanner-status--' + scannerState + '" role="status" data-scanner-status>' + statusLabel + '</div>' + controls + '</div><div class="qr-scanner-result" data-scanner-result-host>' + result + '</div></div>';
-    var notice = demo ? demoNotice("Demo Only: scan one of the QR tokens from this page or enter it manually below. No real booking token is shown or accepted.") : '<div class="alert alert-warning py-2 small" role="status"><strong>API Mode:</strong> check-in is sent to the authenticated Owner API. No sample token is used.</div>';
-    var manual = demo ? '<div class="panel-body"><label class="form-label" for="demo-qr-token">Demo QR token input</label><div class="input-group"><input class="form-control" id="demo-qr-token" autocomplete="off" placeholder="Enter a Demo Only QR token"><button class="btn btn-outline-secondary" data-demo-qr-submit>Check token</button></div><small class="text-secondary">Manual input is for Demo Mode testing only.</small></div>' : '<div class="panel-body"><label class="form-label" for="owner-qr-token">QR token</label><div class="input-group"><input class="form-control" id="owner-qr-token" autocomplete="off" placeholder="Scan a booking QR or enter its token"><button class="btn btn-outline-primary" type="button" data-owner-qr-submit>Check in</button></div><small class="text-secondary">The token is sent securely to the check-in API and is never shown in the result.</small></div>';
-    var examples = demo ? '<div class="panel-body"><p class="small text-secondary mb-2">Demo Only test tokens</p><div class="qr-demo-token-list">' + demoBookings.map(function (booking) { return '<div class="qr-demo-token"><span><small>' + esc(booking.status) + '</small><br><code>' + esc(booking.qr_token) + '</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="' + esc(booking.qr_token) + '">Copy</button></div>'; }).join("") + '<div class="qr-demo-token"><span><small>INVALID</small><br><code>demo-qr-invalid</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="demo-qr-invalid">Copy</button></div></div></div>' : '<div class="panel-body text-secondary">No demo tokens are shown in API Mode.</div>';
-    return heading(active) + notice + '<div class="scanner-layout mb-3">' + panel("QR Check-in", cameraPanel, "Camera access starts only after you press Start Camera") + panel("Check-in result", manual + examples, demo ? "Demo Only" : "Live check-in through Court Service") + '</div>';
+    var notice = demo ? demoNotice("Demo Only: scan one of the QR tokens from this page or enter it manually below. No real booking token is shown or accepted.") : '<div class="alert alert-info py-2 small" role="status">Scan a booking QR code or enter its code to check in.</div>';
+    var manual = demo ? '<div class="panel-body"><label class="form-label" for="demo-qr-token">Demo QR token input</label><div class="input-group"><input class="form-control" id="demo-qr-token" autocomplete="off" placeholder="Enter a Demo Only QR token"><button class="btn btn-outline-secondary" data-demo-qr-submit>Check token</button></div><small class="text-secondary">Manual input is for Demo Mode testing only.</small></div>' : '<div class="panel-body"><label class="form-label" for="owner-qr-token">QR token</label><div class="input-group"><input class="form-control" id="owner-qr-token" autocomplete="off" placeholder="Scan a booking QR or enter its token"><button class="btn btn-outline-primary" type="button" data-owner-qr-submit>Check in</button></div><small class="text-secondary">Your code stays private and is not shown in the result.</small></div>';
+    var examples = demo ? '<div class="panel-body"><p class="small text-secondary mb-2">Demo Only test tokens</p><div class="qr-demo-token-list">' + demoBookings.map(function (booking) { return '<div class="qr-demo-token"><span><small>' + esc(booking.status) + '</small><br><code>' + esc(booking.qr_token) + '</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="' + esc(booking.qr_token) + '">Copy</button></div>'; }).join("") + '<div class="qr-demo-token"><span><small>INVALID</small><br><code>demo-qr-invalid</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="demo-qr-invalid">Copy</button></div></div></div>' : '<div class="panel-body text-secondary">Use a booking QR code or enter its code to check in.</div>';
+    return heading(active) + notice + '<div class="scanner-layout mb-3">' + panel("QR Check-in", cameraPanel, "Camera access starts only after you press Start Camera") + panel("Check-in result", manual + examples, demo ? "Demo Only" : "Booking check-in") + '</div>';
   }
   function checkDemoQr(token) {
     if (dataMode !== "demo") {
-      setScanResult(false, "API unavailable", "Booking Check-in API is pending S1. No request was sent.");
+      setScanResult(false, "Not available", "Live check-in is not available here. No request was sent.");
       return;
     }
     var booking = demoBookings.find(function (item) { return item.qr_token === token; });
@@ -1346,10 +1330,8 @@
   }
   function setScanResult(ok, title, message, booking) {
     scanResult = { ok: ok, title: title, message: message, booking: booking || null };
-    var cameraRunning = !!(qrScanner && (qrScanner.isScanning || qrScanner.stateManager && qrScanner.stateManager.getState && qrScanner.stateManager.getState() === 2));
-    if (!cameraRunning && !scannerStarting) scannerState = ok ? "success" : "error";
     updateScannerResult();
-    updateScannerState(cameraRunning ? "SCANNING" : scannerState.toUpperCase());
+    updateScannerState();
   }
   function scanResultBookingMarkup() {
     if (!scanResult || !scanResult.booking) return "";
@@ -1369,12 +1351,17 @@
     if (status === 422) return "The QR token is invalid. Check the token and try again.";
     if (status === 503) return "Check-in service is temporarily unavailable.";
     if (status === 504) return "Check-in service timed out. Try again.";
-    if (status === 0) return "Could not connect to the API Gateway.";
+    if (status === 0) return "Could not connect. Try again in a moment.";
     return "Could not check in this booking. Try again.";
   }
-  function submitOwnerCheckin(qrToken) {
-    if (dataMode === "demo") { checkDemoQr(qrToken); return Promise.resolve(); }
+  function submitOwnerCheckin(qrToken, fromScanner) {
+    if (dataMode === "demo") {
+      checkDemoQr(qrToken);
+      if (scanResult && scanResult.ok && (qrScanner || scannerInstance)) return stopQrScanner();
+      return Promise.resolve();
+    }
     if (ownerCheckinPending) return Promise.resolve();
+    if (fromScanner && (scannerState !== "scanning" || scannerStopPromise || !qrScanner)) return Promise.resolve();
     if (!String(qrToken || "").trim()) {
       setScanResult(false, "QR token required", "Scan a booking QR or enter its token first.");
       return Promise.resolve();
@@ -1382,9 +1369,10 @@
     ownerCheckinPending = true;
     var submit = document.querySelector("[data-owner-qr-submit]");
     if (submit) { submit.disabled = true; submit.textContent = "Checking..."; }
-    if (qrScanner && dataMode !== "demo") stopQrScanner();
-    updateScannerState("CHECKING IN");
+    var succeeded = false;
+    updateScannerState();
     return window.OwnerCheckinApi.checkIn(qrToken).then(function (result) {
+      succeeded = true;
       setScanResult(true, "Check-in successful", "The booking was checked in.", {
         id: result && result.booking_id,
         status: result && result.status || "CHECKED_IN",
@@ -1399,7 +1387,9 @@
       var button = document.querySelector("[data-owner-qr-submit]");
       if (input) input.disabled = false;
       if (button) { button.disabled = false; button.textContent = "Check in"; }
-      if (qrScanner && qrScanner.isScanning) updateScannerState("SCANNING");
+      updateScannerState();
+    }).then(function () {
+      if (succeeded && (qrScanner || scannerInstance)) return stopQrScanner();
     });
   }
   function updateScannerResult() {
@@ -1416,8 +1406,8 @@
     }
     var start = document.querySelector("[data-scanner-start]");
     var stop = document.querySelector("[data-scanner-stop]");
-    if (start) start.disabled = ["loading", "scanning", "stopping"].indexOf(scannerState) >= 0 || scannerStarting;
-    if (stop) stop.disabled = ["loading", "scanning", "stopping"].indexOf(scannerState) < 0 && !scannerInstance && !qrScanner;
+    if (start) start.disabled = scannerStarting || ownerCheckinPending || ["loading", "scanning", "stopping"].indexOf(scannerState) >= 0 || !!scannerInstance || !!qrScanner;
+    if (stop) stop.disabled = scannerState === "stopping" || (!scannerInstance && !qrScanner && !scannerStarting);
     var placeholder = document.querySelector(".qr-camera-placeholder");
     if (placeholder) placeholder.hidden = ["loading", "scanning", "stopping"].indexOf(scannerState) >= 0;
     var frame = document.querySelector(".qr-camera-frame");
@@ -1444,14 +1434,15 @@
     });
   }
   function startQrScanner() {
-    if (scannerStarting || scannerStopPromise || ["loading", "scanning", "stopping"].indexOf(scannerState) >= 0) return;
+    if (scannerStarting || scannerStopPromise || ownerCheckinPending || ["loading", "scanning", "stopping"].indexOf(scannerState) >= 0) return;
     if (qrScanner || scannerInstance) {
       stopQrScanner().then(function (stopped) {
         if (stopped && currentRoute() === "qr-checkin") startQrScanner();
       });
       return;
     }
-    if (!window.Html5Qrcode) { scannerState = "error"; scanResult = { ok: false, title: "Scanner library unavailable", message: window.Html5QrcodeLoadError || "html5-qrcode is still loading or could not be loaded. Check your internet/CDN access, then reload this page.", booking: null }; updateScannerState("ERROR"); updateScannerResult(); return; }
+    if (!window.Html5Qrcode) { scannerState = "error"; scanResult = { ok: false, title: "Scanner library unavailable", message: window.Html5QrcodeLoadError || "html5-qrcode is still loading or could not be loaded. Reload the page and check the local Management Web files.", booking: null }; updateScannerState("ERROR"); updateScannerResult(); return; }
+    scannerScanGate.reset();
     scannerStarting = true; scannerState = "loading"; scanResult = null; updateScannerState("STARTING - requesting camera permission"); updateScannerResult();
     var epoch = ++scannerEpoch;
     var activeScanner;
@@ -1468,11 +1459,9 @@
         if (!devices || !devices.length) { var missing = new Error("No camera was found. Connect or enable a webcam, then try again."); missing.name = "NotFoundError"; throw missing; }
         var selected = devices.find(function (device) { return /webcam|integrated|front|camera/i.test(device.label || ""); }) || devices[0];
         return activeScanner.start(selected.id, { fps: 10, qrbox: { width: 240, height: 240 }, aspectRatio: 4 / 3 }, function (decodedText) {
-          if (scannerState !== "scanning") return;
-          var now = Date.now();
-          if (scanProcessing || (decodedText === lastScannedText && now - lastScanAt < 2500)) return;
-          scanProcessing = true; lastScannedText = decodedText; lastScanAt = now;
-          try { submitOwnerCheckin(decodedText).finally(function () { scanProcessing = false; }); } catch (error) { scanProcessing = false; }
+          var qrToken = String(decodedText || "").trim();
+          if (epoch !== scannerEpoch || scannerInstance !== activeScanner || qrScanner !== activeScanner || scannerStopPromise || scannerState !== "scanning" || !scannerScanGate.tryBegin(qrToken)) return;
+          submitOwnerCheckin(qrToken, true).then(function () { scannerScanGate.finish(); }, function () { scannerScanGate.finish(); });
         }, function () {});
       });
     }).then(function () {
@@ -1502,8 +1491,10 @@
   function stopQrScanner() {
     if (scannerStopPromise) return scannerStopPromise;
     var current = qrScanner || scannerInstance;
+    ++scannerEpoch;
+    scannerScanGate.reset();
     if (!current) { scannerStarting = false; scannerState = "idle"; updateScannerState("IDLE"); return Promise.resolve(true); }
-    ++scannerEpoch; scannerState = "stopping"; updateScannerState("STOPPING");
+    scannerState = "stopping"; updateScannerState("STOPPING");
     scannerStopPromise = Promise.resolve().then(function () {
       return scannerStartPromise ? scannerStartPromise.then(function () { return true; }, function () { return false; }) : true;
     }).then(function (started) {
@@ -1523,6 +1514,9 @@
     return scannerStopPromise;
   }
   function revenuePage() {
+    if (dataMode !== "demo") {
+      return heading("revenue") + panel("Revenue overview", '<div class="panel-body"><p class="mb-0 text-secondary">Revenue information is not available yet.</p></div>', "Revenue summary");
+    }
     var values = [42, 61, 52, 72, 66, 84, 76, 95, 73, 87, 67, 100];
     var months = ["Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct"];
     var bars = values.map(function (height, i) {
@@ -1533,18 +1527,21 @@
     var breakdown = '<div class="panel-body quick-list">' + items.map(function (item) {
       return '<div class="quick-item"><span class="quick-icon"><i class="bi bi-trophy"></i></span><span class="flex-grow-1"><strong>' + item[0] + "</strong><small>" + item[2] + " of total revenue</small></span><strong>" + item[1] + "</strong></div>";
     }).join("") + "</div>";
-    return heading("revenue", actionButton("Download report", "bi-download", "Sample revenue report downloaded.", true)) + demoNotice("Payment and Revenue APIs are not connected. All values below are Demo data.") +
+    return heading("revenue", actionButton("Download report", "bi-download", "Sample revenue report downloaded.", true)) + demoNotice("Sample figures are shown for preview only.") +
       stats("revenue", ["₫12.45M", "₫4.68M", "₫7.77M", "₫1.24M"]) + '<div class="content-grid">' +
       panel("Revenue overview", chart, "Monthly performance") + panel("Revenue by sport", breakdown, "This month") +
       '</div><p class="text-secondary mt-3" style="font-size:10px"><i class="bi bi-info-circle me-1"></i>Revenue figures are mock data for this interface preview.</p>';
   }
   function peoplePage() {
+    if (dataMode !== "demo") {
+      return heading("people") + panel("Users & Owners", '<div class="panel-body"><p class="mb-0 text-secondary">Account management is not available yet.</p></div>', "Account directory");
+    }
     var rows = data.people.map(function (row) {
       var accountId = row[0] || "";
       return '<tr data-account-row data-role="' + esc(row[3]) + '" data-status="' + esc(row[5]) + '"><td class="account-id">' + esc(accountId || "ID unavailable") + '</td><td class="table-primary-text">' + esc(row[1]) + '</td><td>' + esc(row[2]) + '</td><td>' + esc(row[3]) + '</td><td>' + esc(row[4]) + '</td><td>' + badge(row[5]) + '</td><td class="table-actions"><div class="table-action-group"><button class="btn btn-sm btn-outline-secondary" type="button" data-account-detail="' + esc(accountId) + '">Details</button></div></td></tr>';
     }).join("");
     var accountStats = demoAccountStats();
-    return heading("people") + demoNotice("User Service is not connected. These fictional account rows and totals are Demo data; no account changes are sent or saved.") +
+    return heading("people") + demoNotice("Sample accounts are shown for preview only. Changes are not saved.") +
       stats("people", accountStats) +
       panel("Account directory", '<div class="toolbar"><div class="input-group search-field"><span class="input-group-text bg-white border-end-0"><i class="bi bi-search"></i></span><input class="form-control border-start-0" data-table-search type="search" placeholder="Search name, email or ID" aria-label="Search accounts"></div><select class="form-select" data-account-role><option value="">All roles</option><option>User</option><option>Court Owner</option></select><select class="form-select" data-account-status><option value="">All statuses</option><option>Active</option><option>Pending</option><option>Inactive</option></select></div>' +
       '<div class="table-wrap"><table class="table"><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Joined</th><th>Status</th><th>Actions</th></tr></thead><tbody id="admin-account-rows">' + rows + '</tbody></table></div><div class="table-foot"><span data-account-count>Showing ' + data.people.length + ' of ' + data.people.length + ' Demo accounts</span></div>', "Demo records only");
@@ -1553,11 +1550,11 @@
     if (authUser) {
       var accountRows = [["Account ID", authUser.id], ["Full name", authUser.full_name], ["Email", authUser.email], ["Phone", authUser.phone], ["Role", authUser.role], ["Status", authUser.is_active ? "Active" : "Inactive"]].filter(function (row) { return row[1] !== null && row[1] !== undefined && row[1] !== ""; });
       var details = '<div class="panel-body">' + accountRows.map(function (row) { return '<div class="detail-row"><span>' + esc(row[0]) + '</span><strong>' + esc(row[1]) + '</strong></div>'; }).join("") + '</div>';
-      return heading(active) + '<div class="alert alert-info" role="status">Profile edits are not available in the current Auth API contract.</div>' + panel("Authenticated account", details, "Read-only profile from User Service");
+      return heading(active) + '<div class="alert alert-info" role="status">Profile details are available in read-only mode.</div>' + panel("Account information", details, "Your profile");
     }
     var name = admin ? "Admin User" : "Nguyễn Văn A";
     var email = admin ? "admin@sportbooking.vn" : "owner@sportbooking.vn";
-    return heading(active) + demoNotice("Profile API is not connected. Profile details are Demo data.") + '<div class="profile-layout"><section class="profile-card profile-summary"><span class="avatar">' + (admin ? "AU" : "NA") +
+    return heading(active) + demoNotice("Sample profile information is shown for preview only.") + '<div class="profile-layout"><section class="profile-card profile-summary"><span class="avatar">' + (admin ? "AU" : "NA") +
       "</span><h2>" + name + "</h2><p>" + (admin ? "System Administrator" : "Court Owner") + " · Member since 2025</p>" + badge("Active") +
       '<div class="profile-divider"></div><div class="detail-row"><span>Account ID</span><strong>' + (admin ? "ADM-0001" : "OWN-0108") +
       '</strong></div><div class="detail-row"><span>Role</span><strong>' + (admin ? "Administrator" : "Court Owner") + '</strong></div></section>' +
@@ -1716,10 +1713,10 @@
   function apiErrorText(error) {
     if (error.status === 401) return "Your session expired. Sign in again.";
     if (error.status === 403) return "You do not have permission to change this record.";
-    if (error.status === 409) return "Court Service rejected this conflicting change. A slot with an active HOLD or booking cannot be edited or deactivated; other conflicts may be overlaps or constraints.";
+    if (error.status === 409) return "This change conflicts with an active reservation or schedule entry. Refresh and try again.";
     if (error.status === 422) return "Please check the form: " + error.message;
-    if (error.status === 503) return "Court Service is temporarily unavailable or this operation is not enabled.";
-    return error.message || "Court Service request failed.";
+    if (error.status === 503) return "This action is temporarily unavailable. Please try again.";
+    return error.message || "Could not save your changes. Please try again.";
   }
   function hasCourtLoadError() {
     return Object.keys(courtResources).some(function (key) { return courtResources[key].status === "error"; });
@@ -1728,7 +1725,7 @@
     var resource = form.dataset.crudResource;
     var allowed = authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts", "slots"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports"));
     if (!allowed) {
-      toast("This Court Service write is not available for the current role.");
+      toast("This action is not available for the current role.");
       return;
     }
     var parsed = apiFormValues(form, resource);
@@ -1743,7 +1740,7 @@
       return loadCourtResources(true);
     }).then(function () {
       var action = (id ? "Updated " : "Created ") + ({ sports: "sport", venues: "venue", courts: "court", slots: "time slot" }[resource]);
-      toast(hasCourtLoadError() ? action + ", but the refreshed list has a load error. Use Retry to reload it." : action + " in Court Service.");
+      toast(hasCourtLoadError() ? action + ", but the refreshed list has a load error. Use Retry to reload it." : action + ".");
     }).catch(function (error) {
       toast(apiErrorText(error));
       render();
@@ -1753,17 +1750,17 @@
     if (dataMode !== "demo") {
       var allowed = authUser && ((authUser.role === "ADMIN" && ["sports", "venues", "courts", "slots"].indexOf(resource) >= 0) || (authUser.role === "OWNER" && resource !== "sports"));
       if (!allowed) {
-        toast("This Court Service write is not available for the current role.");
+        toast("This action is not available for the current role.");
         return;
       }
       var apiLabel = ({ sports: "sport", venues: "venue", courts: "court", slots: "time slot" }[resource]);
-      showActionConfirmation("Deactivate " + apiLabel, "This will mark the Court Service record inactive.", "Deactivate", function () {
+      showActionConfirmation("Deactivate " + apiLabel, "This record will be marked inactive.", "Deactivate", function () {
         toast("Deactivating " + apiLabel + "...");
         window.CourtApi.delete("/api/v1/" + resourceForApi(resource) + "/" + encodeURIComponent(id)).then(function () {
           crudFormState = null;
           return loadCourtResources(true);
         }).then(function () {
-          toast(hasCourtLoadError() ? "Deactivated " + apiLabel + ", but the refreshed list has a load error. Use Retry to reload it." : "Court Service " + apiLabel + " deactivated.");
+          toast(hasCourtLoadError() ? "Deactivated " + apiLabel + ", but the refreshed list could not be loaded. Use Retry to reload it." : apiLabel + " deactivated.");
         }).catch(function (error) { toast(apiErrorText(error)); });
       });
       return;
@@ -2044,9 +2041,10 @@
     var admin = active.indexOf("admin-") === 0 || active === "people" || active === "checkins";
     if (!info[active]) active = admin ? "admin-dashboard" : "dashboard";
     var content = pageFor(active);
-    var ownerCourtScreens = ["dashboard", "venues", "schedule"];
-    if (!admin && (ownerCourtScreens.indexOf(active) >= 0 || active === "owner-bookings" || active === "qr-checkin")) content = modeToolbar() + content;
-    if (admin && ["admin-dashboard", "admin-venues", "admin-schedule"].indexOf(active) >= 0) content = modeToolbar() + content;
+    var ownerModeScreens = ["dashboard", "venues", "schedule", "owner-bookings", "qr-checkin", "revenue"];
+    var adminModeScreens = ["admin-dashboard", "admin-venues", "admin-schedule", "admin-bookings", "checkins", "people"];
+    if (!admin && ownerModeScreens.indexOf(active) >= 0) content = modeToolbar() + content;
+    if (admin && adminModeScreens.indexOf(active) >= 0) content = modeToolbar() + content;
     renderShell(content, admin, active);
     wireActions();
     if (active === "venues" || active === "admin-venues") applyRegistryFilters();

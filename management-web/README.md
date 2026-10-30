@@ -13,7 +13,7 @@ This repository contains an Android client, an Owner/Admin management website, a
 
 Useful locations: `management-web/` contains this website; `backend/app/` is the retained legacy backend; `backend/gateway/` contains the Gateway; `backend/services/` contains the microservices; `docs/api/` contains the Court Service API contract; and `docs/diagrams/` contains architecture and ERD sources.
 
-This project uses static HTML, CSS, and JavaScript with the existing Bootstrap CDN assets. Local CSS fallbacks keep the core layout, forms, alerts, buttons, and tables usable when the CDN is unavailable; Bootstrap icons and the QR scanner library still load from their CDNs. No Node build or frontend package installation is required.
+This project uses static HTML, CSS, and JavaScript with Bootstrap 5.3.3 and Bootstrap Icons 1.11.3 vendored under `assets/vendor/`, so page styles, Bootstrap components, and icons work without Internet access. Their MIT license files are kept beside the assets. The pinned `html5-qrcode` 2.3.8 scanner library is also vendored with its Apache-2.0 license. No CDN or Node build is required at runtime.
 
 ## Current implementation status
 
@@ -87,7 +87,7 @@ The UI follows [the approved Owner Booking & QR contract](../docs/api/owner-book
 
 ## Owner QR Scanner & Demo Check-in (Step 8)
 
-Serve this static site on `http://localhost:8080` or HTTPS. Open **QR Check-in** from the Owner sidebar, select **Demo Mode**, then press **Start Camera**. Camera permission is requested only after this button is pressed. Allow camera access in Chrome site settings and hold a test QR in the 4:3 preview; press **Stop Camera** to stop the stream. The scanner chooses a labeled integrated/web camera when possible, then falls back to the first available device. Leaving the screen, hiding the tab, changing mode, or closing/reloading the page also stops the scanner. The page requires an available webcam and network access to load `html5-qrcode` from its CDN; if the CDN is blocked it reports that error instead of claiming a scan succeeded.
+Serve this static site on `http://localhost:8080` or HTTPS. Open **QR Check-in** from the Owner sidebar, select **Demo Mode**, then press **Start Camera**. Camera permission is requested only after this button is pressed. Allow camera access in Chrome site settings and hold a test QR in the 4:3 preview; press **Stop Camera** to stop the stream. The scanner chooses a labeled integrated/web camera when possible, then falls back to the first available device. Leaving the screen, hiding the tab, changing mode, or closing/reloading the page also stops the scanner. The page requires an available webcam and serves `html5-qrcode` from the local `assets/vendor/` directory; if that local file is missing it reports the load error instead of claiming a scan succeeded.
 
 For a camera-free demo, use the manual token field. The displayed test tokens are labeled Demo Only:
 
@@ -101,9 +101,9 @@ For a camera-free demo, use the manual token field. The displayed test tokens ar
 
 A successful check-in displays the booking ID, court, date and time. The corresponding booking state is shared with Owner Bookings while the page stays loaded. Reload resets mock data. This local simulation is not an authorization mechanism and has no effect on MySQL or Court Service.
 
-If the preview does not start, verify camera permission, close other apps using the webcam, and confirm the page uses localhost or HTTPS. Permission denial, missing or busy camera, and CDN load failures appear in the scanner result area. Start/stop and page navigation wait for camera cleanup; the QR preview stays mounted while a scan is active. If cleanup itself fails, use **Stop Camera** to retry before leaving the page.
+If the preview does not start, verify camera permission, close other apps using the webcam, and confirm the page uses localhost or HTTPS. Permission denial, missing or busy camera, and local library load failures appear in the scanner result area. Start/stop and page navigation wait for camera cleanup; the QR preview stays mounted while a scan is active. If cleanup itself fails, use **Stop Camera** to retry before leaving the page.
 
-In API Mode, the same camera and a manual token field send `POST /api/v1/owner/checkins` through the Gateway with the session Bearer token. The browser sends only `qr_token`; it never sends `owner_id` or `X-Internal-Token`, and the token is not rendered or logged. Check-in status remains server-owned: the page reports the response and marks Owner Bookings data stale so it reloads when next opened. API errors are translated to safe messages. The browser does not fall back to Demo tokens or records. Camera access requires localhost or HTTPS, permission, and the `html5-qrcode` CDN to load. The UI and route are contract-wired, but live integration still depends on S1's Booking internal check-in being reachable through the configured services; this task does not claim an end-to-end backend run.
+In API Mode, the same camera and a manual token field send `POST /api/v1/owner/checkins` through the Gateway with the session Bearer token. The browser sends only `qr_token`; it never sends `owner_id` or `X-Internal-Token`, and the token is not rendered or logged. Check-in status remains server-owned: the page reports the response and marks Owner Bookings data stale so it reloads when next opened. API errors are translated to safe messages. The browser does not fall back to Demo tokens or records. Camera access requires localhost or HTTPS, permission, and the locally served `html5-qrcode` asset. The UI and route are contract-wired, but live integration still depends on S1's Booking internal check-in being reachable through the configured services; this task does not claim an end-to-end backend run.
 
 ## Demo screens
 

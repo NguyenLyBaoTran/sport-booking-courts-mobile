@@ -11,7 +11,7 @@ test("Admin Time Slots is a protected route with a dedicated navigation entry", 
   assert.match(appSource, /"admin-schedule": \["Platform operations", "Time Slot Management"/);
   assert.match(appSource, /active === "schedule" \|\| active === "admin-schedule"/);
   assert.match(appSource, /requestedAdmin = active\.indexOf\("admin-"\) === 0/);
-  assert.match(appSource, /\["admin-dashboard", "admin-venues", "admin-schedule"\]/);
+  assert.match(appSource, /var adminModeScreens = \["admin-dashboard", "admin-venues", "admin-schedule", "admin-bookings", "checkins", "people"\]/);
 });
 
 test("Admin Time Slots uses live Court Service collections and CRUD endpoints", () => {
@@ -34,7 +34,7 @@ test("Admin can write slots while OWNER ownership rules and reservation conflict
   assert.match(contract, /OWNER of related Court's Venue or ADMIN/);
   assert.match(contract, /Slots with an active hold or booking cannot be edited or deactivated/);
   assert.match(appSource, /error\.status === 409/);
-  assert.match(appSource, /active HOLD or booking/);
+  assert.match(appSource, /active reservation or schedule entry/);
 });
 
 test("Admin slot form renders real relationship fields, active state, validation and loading/empty states", () => {

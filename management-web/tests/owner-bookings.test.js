@@ -111,7 +111,28 @@ test("Owner API Mode renders only contract fields, with loading, empty, filtered
   assert.match(apiBranch, /data-booking-venue/);
   assert.match(apiBranch, /Filter booking date/);
   assert.match(apiBranch, /data-booking-status/);
+  assert.match(apiBranch, /var bookingRefreshAction = .*data-booking-retry/);
+  assert.match(apiBranch, /heading\(active, bookingRefreshAction\)/);
+  assert.match(apiBranch, /booking-list-table-wrap/);
   assert.doesNotMatch(apiBranch, /demoBookings|booking\.customer|qr_token/);
+});
+
+test("Owner booking Refresh is in the header and Clear filters remains the last toolbar control", () => {
+  const start = appSource.indexOf('    if (dataMode !== "demo") {', appSource.indexOf("  function bookingPage("));
+  const end = appSource.indexOf("      var apiContent =", start);
+  const apiToolbar = appSource.slice(start, end).split("var bookingRefreshAction =")[0];
+  assert.match(apiToolbar, /data-booking-clear/);
+  assert.doesNotMatch(apiToolbar, /data-booking-retry[^>]*>Refresh/);
+  assert.match(appSource, /bookingRefreshAction = '<div class="page-heading-actions booking-header-actions"><button/);
+  assert.match(appSource, /data-booking-retry .*Refresh/);
+});
+
+test("Venues and Courts controls use responsive toolbar grid and padded bounded cards", () => {
+  assert.match(appSource, /registry-toolbar registry-toolbar--' \+ registryTab/);
+  const css = fs.readFileSync(path.join(__dirname, "../assets/css/app.css"), "utf8");
+  assert.match(css, /\.venue-grid \{ display: grid; grid-template-columns: repeat\(auto-fill,minmax\(min\(100%,420px\),1fr\)\); align-items: stretch; gap: 16px; padding: 22px; \}/);
+  assert.match(css, /\.venue-card \{ width: min\(100%,560px\); min-width: 0; overflow: hidden; \}/);
+  assert.match(css, /\.registry-toolbar--courts \{ grid-template-columns:/);
 });
 
 test("API list requests use venue/date/status filters and no mock fallback", () => {

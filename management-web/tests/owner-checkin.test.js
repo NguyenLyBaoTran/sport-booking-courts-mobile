@@ -6,6 +6,7 @@ const path = require("node:path");
 
 const root = path.join(__dirname, "../assets/js");
 const appSource = fs.readFileSync(path.join(root, "app.js"), "utf8");
+const cssSource = fs.readFileSync(path.join(__dirname, "../assets/css/app.css"), "utf8");
 
 function createClient(fetchImpl) {
   const values = new Map();
@@ -75,19 +76,47 @@ test("scanner supports API and Demo modes without token display or mock fallback
   assert.match(appSource, /new window\.Html5Qrcode\("qr-reader"\)/);
   assert.match(appSource, /data-scanner-start/);
   assert.match(appSource, /data-scanner-stop/);
-  assert.match(appSource, /submitOwnerCheckin\(decodedText\)/);
+  assert.match(appSource, /submitOwnerCheckin\(qrToken, true\)/);
   assert.match(appSource, /window\.OwnerCheckinApi\.checkIn\(qrToken\)/);
   assert.match(appSource, /data-owner-qr-submit/);
   assert.match(appSource, /data-demo-qr-submit/);
   assert.match(appSource, /Camera permission was denied/);
   assert.match(appSource, /No camera was found/);
-  assert.match(appSource, /if \(scanProcessing \|\| \(decodedText === lastScannedText/);
-  assert.match(appSource, /if \(qrScanner && dataMode !== "demo"\) stopQrScanner\(\)/);
+  assert.match(appSource, /scannerScanGate\.tryBegin\(qrToken\)/);
+  assert.match(appSource, /scannerScanGate\.finish\(\)/);
+  assert.match(appSource, /scannerScanGate\.reset\(\)/);
+  assert.doesNotMatch(appSource, /if \(qrScanner && dataMode !== "demo"\) stopQrScanner\(\)/);
+  assert.match(appSource, /if \(succeeded && \(qrScanner \|\| scannerInstance\)\) return stopQrScanner\(\)/);
+  assert.match(appSource, /epoch !== scannerEpoch \|\| scannerInstance !== activeScanner \|\| qrScanner !== activeScanner/);
+  assert.doesNotMatch(appSource, /if \(!cameraRunning && !scannerStarting\) scannerState = ok \? "success" : "error"/);
+  assert.match(appSource, /ownerCheckinPending \|\| \["loading", "scanning", "stopping"\]/);
   assert.match(appSource, /window\.addEventListener\("hashchange"/);
   assert.match(appSource, /renderedRoute === "qr-checkin" && nextRoute !== "qr-checkin"/);
-  assert.match(appSource, /dataMode === "demo"\) \{ checkDemoQr\(qrToken\)/);
-  assert.match(appSource, /No sample token is used/);
+  assert.match(appSource, /dataMode === "demo"\) \{\s+checkDemoQr\(qrToken\)/);
+  assert.match(appSource, /Use a booking QR code or enter its code to check in/);
+  assert.match(appSource, /Scan a booking QR code or enter its code to check in/);
   assert.match(appSource, /ownerBookingsState\.status = "idle"/);
   for (const status of [401, 403, 404, 409, 422, 503, 504]) assert.match(appSource, new RegExp("status === " + status));
   assert.doesNotMatch(appSource, /console\.(log|debug|info)\([^\n]*qrToken/i);
+});
+
+test("Owner registry, bookings, and scanner controls have responsive layout rules", () => {
+  assert.match(cssSource, /\.registry-toolbar--venues \{ grid-template-columns: minmax\(230px,1fr\) minmax\(145px,170px\) minmax\(145px,170px\) auto; \}/);
+  assert.match(cssSource, /\.booking-filter-toolbar > \[data-booking-clear\] \{ justify-self: end; min-width: 112px/);
+  assert.match(cssSource, /\.registry-row-actions \.table-action-group \{ display: grid; grid-template-columns: repeat\(3,minmax\(0,1fr\)\)/);
+  assert.match(cssSource, /\.scanner-layout \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(cssSource, /@media \(max-width: 900px\) \{\s+\.registry-toolbar--venues, \.registry-toolbar--courts, \.registry-toolbar--sports/);
+  assert.match(cssSource, /\.qr-camera-controls \.btn \{ min-width: 118px; min-height: 40px; \}/);
+  assert.match(cssSource, /@media \(max-width: 600px\)/);
+});
+
+test("camera errors remain recoverable and Stop invalidates stale scan callbacks", () => {
+  const startScanner = appSource.slice(appSource.indexOf("function startQrScanner()"), appSource.indexOf("function stopQrScanner()"));
+  const stopScanner = appSource.slice(appSource.indexOf("function stopQrScanner()"), appSource.indexOf("function revenuePage()"));
+  assert.match(appSource, /name === "NotAllowedError".*Camera permission was denied/);
+  assert.match(startScanner, /\["loading", "scanning", "stopping"\]\.indexOf\(scannerState\) >= 0/);
+  assert.doesNotMatch(startScanner.slice(0, startScanner.indexOf("if (qrScanner || scannerInstance)")), /scannerState === "error"/);
+  assert.match(stopScanner, /\+\+scannerEpoch/);
+  assert.match(stopScanner, /scannerScanGate\.reset\(\)/);
+  assert.match(startScanner, /epoch !== scannerEpoch \|\| scannerInstance !== activeScanner \|\| qrScanner !== activeScanner/);
 });
