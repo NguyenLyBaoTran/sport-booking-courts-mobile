@@ -75,3 +75,35 @@ class BookingCompletion(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     owner_id: int = Field(gt=0)
+
+
+class AdminBookingResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    time_slot_id: int
+    court_id: Optional[int]
+    venue_id: Optional[int]
+    owner_id: Optional[int]
+    slot_date: Optional[date]
+    start_time: Optional[time]
+    end_time: Optional[time]
+    status: str
+    total_amount: Decimal
+    expires_at: Optional[datetime]
+    checked_in_by: Optional[int]
+    checked_in_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    created_at: datetime
+
+
+class AdminBookingListResponse(BaseModel):
+    items: list[AdminBookingResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class BookingSummaryResponse(BaseModel):
+    bookings: dict[str, int]

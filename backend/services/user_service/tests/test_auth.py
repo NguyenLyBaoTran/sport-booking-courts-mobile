@@ -37,11 +37,13 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    app.state.test_session = test_session
     try:
         with TestClient(app) as test_client:
             yield test_client
     finally:
         app.dependency_overrides.clear()
+        del app.state.test_session
         Base.metadata.drop_all(engine, tables=[User.__table__])
         engine.dispose()
 
@@ -169,3 +171,49 @@ def test_current_user_returns_authenticated_account(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["email"] == "linh@example.com"
     assert response.json()["role"] == "USER"
+
+
+def test_admin_users_list_status_and_summary(client: TestClient) -> None:
+    from app.security import create_access_token, hash_password
+
+    with app.state.test_session() as db:
+        admin = User(
+            full_name="Admin One",
+            email="admin@example.com",
+            password_hash=hash_password("strong-pass-123"),
+            role="ADMIN",
+            is_active=True,
+        )
+        user = User(
+            full_name="Linh Nguyen",
+            email="linh@example.com",
+            password_hash=hash_password("strong-pass-123"),
+            role="USER",
+            is_active=True,
+        )
+        db.add_all([admin, user])
+        db.commit()
+        db.refresh(admin)
+        db.refresh(user)
+        admin_id = admin.id
+        user_id = user.id
+
+    token = create_access_token(admin_id, "ADMIN")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    listed = client.get("/api/v1/admin/users?q=linh&page=1&page_size=25", headers=headers)
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    assert listed.json()["items"][0]["id"] == user_id
+
+    updated = client.patch(
+        f"/api/v1/admin/users/{user_id}/status",
+        json={"is_active": False},
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["is_active"] is False
+
+    summary = client.get("/api/v1/admin/users/summary", headers=headers)
+    assert summary.status_code == 200
+    assert summary.json()["users"]["inactive"] == 1

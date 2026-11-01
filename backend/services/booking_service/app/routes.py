@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,9 @@ from app.schemas import (
     OwnerBookingCompletionResponse,
     OwnerBookingResponse,
     PaymentContext,
+    AdminBookingResponse,
+    AdminBookingListResponse,
+    BookingSummaryResponse,
 )
 
 router = APIRouter()
@@ -64,6 +67,145 @@ def _complete_booking(db: Session, booking_id: int, owner_id: int) -> dict:
         "status": booking.status,
         "completed_at": booking.completed_at,
     }
+
+
+def require_admin(principal: Principal) -> None:
+    if principal.role != "ADMIN":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def _paginate_admin_bookings(
+    db: Session,
+    query,
+    page: int,
+    page_size: int,
+    order_by_checked_in: bool = False,
+) -> AdminBookingListResponse:
+    if page < 1 or page_size < 1 or page_size > 100:
+        raise HTTPException(status_code=422, detail="Invalid pagination")
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    if order_by_checked_in:
+        ordered = query.order_by(Booking.checked_in_at.desc(), Booking.id.desc())
+    else:
+        ordered = query.order_by(Booking.created_at.desc(), Booking.id.desc())
+    items = list(
+        db.scalars(ordered.offset((page - 1) * page_size).limit(page_size))
+    )
+    return AdminBookingListResponse(
+        items=[AdminBookingResponse.model_validate(item) for item in items],
+        total=int(total),
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/admin/bookings/summary", response_model=BookingSummaryResponse, tags=["admin"])
+def admin_booking_summary(
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+) -> BookingSummaryResponse:
+    require_admin(principal)
+    total = db.scalar(select(func.count(Booking.id))) or 0
+    checked_in = db.scalar(
+        select(func.count(Booking.id)).where(Booking.status == "CHECKED_IN")
+    ) or 0
+    completed = db.scalar(
+        select(func.count(Booking.id)).where(Booking.status == "COMPLETED")
+    ) or 0
+    return BookingSummaryResponse(
+        bookings={
+            "total": int(total),
+            "checked_in": int(checked_in),
+            "completed": int(completed),
+        }
+    )
+
+
+@router.get("/admin/bookings", response_model=AdminBookingListResponse, tags=["admin"])
+def admin_list_bookings(
+    page: int = 1,
+    page_size: int = 25,
+    booking_id: Optional[int] = Query(default=None, gt=0),
+    status_filter: Optional[str] = Query(default=None, alias="status"),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    venue_id: Optional[int] = Query(default=None, gt=0),
+    court_id: Optional[int] = Query(default=None, gt=0),
+    owner_id: Optional[int] = Query(default=None, gt=0),
+    user_id: Optional[int] = Query(default=None, gt=0),
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+) -> AdminBookingListResponse:
+    require_admin(principal)
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=422, detail="date_from must be before date_to")
+    query = select(Booking)
+    if booking_id is not None:
+        query = query.where(Booking.id == booking_id)
+    if status_filter is not None:
+        query = query.where(Booking.status == status_filter)
+    if date_from is not None:
+        query = query.where(Booking.slot_date >= date_from)
+    if date_to is not None:
+        query = query.where(Booking.slot_date <= date_to)
+    if venue_id is not None:
+        query = query.where(Booking.venue_id == venue_id)
+    if court_id is not None:
+        query = query.where(Booking.court_id == court_id)
+    if owner_id is not None:
+        query = query.where(Booking.owner_id == owner_id)
+    if user_id is not None:
+        query = query.where(Booking.user_id == user_id)
+    return _paginate_admin_bookings(db, query, page, page_size)
+
+
+@router.get("/admin/bookings/{booking_id}", response_model=AdminBookingResponse, tags=["admin"])
+def admin_get_booking(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+) -> Booking:
+    require_admin(principal)
+    booking = db.get(Booking, booking_id)
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    return booking
+
+
+@router.get("/admin/checkins", response_model=AdminBookingListResponse, tags=["admin"])
+def admin_list_checkins(
+    page: int = 1,
+    page_size: int = 25,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    venue_id: Optional[int] = Query(default=None, gt=0),
+    court_id: Optional[int] = Query(default=None, gt=0),
+    checked_in_by: Optional[int] = Query(default=None, gt=0),
+    booking_id: Optional[int] = Query(default=None, gt=0),
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(current_principal),
+) -> AdminBookingListResponse:
+    require_admin(principal)
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=422, detail="date_from must be before date_to")
+    query = select(Booking).where(Booking.checked_in_at.is_not(None))
+    if date_from is not None:
+        query = query.where(
+            Booking.checked_in_at >= datetime.combine(date_from, time.min, tzinfo=timezone.utc)
+        )
+    if date_to is not None:
+        query = query.where(
+            Booking.checked_in_at < datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=timezone.utc)
+        )
+    if venue_id is not None:
+        query = query.where(Booking.venue_id == venue_id)
+    if court_id is not None:
+        query = query.where(Booking.court_id == court_id)
+    if checked_in_by is not None:
+        query = query.where(Booking.checked_in_by == checked_in_by)
+    if booking_id is not None:
+        query = query.where(Booking.id == booking_id)
+    return _paginate_admin_bookings(db, query, page, page_size, order_by_checked_in=True)
 
 
 @router.get("/owner/bookings", response_model=list[OwnerBookingResponse], tags=["owner"])
