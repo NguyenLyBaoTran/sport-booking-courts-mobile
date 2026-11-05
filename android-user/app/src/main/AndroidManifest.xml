@@ -33,6 +33,10 @@
             android:exported="false" />
 
         <activity
+            android:name=".SelectDateTimeActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".PaymentActivity"
             android:exported="false" />
 
@@ -42,6 +46,10 @@
 
         <activity
             android:name=".BookingsActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ProfileActivity"
             android:exported="false" />
 
         <activity

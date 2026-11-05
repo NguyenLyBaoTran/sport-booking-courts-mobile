@@ -42,6 +42,13 @@ public class BookingRepository {
         api.getBooking(bookingId).enqueue(objectCallback(callback));
     }
 
+    public void cancelBooking(
+            int bookingId,
+            ApiCallback<JsonObject> callback
+    ) {
+        api.cancelBooking(bookingId).enqueue(objectCallback(callback));
+    }
+
     private Callback<JsonElement> arrayCallback(
             ApiCallback<JsonArray> callback
     ) {

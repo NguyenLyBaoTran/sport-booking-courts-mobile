@@ -63,7 +63,7 @@ public class PaymentRepository {
                     callback.onSuccess(array);
                 } else {
                     callback.onError(
-                            "Request failed. HTTP " + response.code()
+                            ApiUtils.getErrorMessage(response)
                     );
                 }
             }
@@ -91,7 +91,7 @@ public class PaymentRepository {
                     callback.onSuccess(response.body());
                 } else {
                     callback.onError(
-                            "Request failed. HTTP " + response.code()
+                            ApiUtils.getErrorMessage(response)
                     );
                 }
             }

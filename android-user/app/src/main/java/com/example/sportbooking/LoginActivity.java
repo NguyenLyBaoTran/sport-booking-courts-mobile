@@ -112,6 +112,12 @@ public class LoginActivity extends AppCompatActivity {
                             return;
                         }
 
+                        if (response.body().getUser() == null
+                                || !"USER".equals(response.body().getUser().getRole())) {
+                            showError("This account is not a Customer account.");
+                            return;
+                        }
+
                         TokenStore.saveToken(
                                 LoginActivity.this,
                                 token

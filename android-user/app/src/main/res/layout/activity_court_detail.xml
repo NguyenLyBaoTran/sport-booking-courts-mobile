@@ -281,46 +281,34 @@
                         android:contentDescription="Photo 3" />
                 </LinearLayout>
 
-                <!-- Date Selection -->
-                <TextView
+                <LinearLayout
+                    android:id="@+id/llSlotSelection"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="24dp"
-                    android:text="Select Date &amp; Time"
-                    android:textColor="@color/text_primary"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
+                    android:orientation="vertical"
+                    android:visibility="gone">
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="12dp"
-                    android:gravity="center_vertical">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Select Date &amp; Time"
+                        android:textColor="@color/text_primary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
 
-                    <EditText
-                        android:id="@+id/etDate"
-                        android:layout_width="0dp"
-                        android:layout_height="48dp"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="8dp"
-                        android:background="@drawable/bg_card"
-                        android:hint="YYYY-MM-DD"
-                        android:inputType="date"
-                        android:paddingStart="12dp"
-                        android:paddingEnd="12dp"
-                        android:textSize="14sp" />
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:scrollbars="none">
 
-                    <Button
-                        android:id="@+id/btnLoadSlots"
-                        android:layout_width="wrap_content"
-                        android:layout_height="48dp"
-                        android:backgroundTint="@color/primary"
-                        android:text="Check"
-                        android:textAllCaps="false"
-                        android:textColor="@color/surface" />
-
-                </LinearLayout>
+                        <LinearLayout
+                            android:id="@+id/llDateChips"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
 
                 <ProgressBar
                     android:id="@+id/progressBar"
@@ -344,10 +332,11 @@
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/rvTimeSlots"
                     android:layout_width="match_parent"
-                    android:layout_height="200dp"
+                    android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:nestedScrollingEnabled="false" />
 
+                </LinearLayout>
             </LinearLayout>
 
         </LinearLayout>

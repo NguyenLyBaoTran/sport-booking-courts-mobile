@@ -6,8 +6,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -16,6 +16,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.recyclerview.widget.GridLayoutManager;
 
 import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.BookingRepository;
@@ -26,6 +27,7 @@ import com.google.gson.JsonObject;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -41,14 +43,16 @@ public class CourtDetailActivity extends AppCompatActivity {
 
     private TextView tvName, tvDesc, tvDetailPrice, tvEmptySlots;
     private ImageView ivHero, ivPhoto1, ivPhoto2, ivPhoto3;
-    private EditText etDate;
-    private Button btnLoadSlots, btnBook;
+    private Button btnBook;
     private ProgressBar progressBar;
     private RecyclerView rvTimeSlots;
+    private LinearLayout llSlotSelection, llDateChips;
 
     private final List<JsonObject> slotList = new ArrayList<>();
     private TimeSlotAdapter slotAdapter;
     private Integer selectedTimeSlotId = null;
+    private String selectedDate;
+    private boolean slotSelectionVisible = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,11 +74,11 @@ public class CourtDetailActivity extends AppCompatActivity {
         ivPhoto1 = findViewById(R.id.ivDetailPhoto1);
         ivPhoto2 = findViewById(R.id.ivDetailPhoto2);
         ivPhoto3 = findViewById(R.id.ivDetailPhoto3);
-        etDate = findViewById(R.id.etDate);
-        btnLoadSlots = findViewById(R.id.btnLoadSlots);
         btnBook = findViewById(R.id.btnBook);
         progressBar = findViewById(R.id.progressBar);
         rvTimeSlots = findViewById(R.id.rvTimeSlots);
+        llSlotSelection = findViewById(R.id.llSlotSelection);
+        llDateChips = findViewById(R.id.llDateChips);
         findViewById(R.id.ivBack).setOnClickListener(v -> finish());
 
         tvName.setText(courtName != null ? courtName : "Court Details");
@@ -92,21 +96,26 @@ public class CourtDetailActivity extends AppCompatActivity {
         ivPhoto2.setImageResource(SportImageMapper.getSecondaryImage(initialCourt, courtName));
         ivPhoto3.setImageResource(primaryImage);
 
-        String today = new SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(new Date());
-        etDate.setText(today);
-
-        rvTimeSlots.setLayoutManager(new LinearLayoutManager(this));
+        rvTimeSlots.setLayoutManager(new GridLayoutManager(this, 4));
         slotAdapter = new TimeSlotAdapter(slotList, slot -> {
             selectedTimeSlotId = slot.has("id") ? slot.get("id").getAsInt() : null;
-            btnBook.setEnabled(selectedTimeSlotId != null);
+            if (slotSelectionVisible) {
+                btnBook.setEnabled(selectedTimeSlotId != null);
+            }
         });
         rvTimeSlots.setAdapter(slotAdapter);
 
-        btnLoadSlots.setOnClickListener(v -> loadTimeSlots());
-        btnBook.setOnClickListener(v -> bookSelectedSlot());
+        btnBook.setEnabled(true);
+        btnBook.setText("Book This Court");
+        btnBook.setOnClickListener(v -> {
+            Intent intent = new Intent(CourtDetailActivity.this, SelectDateTimeActivity.class);
+            intent.putExtra("court_id", courtId);
+            intent.putExtra("court_name", tvName.getText().toString());
+            intent.putExtra("court_desc", tvDesc.getText().toString());
+            startActivity(intent);
+        });
 
         loadCourtDetail();
-        loadTimeSlots();
     }
 
     private void loadCourtDetail() {
@@ -136,13 +145,78 @@ public class CourtDetailActivity extends AppCompatActivity {
 
             @Override
             public void onError(String error) {
-                Toast.makeText(CourtDetailActivity.this, "Could not refresh court details: " + error, Toast.LENGTH_LONG).show();
+                tvName.setText(courtName != null ? courtName : "Court Details");
+                tvDesc.setText(courtDesc != null && !courtDesc.isEmpty() ? courtDesc : "A spacious indoor badminton court with professional wooden flooring.");
+                tvDetailPrice.setText("150,000 VND/h");
             }
         });
     }
 
+    private void showSlotSelection() {
+        slotSelectionVisible = true;
+        llSlotSelection.setVisibility(View.VISIBLE);
+        btnBook.setText("Proceed to Book");
+        btnBook.setEnabled(false);
+        buildDateChips();
+    }
+
+    private void buildDateChips() {
+        llDateChips.removeAllViews();
+        Calendar calendar = Calendar.getInstance();
+        SimpleDateFormat apiDateFormat = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+        SimpleDateFormat dayFormat = new SimpleDateFormat("EEE", Locale.US);
+
+        for (int i = 0; i < 5; i++) {
+            Calendar date = (Calendar) calendar.clone();
+            date.add(Calendar.DAY_OF_YEAR, i);
+            String dateValue = apiDateFormat.format(date.getTime());
+
+            TextView chip = new TextView(this);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                    dpToPx(64), dpToPx(64)
+            );
+            params.setMargins(0, 0, dpToPx(8), 0);
+            chip.setLayoutParams(params);
+            chip.setGravity(android.view.Gravity.CENTER);
+            chip.setText(dayFormat.format(date.getTime()) + "\n" + date.get(Calendar.DAY_OF_MONTH));
+            chip.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+            chip.setTextSize(13f);
+            chip.setTextColor(0xFF24303F);
+            chip.setBackgroundResource(R.drawable.bg_card);
+
+            chip.setOnClickListener(v -> {
+                selectedDate = dateValue;
+                updateDateChipSelection();
+                loadTimeSlots();
+            });
+            chip.setTag(dateValue);
+            llDateChips.addView(chip);
+
+            if (i == 0) {
+                selectedDate = dateValue;
+            }
+        }
+
+        updateDateChipSelection();
+        loadTimeSlots();
+    }
+
+    private void updateDateChipSelection() {
+        for (int i = 0; i < llDateChips.getChildCount(); i++) {
+            TextView chip = (TextView) llDateChips.getChildAt(i);
+            boolean selected = selectedDate != null && selectedDate.equals(chip.getTag());
+            chip.setBackgroundResource(selected ? R.drawable.bg_card : R.drawable.bg_card);
+            chip.setBackgroundColor(selected ? 0xFF0C8B63 : 0xFFFFFFFF);
+            chip.setTextColor(selected ? 0xFFFFFFFF : 0xFF24303F);
+        }
+    }
+
+    private int dpToPx(int dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
     private void loadTimeSlots() {
-        String date = etDate.getText().toString().trim();
+        String date = selectedDate;
         if (date.isEmpty()) {
             Toast.makeText(this, "Please enter a date", Toast.LENGTH_SHORT).show();
             return;
@@ -216,7 +290,7 @@ public class CourtDetailActivity extends AppCompatActivity {
                 intent.putExtra("booking_id", bookingId);
                 intent.putExtra("total_amount", totalAmount);
                 intent.putExtra("court_name", tvName.getText().toString());
-                intent.putExtra("date", etDate.getText().toString());
+                intent.putExtra("date", selectedDate);
                 startActivity(intent);
                 finish();
             }

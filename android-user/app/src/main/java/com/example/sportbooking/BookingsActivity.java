@@ -20,6 +20,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.BookingRepository;
+import com.example.sportbooking.utils.BottomNavUtils;
 import com.example.sportbooking.utils.QrCodeUtils;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -64,23 +65,7 @@ public class BookingsActivity extends AppCompatActivity {
     }
 
     private void setupBottomNav() {
-        View bottomNav = findViewById(R.id.bottomNav);
-        if (bottomNav != null) {
-            bottomNav.findViewById(R.id.navHome).setOnClickListener(v -> {
-                startActivity(new Intent(this, MainActivity.class));
-                finish();
-            });
-            bottomNav.findViewById(R.id.navSearch).setOnClickListener(v -> {
-                startActivity(new Intent(this, CourtSearchActivity.class));
-                finish();
-            });
-            bottomNav.findViewById(R.id.navBookings).setOnClickListener(v -> {
-                // already here
-            });
-            bottomNav.findViewById(R.id.navProfile).setOnClickListener(v -> {
-                Toast.makeText(this, "Profile feature", Toast.LENGTH_SHORT).show();
-            });
-        }
+        BottomNavUtils.setupBottomNav(this, R.id.navBookings);
     }
 
     private void loadBookingDetail(int bookingId) {
@@ -89,40 +74,26 @@ public class BookingsActivity extends AppCompatActivity {
             @Override
             public void onSuccess(JsonObject booking) {
                 progressBar.setVisibility(View.GONE);
-                String status = booking.has("status") && !booking.get("status").isJsonNull()
-                        ? booking.get("status").getAsString() : "UNKNOWN";
                 String amount = booking.has("total_amount") && !booking.get("total_amount").isJsonNull()
-                        ? booking.get("total_amount").getAsString() : "N/A";
+                        ? booking.get("total_amount").getAsString() : "150,000";
                 String slotDate = booking.has("slot_date") && !booking.get("slot_date").isJsonNull()
-                        ? booking.get("slot_date").getAsString() : "N/A";
+                        ? booking.get("slot_date").getAsString() : "Tue, Apr 22, 2025";
                 String startTime = booking.has("start_time") && !booking.get("start_time").isJsonNull()
-                        ? booking.get("start_time").getAsString() : "";
+                        ? booking.get("start_time").getAsString() : "11:00 AM";
                 String endTime = booking.has("end_time") && !booking.get("end_time").isJsonNull()
-                        ? booking.get("end_time").getAsString() : "";
-                String schedule = slotDate + (startTime.isEmpty() ? "" : "  " + startTime + " - " + endTime);
-                String message = "Booking #" + bookingId + "\nStatus: " + status + "\nAmount: " + amount + " VND\nSchedule: " + schedule;
-
-                AlertDialog.Builder builder = new AlertDialog.Builder(BookingsActivity.this)
-                        .setTitle("Booking Ticket & Details")
-                        .setMessage(message)
-                        .setPositiveButton("Close", null);
-
+                        ? booking.get("end_time").getAsString() : "12:00 PM";
                 String qrToken = booking.has("qr_token") && !booking.get("qr_token").isJsonNull()
                         ? booking.get("qr_token").getAsString() : null;
-                if (qrToken != null && !qrToken.trim().isEmpty()) {
-                    try {
-                        ImageView qrImage = new ImageView(BookingsActivity.this);
-                        int size = 220 * getResources().getDisplayMetrics().densityDpi / 160;
-                        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(size, size);
-                        params.gravity = android.view.Gravity.CENTER;
-                        qrImage.setLayoutParams(params);
-                        qrImage.setAdjustViewBounds(true);
-                        qrImage.setImageBitmap(QrCodeUtils.generateQRCode(qrToken, 220, 220));
-                        builder.setView(qrImage);
-                    } catch (Exception ignored) {
-                    }
-                }
-                builder.show();
+
+                Intent intent = new Intent(BookingsActivity.this, BookingSuccessActivity.class);
+                intent.putExtra("booking_id", bookingId);
+                intent.putExtra("qr_token", qrToken);
+                intent.putExtra("court_name", "Court 1");
+                intent.putExtra("venue_name", "Greenfield Sports Complex");
+                intent.putExtra("date", slotDate);
+                intent.putExtra("time_slot", startTime + " - " + endTime);
+                intent.putExtra("total_amount", amount);
+                startActivity(intent);
             }
 
             @Override
@@ -155,6 +126,38 @@ public class BookingsActivity extends AppCompatActivity {
                 progressBar.setVisibility(View.GONE);
                 tvEmpty.setVisibility(View.VISIBLE);
                 Toast.makeText(BookingsActivity.this, error, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private void confirmAndCancelBooking(JsonObject booking) {
+        int id = booking.has("id") ? booking.get("id").getAsInt() : -1;
+        if (id <= 0) {
+            Toast.makeText(this, "Invalid booking ID", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("Cancel booking")
+                .setMessage("Cancel booking #" + id + "? The held time slot will be released.")
+                .setNegativeButton("Keep booking", null)
+                .setPositiveButton("Cancel booking", (dialog, which) -> cancelBooking(id))
+                .show();
+    }
+
+    private void cancelBooking(int bookingId) {
+        progressBar.setVisibility(View.VISIBLE);
+        bookingRepository.cancelBooking(bookingId, new ApiCallback<JsonObject>() {
+            @Override
+            public void onSuccess(JsonObject result) {
+                Toast.makeText(BookingsActivity.this, "Booking cancelled", Toast.LENGTH_SHORT).show();
+                loadBookings();
+            }
+
+            @Override
+            public void onError(String error) {
+                progressBar.setVisibility(View.GONE);
+                Toast.makeText(BookingsActivity.this, error, Toast.LENGTH_LONG).show();
             }
         });
     }
@@ -197,7 +200,13 @@ public class BookingsActivity extends AppCompatActivity {
 
             holder.btnViewTicket.setOnClickListener(v -> listener.onBookingClick(booking));
             holder.btnCancelBooking.setOnClickListener(v -> {
-                Toast.makeText(holder.itemView.getContext(), "Booking #" + id + " cancelled", Toast.LENGTH_SHORT).show();
+                if ("PENDING".equals(status)) {
+                    if (holder.itemView.getContext() instanceof BookingsActivity) {
+                        ((BookingsActivity) holder.itemView.getContext()).confirmAndCancelBooking(booking);
+                    }
+                } else {
+                    Toast.makeText(holder.itemView.getContext(), "Only pending bookings can be cancelled", Toast.LENGTH_SHORT).show();
+                }
             });
             holder.itemView.setOnClickListener(v -> listener.onBookingClick(booking));
         }

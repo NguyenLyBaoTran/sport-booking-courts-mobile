@@ -195,6 +195,7 @@
                 android:orientation="vertical">
 
                 <RadioButton
+                    android:id="@+id/rbCard"
                     android:layout_width="match_parent"
                     android:layout_height="56dp"
                     android:background="@drawable/bg_card"
@@ -207,9 +208,11 @@
                     android:layout_marginBottom="8dp" />
 
                 <RadioButton
+                    android:id="@+id/rbMomo"
                     android:layout_width="match_parent"
                     android:layout_height="56dp"
                     android:background="@drawable/bg_card"
+                    android:checked="false"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
                     android:text="Momo"
@@ -218,9 +221,11 @@
                     android:layout_marginBottom="8dp" />
 
                 <RadioButton
+                    android:id="@+id/rbZaloPay"
                     android:layout_width="match_parent"
                     android:layout_height="56dp"
                     android:background="@drawable/bg_card"
+                    android:checked="false"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
                     android:text="ZaloPay"
@@ -229,9 +234,11 @@
                     android:layout_marginBottom="8dp" />
 
                 <RadioButton
+                    android:id="@+id/rbBank"
                     android:layout_width="match_parent"
                     android:layout_height="56dp"
                     android:background="@drawable/bg_card"
+                    android:checked="false"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
                     android:text="Bank Transfer"

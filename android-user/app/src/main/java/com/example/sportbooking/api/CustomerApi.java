@@ -56,6 +56,11 @@ public interface CustomerApi {
             @Path("id") int id
     );
 
+    @POST("api/v1/bookings/{booking_id}/cancel")
+    Call<JsonObject> cancelBooking(
+            @Path("booking_id") int bookingId
+    );
+
     @POST("api/v1/payments/process")
     Call<JsonObject> processPayment(
             @Body JsonObject request,

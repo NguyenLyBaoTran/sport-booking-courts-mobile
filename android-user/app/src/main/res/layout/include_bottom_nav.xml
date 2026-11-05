@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="64dp"
     android:background="@color/surface"
@@ -21,19 +22,21 @@
         android:orientation="vertical">
 
         <ImageView
+            android:id="@+id/ivHomeIcon"
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:src="@drawable/ic_home"
+            app:tint="@color/text_secondary"
             android:contentDescription="Home" />
 
         <TextView
+            android:id="@+id/tvHomeText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:text="Home"
-            android:textColor="@color/primary"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
     </LinearLayout>
 
     <LinearLayout
@@ -47,12 +50,15 @@
         android:orientation="vertical">
 
         <ImageView
+            android:id="@+id/ivSearchIcon"
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:src="@drawable/ic_search"
+            app:tint="@color/text_secondary"
             android:contentDescription="Search" />
 
         <TextView
+            android:id="@+id/tvSearchText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
@@ -72,12 +78,15 @@
         android:orientation="vertical">
 
         <ImageView
+            android:id="@+id/ivBookingsIcon"
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:src="@drawable/ic_calendar"
+            app:tint="@color/text_secondary"
             android:contentDescription="Bookings" />
 
         <TextView
+            android:id="@+id/tvBookingsText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
@@ -97,12 +106,15 @@
         android:orientation="vertical">
 
         <ImageView
+            android:id="@+id/ivProfileIcon"
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:src="@drawable/ic_profile"
+            app:tint="@color/text_secondary"
             android:contentDescription="Profile" />
 
         <TextView
+            android:id="@+id/tvProfileText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
