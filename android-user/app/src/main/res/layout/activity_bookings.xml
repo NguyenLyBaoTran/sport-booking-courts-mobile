@@ -30,14 +30,6 @@
                 android:textColor="@color/text_primary"
                 android:textSize="22sp"
                 android:textStyle="bold" />
-
-            <ImageView
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@drawable/bg_card"
-                android:padding="8dp"
-                android:src="@drawable/ic_more"
-                android:contentDescription="More" />
         </LinearLayout>
 
         <!-- Tabs -->
@@ -48,13 +40,17 @@
             android:layout_marginBottom="16dp">
 
             <LinearLayout
+                android:id="@+id/tabUpcoming"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:clickable="true"
+                android:focusable="true"
                 android:gravity="center"
                 android:orientation="vertical"
                 android:paddingBottom="8dp">
                 <TextView
+                    android:id="@+id/tvUpcoming"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Upcoming"
@@ -62,6 +58,7 @@
                     android:textSize="15sp"
                     android:textStyle="bold" />
                 <View
+                    android:id="@+id/indicatorUpcoming"
                     android:layout_width="match_parent"
                     android:layout_height="3dp"
                     android:layout_marginTop="6dp"
@@ -69,13 +66,17 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/tabPast"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:clickable="true"
+                android:focusable="true"
                 android:gravity="center"
                 android:orientation="vertical"
                 android:paddingBottom="8dp">
                 <TextView
+                    android:id="@+id/tvPast"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Past"
@@ -83,6 +84,7 @@
                     android:textSize="15sp"
                     android:textStyle="bold" />
                 <View
+                    android:id="@+id/indicatorPast"
                     android:layout_width="match_parent"
                     android:layout_height="3dp"
                     android:layout_marginTop="6dp"

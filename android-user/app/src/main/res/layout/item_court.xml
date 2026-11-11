@@ -2,17 +2,19 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="16dp"
+    android:layout_marginBottom="14dp"
     android:background="@drawable/bg_card"
     android:clickable="true"
+    android:clipToOutline="true"
+    android:foreground="?attr/selectableItemBackground"
     android:focusable="true"
     android:orientation="vertical"
-    android:elevation="3dp">
+    android:elevation="2dp">
 
     <!-- Court Image Banner with Price Badge -->
     <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="140dp">
+        android:layout_height="164dp">
 
         <ImageView
             android:id="@+id/ivCourtImage"
@@ -27,12 +29,12 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_margin="12dp"
-            android:background="@color/primary"
-            android:paddingStart="10dp"
-            android:paddingTop="5dp"
-            android:paddingEnd="10dp"
-            android:paddingBottom="5dp"
-            android:text="120,000 VND/h"
+            android:background="@drawable/bg_price_badge"
+            android:paddingStart="12dp"
+            android:paddingTop="7dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="7dp"
+            android:text=""
             android:textColor="@color/surface"
             android:textSize="12sp"
             android:textStyle="bold" />
@@ -54,25 +56,13 @@
 
             <TextView
                 android:id="@+id/tvCourtName"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="2"
                 android:textColor="@color/text_primary"
                 android:textSize="18sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tvCourtTag"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/bg_pill_light"
-                android:paddingStart="8dp"
-                android:paddingTop="3dp"
-                android:paddingEnd="8dp"
-                android:paddingBottom="3dp"
-                android:text="Standard"
-                android:textColor="@color/primary"
-                android:textSize="11sp"
                 android:textStyle="bold" />
 
             <View
@@ -84,25 +74,38 @@
                 android:id="@+id/tvCourtStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_status_available"
+                android:paddingStart="10dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="6dp"
                 android:textColor="@color/primary"
                 android:textSize="13sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
         <TextView
-            android:id="@+id/tvCourtDescription"
+            android:id="@+id/tvCourtLocation"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="📍 Indoor • Wooden Floor"
+            android:layout_marginTop="4dp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:text=""
+            android:visibility="gone"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
         <TextView
+            android:id="@+id/tvCourtDescription"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="2dp"
-            android:text="👥 Max 8 players"
+            android:layout_marginTop="4dp"
+            android:maxLines="3"
+            android:ellipsize="end"
+            android:text=""
+            android:visibility="gone"
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 

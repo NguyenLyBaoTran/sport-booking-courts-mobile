@@ -3,6 +3,7 @@ package com.example.sportbooking;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.Editable;
+import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -27,8 +28,12 @@ import com.example.sportbooking.utils.SportImageMapper;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
+import java.text.NumberFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 public class CourtSearchActivity extends AppCompatActivity {
 
@@ -40,6 +45,7 @@ public class CourtSearchActivity extends AppCompatActivity {
     private EditText etSearch;
 
     private final List<VenueItem> venueList = new ArrayList<>();
+    private final Map<Integer, VenueItem> venueMap = new HashMap<>();
     private final List<SportItem> sportList = new ArrayList<>();
     private final List<JsonObject> allCourts = new ArrayList<>();
     private final List<JsonObject> courtList = new ArrayList<>();
@@ -65,15 +71,21 @@ public class CourtSearchActivity extends AppCompatActivity {
 
         TextView tvTitle = findViewById(R.id.tvTitle);
         String targetSport = getIntent().getStringExtra("sport_name");
-        if (tvTitle != null && targetSport != null) {
-            tvTitle.setText(targetSport + " Courts");
+        if (tvTitle != null) {
+            tvTitle.setText(targetSport != null ? targetSport + " Courts" : "Courts Search");
         }
 
-        findViewById(R.id.ivBack).setOnClickListener(v -> finish());
-        BottomNavUtils.setupBottomNav(this, R.id.navSearch);
+        boolean isFromSportCard = getIntent().getBooleanExtra("from_sport_card", false);
+        if (isFromSportCard) {
+            int initialSportId = getIntent().getIntExtra("sport_id", -1);
+            if (initialSportId > 0) {
+                selectedSportId = initialSportId;
+            }
+        }
+        BottomNavUtils.setupBottomNav(this, isFromSportCard ? 0 : R.id.navSearch);
 
         rvCourts.setLayoutManager(new LinearLayoutManager(this));
-        courtAdapter = new CourtAdapter(courtList, court -> {
+        courtAdapter = new CourtAdapter(courtList, venueMap, court -> {
             Intent intent = new Intent(this, CourtDetailActivity.class);
             intent.putExtra("court_id", court.get("id").getAsInt());
             intent.putExtra("court_name", court.has("name") ? court.get("name").getAsString() : "Court");
@@ -107,15 +119,30 @@ public class CourtSearchActivity extends AppCompatActivity {
     private void filterCourts(String query) {
         courtList.clear();
         String q = query.toLowerCase().trim();
-        if (q.isEmpty()) {
-            courtList.addAll(allCourts);
-        } else {
-            for (JsonObject court : allCourts) {
-                String name = court.has("name") && !court.get("name").isJsonNull() ? court.get("name").getAsString().toLowerCase() : "";
-                String desc = court.has("description") && !court.get("description").isJsonNull() ? court.get("description").getAsString().toLowerCase() : "";
-                if (name.contains(q) || desc.contains(q)) {
-                    courtList.add(court);
-                }
+        for (JsonObject court : allCourts) {
+            int venueId = court.has("venue_id") && !court.get("venue_id").isJsonNull()
+                    ? court.get("venue_id").getAsInt() : -1;
+            int sportId = court.has("sport_id") && !court.get("sport_id").isJsonNull()
+                    ? court.get("sport_id").getAsInt() : -1;
+            if (selectedVenueId != null && venueId != selectedVenueId) {
+                continue;
+            }
+            if (selectedSportId != null && sportId != selectedSportId) {
+                continue;
+            }
+
+            String name = court.has("name") && !court.get("name").isJsonNull()
+                    ? court.get("name").getAsString().toLowerCase() : "";
+            String desc = court.has("description") && !court.get("description").isJsonNull()
+                    ? court.get("description").getAsString().toLowerCase() : "";
+            String venueInfo = "";
+            VenueItem venue = venueMap.get(venueId);
+            if (venue != null) {
+                venueInfo = (venue.name + " " + venue.address).toLowerCase();
+            }
+
+            if (q.isEmpty() || name.contains(q) || desc.contains(q) || venueInfo.contains(q)) {
+                courtList.add(court);
             }
         }
         courtAdapter.notifyDataSetChanged();
@@ -126,50 +153,56 @@ public class CourtSearchActivity extends AppCompatActivity {
         spinnerVenues.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (position < 0 || position >= venueList.size()) {
-                    return;
+                if (position <= 0 || position >= venueList.size()) {
+                    selectedVenueId = null;
+                } else {
+                    selectedVenueId = venueList.get(position).id;
                 }
-                VenueItem item = venueList.get(position);
-                selectedVenueId = item.id;
-                searchCourts();
+                filterCourts(etSearch != null ? etSearch.getText().toString() : "");
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> parent) {
+                selectedVenueId = null;
             }
         });
 
         spinnerSports.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (position < 0 || position >= sportList.size()) {
-                    return;
+                if (position <= 0 || position >= sportList.size()) {
+                    selectedSportId = null;
+                } else {
+                    selectedSportId = sportList.get(position).id;
                 }
-                SportItem item = sportList.get(position);
-                selectedSportId = item.id;
-                searchCourts();
+                filterCourts(etSearch != null ? etSearch.getText().toString() : "");
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> parent) {
+                selectedSportId = null;
             }
         });
     }
 
     private void loadFilters() {
         venueList.clear();
-        venueList.add(new VenueItem(null, "All Venues"));
+        venueList.add(new VenueItem(null, "All Venues", ""));
         sportList.clear();
         sportList.add(new SportItem(null, "All Sports"));
 
         courtRepository.getVenues(new ApiCallback<JsonArray>() {
             @Override
             public void onSuccess(JsonArray result) {
+                venueMap.clear();
                 for (int i = 0; i < result.size(); i++) {
                     JsonObject obj = result.get(i).getAsJsonObject();
                     int id = obj.get("id").getAsInt();
                     String name = obj.has("name") ? obj.get("name").getAsString() : "Venue " + id;
-                    venueList.add(new VenueItem(id, name));
+                    String address = obj.has("address") && !obj.get("address").isJsonNull() ? obj.get("address").getAsString() : "";
+                    VenueItem item = new VenueItem(id, name, address);
+                    venueList.add(item);
+                    venueMap.put(id, item);
                 }
                 updateVenueSpinner();
             }
@@ -223,6 +256,14 @@ public class CourtSearchActivity extends AppCompatActivity {
     }
 
     private void applyInitialSportFilter() {
+        boolean isFromSportCard = getIntent().getBooleanExtra("from_sport_card", false);
+        if (!isFromSportCard) {
+            selectedSportId = null;
+            selectedVenueId = null;
+            searchCourts();
+            return;
+        }
+
         String targetSport = getIntent().getStringExtra("sport_name");
         int targetSportId = getIntent().getIntExtra("sport_id", -1);
         if (sportList.isEmpty()) {
@@ -268,7 +309,7 @@ public class CourtSearchActivity extends AppCompatActivity {
         courtList.clear();
         courtAdapter.notifyDataSetChanged();
 
-        courtRepository.searchCourts(selectedVenueId, selectedSportId, new ApiCallback<JsonArray>() {
+        courtRepository.searchCourts(new ApiCallback<JsonArray>() {
             @Override
             public void onSuccess(JsonArray result) {
                 if (requestId != searchRequestId) {
@@ -299,9 +340,11 @@ public class CourtSearchActivity extends AppCompatActivity {
     public static class VenueItem {
         public Integer id;
         public String name;
-        public VenueItem(Integer id, String name) {
+        public String address;
+        public VenueItem(Integer id, String name, String address) {
             this.id = id;
             this.name = name;
+            this.address = address;
         }
     }
 
@@ -316,14 +359,16 @@ public class CourtSearchActivity extends AppCompatActivity {
 
     public static class CourtAdapter extends RecyclerView.Adapter<CourtAdapter.ViewHolder> {
         private final List<JsonObject> items;
+        private final Map<Integer, VenueItem> venueMap;
         private final OnCourtClickListener listener;
 
         public interface OnCourtClickListener {
             void onCourtClick(JsonObject court);
         }
 
-        public CourtAdapter(List<JsonObject> items, OnCourtClickListener listener) {
+        public CourtAdapter(List<JsonObject> items, Map<Integer, VenueItem> venueMap, OnCourtClickListener listener) {
             this.items = items;
+            this.venueMap = venueMap;
             this.listener = listener;
         }
 
@@ -338,19 +383,57 @@ public class CourtSearchActivity extends AppCompatActivity {
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             JsonObject court = items.get(position);
             String name = court.has("name") ? court.get("name").getAsString() : "Court";
-            String desc = court.has("description") && !court.get("description").isJsonNull() ? court.get("description").getAsString() : "No description";
+            String desc = court.has("description") && !court.get("description").isJsonNull() ? court.get("description").getAsString() : "";
             boolean active = !court.has("is_active") || court.get("is_active").getAsBoolean();
 
             holder.tvName.setText(name);
-            holder.tvDesc.setText(desc.isEmpty() ? "No description" : desc);
-            String statusText = active ? "● Available" : "● Busy";
+
+            if (court.has("venue_id") && !court.get("venue_id").isJsonNull()) {
+                int venueId = court.get("venue_id").getAsInt();
+                VenueItem venue = venueMap.get(venueId);
+                if (venue != null && venue.name != null) {
+                    String loc = venue.name + (!TextUtils.isEmpty(venue.address) ? " • " + venue.address : "");
+                    holder.tvLocation.setText(loc);
+                    holder.tvLocation.setVisibility(View.VISIBLE);
+                } else {
+                    holder.tvLocation.setVisibility(View.GONE);
+                }
+            } else {
+                holder.tvLocation.setVisibility(View.GONE);
+            }
+
+            if (!desc.trim().isEmpty()) {
+                holder.tvDesc.setText(desc);
+                holder.tvDesc.setVisibility(View.VISIBLE);
+            } else {
+                holder.tvDesc.setVisibility(View.GONE);
+            }
+
+            String statusText = active ? "● Active" : "● Inactive";
             holder.tvStatus.setText(statusText);
             holder.tvStatus.setTextColor(active ? 0xFF0C8B63 : 0xFFC62828);
-            String price = court.has("price_per_hour") && !court.get("price_per_hour").isJsonNull()
+            holder.tvStatus.setBackgroundResource(active
+                    ? R.drawable.bg_status_available
+                    : R.drawable.bg_status_inactive);
+
+            String rawPrice = court.has("price_per_hour") && !court.get("price_per_hour").isJsonNull()
                     ? court.get("price_per_hour").getAsString() : null;
-            holder.tvPrice.setText(price == null || price.isEmpty() ? "" : price + " VND/h");
+            holder.tvPrice.setText(formatPrice(rawPrice));
+
             holder.ivCourtImage.setImageResource(SportImageMapper.getPrimaryImage(court));
             holder.itemView.setOnClickListener(v -> listener.onCourtClick(court));
+        }
+
+        private String formatPrice(String raw) {
+            if (raw == null || raw.trim().isEmpty()) return "";
+            try {
+                double val = Double.parseDouble(raw);
+                if (val < 1000) val = val * 1000;
+                NumberFormat nf = NumberFormat.getInstance(Locale.getDefault());
+                return nf.format(val) + " VND/h";
+            } catch (Exception e) {
+                return raw + " VND/h";
+            }
         }
 
         @Override
@@ -359,11 +442,13 @@ public class CourtSearchActivity extends AppCompatActivity {
         }
 
         public static class ViewHolder extends RecyclerView.ViewHolder {
-            public TextView tvName, tvDesc, tvStatus, tvPrice;
+            public TextView tvName, tvLocation, tvDesc, tvStatus, tvPrice;
             public ImageView ivCourtImage;
+
             public ViewHolder(View itemView) {
                 super(itemView);
                 tvName = itemView.findViewById(R.id.tvCourtName);
+                tvLocation = itemView.findViewById(R.id.tvCourtLocation);
                 tvDesc = itemView.findViewById(R.id.tvCourtDescription);
                 tvStatus = itemView.findViewById(R.id.tvCourtStatus);
                 tvPrice = itemView.findViewById(R.id.tvCourtPrice);

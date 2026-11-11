@@ -37,11 +37,11 @@ public class CourtRepository {
     }
 
     public void searchCourts(
-            Integer venueId,
-            Integer sportId,
             ApiCallback<JsonArray> callback
     ) {
-        api.getCourts(venueId, sportId, null)
+        // Fetch the complete catalogue once per search refresh. Venue and sport
+        // filters are applied to this complete list in CourtSearchActivity.
+        api.getCourts(null, null, null)
                 .enqueue(arrayCallback(callback));
     }
 

@@ -4,7 +4,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.view.View;
 import android.widget.ImageView;
-import android.widget.TextView;
 
 import com.example.sportbooking.BookingsActivity;
 import com.example.sportbooking.CourtSearchActivity;
@@ -28,10 +27,10 @@ public final class BottomNavUtils {
         int greenColor = 0xFF0C8B63; // @color/primary
         int grayColor = 0xFF71829C;  // @color/text_secondary
 
-        setTabState(bottomNav, R.id.ivHomeIcon, R.id.tvHomeText, activeTabId == R.id.navHome, greenColor, grayColor);
-        setTabState(bottomNav, R.id.ivSearchIcon, R.id.tvSearchText, activeTabId == R.id.navSearch, greenColor, grayColor);
-        setTabState(bottomNav, R.id.ivBookingsIcon, R.id.tvBookingsText, activeTabId == R.id.navBookings, greenColor, grayColor);
-        setTabState(bottomNav, R.id.ivProfileIcon, R.id.tvProfileText, activeTabId == R.id.navProfile, greenColor, grayColor);
+        setTabState(bottomNav, R.id.ivHomeIcon, activeTabId == R.id.navHome, greenColor, grayColor);
+        setTabState(bottomNav, R.id.ivSearchIcon, activeTabId == R.id.navSearch, greenColor, grayColor);
+        setTabState(bottomNav, R.id.ivBookingsIcon, activeTabId == R.id.navBookings, greenColor, grayColor);
+        setTabState(bottomNav, R.id.ivProfileIcon, activeTabId == R.id.navProfile, greenColor, grayColor);
 
         if (navHome != null && activeTabId != R.id.navHome) {
             navHome.setOnClickListener(v -> {
@@ -70,15 +69,10 @@ public final class BottomNavUtils {
         }
     }
 
-    private static void setTabState(View parent, int iconId, int textId, boolean active, int green, int gray) {
+    private static void setTabState(View parent, int iconId, boolean active, int green, int gray) {
         ImageView icon = parent.findViewById(iconId);
-        TextView text = parent.findViewById(textId);
         if (icon != null) {
             icon.setColorFilter(active ? green : gray);
-        }
-        if (text != null) {
-            text.setTextColor(active ? green : gray);
-            text.getPaint().setFakeBoldText(active);
         }
     }
 }

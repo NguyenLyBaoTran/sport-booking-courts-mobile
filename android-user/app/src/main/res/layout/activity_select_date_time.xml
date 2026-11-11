@@ -45,14 +45,6 @@
                     android:textColor="@color/text_primary"
                     android:textSize="20sp"
                     android:textStyle="bold" />
-
-                <ImageView
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/bg_card"
-                    android:padding="8dp"
-                    android:src="@drawable/ic_more"
-                    android:contentDescription="More" />
             </LinearLayout>
 
             <!-- Select Date Section Header with Calendar Button -->

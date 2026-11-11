@@ -21,6 +21,7 @@ import com.example.sportbooking.api.AuthApi;
 import com.example.sportbooking.api.model.UserResponse;
 import com.example.sportbooking.auth.TokenStore;
 import com.example.sportbooking.utils.BottomNavUtils;
+import com.example.sportbooking.utils.SportImageMapper;
 import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.CourtRepository;
 import com.google.gson.JsonArray;
@@ -114,6 +115,13 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(new Intent(this, CourtSearchActivity.class))
         );
 
+        View layoutMainSearch = findViewById(R.id.layoutMainSearch);
+        if (layoutMainSearch != null) {
+            layoutMainSearch.setOnClickListener(v ->
+                    startActivity(new Intent(this, CourtSearchActivity.class))
+            );
+        }
+
         btnMyBookings.setOnClickListener(v ->
                 startActivity(new Intent(this, BookingsActivity.class))
         );
@@ -144,6 +152,7 @@ public class MainActivity extends AppCompatActivity {
             if (sport.has("name") && !sport.get("name").isJsonNull()) {
                 intent.putExtra("sport_name", sport.get("name").getAsString());
             }
+            intent.putExtra("from_sport_card", true);
             startActivity(intent);
         });
         recyclerView.setAdapter(adapter);
@@ -199,6 +208,7 @@ public class MainActivity extends AppCompatActivity {
                     ? sport.get("name").getAsString()
                     : "Sport";
             holder.name.setText(name);
+            holder.ivSport.setImageResource(SportImageMapper.getSportIcon(name));
             holder.itemView.setOnClickListener(v -> listener.onSportClick(sport));
         }
 
@@ -209,10 +219,12 @@ public class MainActivity extends AppCompatActivity {
 
         static class ViewHolder extends RecyclerView.ViewHolder {
             final TextView name;
+            final ImageView ivSport;
 
             ViewHolder(@NonNull View itemView) {
                 super(itemView);
                 name = itemView.findViewById(R.id.tvSportName);
+                ivSport = itemView.findViewById(R.id.ivSport);
             }
         }
     }

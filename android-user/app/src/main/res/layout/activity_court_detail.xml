@@ -20,7 +20,7 @@
             <!-- Hero Image Header with Back Button -->
             <FrameLayout
                 android:layout_width="match_parent"
-                android:layout_height="240dp">
+                android:layout_height="260dp">
 
                 <ImageView
                     android:id="@+id/ivDetailHero"
@@ -37,12 +37,12 @@
 
                 <ImageView
                     android:id="@+id/ivBack"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
                     android:layout_marginStart="16dp"
                     android:layout_marginTop="16dp"
                     android:background="@drawable/bg_card"
-                    android:padding="8dp"
+                    android:padding="10dp"
                     android:src="@drawable/ic_back"
                     android:contentDescription="Back" />
 
@@ -54,9 +54,9 @@
                 android:layout_height="wrap_content"
                 android:background="@drawable/bg_login_card"
                 android:orientation="vertical"
-                android:padding="20dp"
-                android:layout_marginTop="-20dp"
-                android:elevation="4dp">
+                android:padding="24dp"
+                android:layout_marginTop="-24dp"
+                android:elevation="6dp">
 
                 <!-- Badges Row -->
                 <LinearLayout
@@ -67,14 +67,15 @@
                     android:layout_marginBottom="12dp">
 
                     <TextView
+                        android:id="@+id/tvDetailTag"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:background="@drawable/bg_pill_light"
-                        android:paddingStart="10dp"
-                        android:paddingTop="4dp"
-                        android:paddingEnd="10dp"
-                        android:paddingBottom="4dp"
-                        android:text="PREMIUM COURT"
+                        android:paddingStart="12dp"
+                        android:paddingTop="5dp"
+                        android:paddingEnd="12dp"
+                        android:paddingBottom="5dp"
+                        android:text="COURT"
                         android:textColor="@color/primary"
                         android:textSize="11sp"
                         android:textStyle="bold" />
@@ -85,6 +86,7 @@
                         android:layout_weight="1" />
 
                     <TextView
+                        android:id="@+id/tvDetailStatus"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="● Available"
@@ -97,113 +99,32 @@
                     android:id="@+id/tvDetailName"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="2"
                     android:textColor="@color/text_primary"
-                    android:textSize="22sp"
+                    android:textSize="24sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:id="@+id/tvDetailLocation"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="Greenfield Sports Complex, Building B"
+                    android:layout_marginTop="6dp"
+                    android:text=""
+                    android:visibility="gone"
                     android:textColor="@color/text_secondary"
                     android:textSize="14sp" />
 
-                <!-- Feature Chips Row -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:baselineAligned="false"
-                    android:orientation="horizontal">
-
-                    <!-- Feature 1 -->
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="6dp"
-                        android:background="@drawable/bg_card"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:padding="10dp">
-                        <ImageView
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
-                            android:layout_marginEnd="6dp"
-                            android:src="@drawable/ic_wooden"
-                            android:contentDescription="Feature" />
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Wooden\nFloor"
-                            android:textColor="@color/text_primary"
-                            android:textSize="11sp"
-                            android:textStyle="bold" />
-                    </LinearLayout>
-
-                    <!-- Feature 2 -->
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="6dp"
-                        android:layout_marginEnd="6dp"
-                        android:background="@drawable/bg_card"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:padding="10dp">
-                        <ImageView
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
-                            android:layout_marginEnd="6dp"
-                            android:src="@drawable/ic_ac"
-                            android:contentDescription="Feature" />
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Indoor\nAC"
-                            android:textColor="@color/text_primary"
-                            android:textSize="11sp"
-                            android:textStyle="bold" />
-                    </LinearLayout>
-
-                    <!-- Feature 3 -->
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginStart="6dp"
-                        android:background="@drawable/bg_card"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:padding="10dp">
-                        <ImageView
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
-                            android:layout_marginEnd="6dp"
-                            android:src="@drawable/ic_sun"
-                            android:contentDescription="Feature" />
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Good\nLighting"
-                            android:textColor="@color/text_primary"
-                            android:textSize="11sp"
-                            android:textStyle="bold" />
-                    </LinearLayout>
-
-                </LinearLayout>
-
                 <!-- About this court -->
                 <TextView
+                    android:id="@+id/tvAboutHeader"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="20dp"
                     android:text="About this court"
+                    android:visibility="gone"
                     android:textColor="@color/text_primary"
-                    android:textSize="16sp"
+                    android:textSize="17sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -211,39 +132,25 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
+                    android:visibility="gone"
                     android:textColor="@color/text_secondary"
-                    android:textSize="14sp" />
+                    android:textSize="14sp"
+                    android:lineSpacingExtra="4dp" />
 
                 <!-- Photos Section -->
-                <LinearLayout
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Photos"
-                        android:textColor="@color/text_primary"
-                        android:textSize="16sp"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="See All"
-                        android:textColor="@color/primary"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
-                </LinearLayout>
+                    android:layout_marginTop="24dp"
+                    android:text="Photos"
+                    android:textColor="@color/text_primary"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="80dp"
-                    android:layout_marginTop="10dp"
+                    android:layout_height="88dp"
+                    android:layout_marginTop="12dp"
                     android:orientation="horizontal">
 
                     <ImageView
@@ -251,7 +158,7 @@
                         android:layout_width="0dp"
                         android:layout_height="match_parent"
                         android:layout_weight="1"
-                        android:layout_marginEnd="6dp"
+                        android:layout_marginEnd="8dp"
                         android:scaleType="centerCrop"
                         android:background="@drawable/bg_card"
                         android:src="@drawable/tennis_hero"
@@ -262,8 +169,8 @@
                         android:layout_width="0dp"
                         android:layout_height="match_parent"
                         android:layout_weight="1"
-                        android:layout_marginStart="6dp"
-                        android:layout_marginEnd="6dp"
+                        android:layout_marginStart="4dp"
+                        android:layout_marginEnd="4dp"
                         android:scaleType="centerCrop"
                         android:background="@drawable/bg_card"
                         android:src="@drawable/tennis_hero"
@@ -274,7 +181,7 @@
                         android:layout_width="0dp"
                         android:layout_height="match_parent"
                         android:layout_weight="1"
-                        android:layout_marginStart="6dp"
+                        android:layout_marginStart="8dp"
                         android:scaleType="centerCrop"
                         android:background="@drawable/bg_card"
                         android:src="@drawable/tennis_hero"
@@ -285,7 +192,7 @@
                     android:id="@+id/llSlotSelection"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
+                    android:layout_marginTop="28dp"
                     android:orientation="vertical"
                     android:visibility="gone">
 
@@ -294,7 +201,7 @@
                         android:layout_height="wrap_content"
                         android:text="Select Date &amp; Time"
                         android:textColor="@color/text_primary"
-                        android:textSize="16sp"
+                        android:textSize="17sp"
                         android:textStyle="bold" />
 
                     <HorizontalScrollView
@@ -345,13 +252,13 @@
     <!-- Bottom Bar with Price & Book Button -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="72dp"
+        android:layout_height="64dp"
         android:background="@color/surface"
-        android:elevation="8dp"
+        android:elevation="12dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="20dp"
-        android:paddingEnd="20dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
 
         <LinearLayout
             android:layout_width="0dp"
@@ -364,7 +271,7 @@
                 android:layout_height="wrap_content"
                 android:text="Price starting from"
                 android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
 
             <TextView
                 android:id="@+id/tvDetailPrice"
@@ -372,22 +279,22 @@
                 android:layout_height="wrap_content"
                 android:text="N/A"
                 android:textColor="@color/primary"
-                android:textSize="18sp"
+                android:textSize="16sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
         <Button
             android:id="@+id/btnBook"
             android:layout_width="wrap_content"
-            android:layout_height="50dp"
+            android:layout_height="44dp"
             android:backgroundTint="@color/primary"
             android:enabled="false"
-            android:paddingStart="24dp"
-            android:paddingEnd="24dp"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
             android:text="Book This Court"
             android:textAllCaps="false"
             android:textColor="@color/surface"
-            android:textSize="15sp"
+            android:textSize="14sp"
             android:textStyle="bold" />
 
     </LinearLayout>

@@ -43,6 +43,12 @@ class LoginRequest(BaseModel):
         return str(value).strip().lower()
 
 
+class GoogleLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id_token: str = Field(min_length=1, max_length=8192)
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

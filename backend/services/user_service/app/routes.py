@@ -1,14 +1,20 @@
+import os
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 
 from app.database import get_db
 from app.models import User
 from app.schemas import (
     AdminUserStatusUpdate,
+    GoogleLoginRequest,
     LoginRequest,
     TokenResponse,
     UserCreate,
@@ -102,6 +108,88 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    settings = get_jwt_settings()
+    return TokenResponse(
+        access_token=create_access_token(user.id, user.role),
+        expires_in=settings.access_token_expire_minutes * 60,
+        user=UserResponse.model_validate(user),
+    )
+
+
+@router.post("/auth/google", tags=["auth"], response_model=TokenResponse)
+def google_login(
+    payload: GoogleLoginRequest,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
+    client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google sign-in is not configured",
+        )
+
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            payload.id_token,
+            google_requests.Request(),
+            client_id,
+        )
+    except Exception:
+        # Google token verification can fail for malformed tokens or when its
+        # signing-key endpoint is unavailable. Never trust client-supplied claims.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google ID token",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+
+    email = str(claims.get("email", "")).strip().lower()
+    google_sub = str(claims.get("sub", "")).strip()
+    if not email or not google_sub or claims.get("email_verified") is not True:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Google account email is not verified",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = db.scalar(select(User).where(User.google_sub == google_sub))
+    if user is None:
+        # Do not silently attach Google to a password account based only on
+        # matching email. Existing accounts must be linked through a proven flow.
+        existing_email_user = db.scalar(select(User).where(User.email == email))
+        if existing_email_user is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An account already uses this email; sign in with password first",
+            )
+
+        google_name = str(claims.get("name") or "").strip()
+        user = User(
+            full_name=(google_name or email.split("@", 1)[0])[:150],
+            email=email,
+            google_sub=google_sub,
+            password_hash=hash_password(secrets.token_urlsafe(48)),
+            role="USER",
+            is_active=True,
+        )
+        db.add(user)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            # A simultaneous first sign-in may have inserted this Google subject.
+            user = db.scalar(select(User).where(User.google_sub == google_sub))
+            if user is None:
+                raise HTTPException(status_code=409, detail="Google account could not be created") from None
+        else:
+            db.refresh(user)
+
+    if not user.is_active or user.role != "USER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Google sign-in is available only for active user accounts",
         )
 
     settings = get_jwt_settings()

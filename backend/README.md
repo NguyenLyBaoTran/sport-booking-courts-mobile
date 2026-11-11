@@ -151,6 +151,15 @@ role từ request. Login nhận `email` và `password`; response trả về
 gồm `sub` (user ID dạng chuỗi), `role`, `iat` và `exp`. Email trùng trả `409`,
 thông tin đăng nhập sai hoặc token không hợp lệ trả `401`.
 
+Google Sign-In dành cho role `USER` qua `POST /api/v1/auth/google` với JSON
+`{"id_token":"<Google ID token>"}`. Đặt `GOOGLE_CLIENT_ID` trong `backend/.env`
+thành OAuth client ID được dùng làm audience của ID token, sau đó cài dependencies
+mới và chạy migration User Service. Backend xác minh chữ ký, audience, issuer và
+hạn token qua Google Auth Library; chỉ email đã xác minh được nhận. Tài khoản mới
+được tạo với role `USER`. Nếu email đã thuộc tài khoản khác, người dùng phải đăng
+nhập theo cách hiện có; Google không tự liên kết tài khoản. OWNER/ADMIN không thể
+đăng nhập qua endpoint này.
+
 Chạy Auth tests (SQLite in-memory, không cần kết nối MySQL):
 
 ```bash

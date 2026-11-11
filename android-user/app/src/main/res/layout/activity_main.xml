@@ -61,10 +61,13 @@
 
             <!-- Search Bar -->
             <LinearLayout
+                android:id="@+id/layoutMainSearch"
                 android:layout_width="match_parent"
                 android:layout_height="50dp"
                 android:layout_marginTop="20dp"
                 android:background="@drawable/bg_card"
+                android:clickable="true"
+                android:focusable="true"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="16dp"
@@ -80,7 +83,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Search sports complexes, courts..."
+                    android:text="Search..."
                     android:textColor="@color/text_secondary"
                     android:textSize="15sp" />
             </LinearLayout>
@@ -94,20 +97,11 @@
                 android:orientation="horizontal">
 
                 <TextView
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
                     android:text="Choose a Sport"
                     android:textColor="@color/text_primary"
                     android:textSize="18sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="See All"
-                    android:textColor="@color/primary"
-                    android:textSize="14sp"
                     android:textStyle="bold" />
             </LinearLayout>
 

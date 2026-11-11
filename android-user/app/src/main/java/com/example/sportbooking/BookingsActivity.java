@@ -6,8 +6,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -21,7 +19,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.BookingRepository;
 import com.example.sportbooking.utils.BottomNavUtils;
-import com.example.sportbooking.utils.QrCodeUtils;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
@@ -34,9 +31,14 @@ public class BookingsActivity extends AppCompatActivity {
     private RecyclerView rvBookings;
     private ProgressBar progressBar;
     private TextView tvEmpty;
+    private View tabUpcoming, tabPast;
+    private TextView tvUpcoming, tvPast;
+    private View indicatorUpcoming, indicatorPast;
 
-    private final List<JsonObject> bookingList = new ArrayList<>();
+    private final List<JsonObject> allBookings = new ArrayList<>();
+    private final List<JsonObject> displayedBookings = new ArrayList<>();
     private BookingAdapter bookingAdapter;
+    private boolean isUpcomingTab = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,9 +50,15 @@ public class BookingsActivity extends AppCompatActivity {
         rvBookings = findViewById(R.id.rvBookings);
         progressBar = findViewById(R.id.progressBar);
         tvEmpty = findViewById(R.id.tvEmpty);
+        tabUpcoming = findViewById(R.id.tabUpcoming);
+        tabPast = findViewById(R.id.tabPast);
+        tvUpcoming = findViewById(R.id.tvUpcoming);
+        tvPast = findViewById(R.id.tvPast);
+        indicatorUpcoming = findViewById(R.id.indicatorUpcoming);
+        indicatorPast = findViewById(R.id.indicatorPast);
 
         rvBookings.setLayoutManager(new LinearLayoutManager(this));
-        bookingAdapter = new BookingAdapter(bookingList, booking -> {
+        bookingAdapter = new BookingAdapter(displayedBookings, isUpcomingTab, booking -> {
             int id = booking.has("id") ? booking.get("id").getAsInt() : -1;
             if (id > 0) {
                 loadBookingDetail(id);
@@ -60,12 +68,72 @@ public class BookingsActivity extends AppCompatActivity {
         });
         rvBookings.setAdapter(bookingAdapter);
 
+        tabUpcoming.setOnClickListener(v -> {
+            if (!isUpcomingTab) {
+                isUpcomingTab = true;
+                updateTabUi();
+                filterBookings();
+            }
+        });
+
+        tabPast.setOnClickListener(v -> {
+            if (isUpcomingTab) {
+                isUpcomingTab = false;
+                updateTabUi();
+                filterBookings();
+            }
+        });
+
         setupBottomNav();
         loadBookings();
     }
 
+    private void updateTabUi() {
+        int primaryColor = 0xFF0C8B63; // @color/primary
+        int grayColor = 0xFF71829C;  // @color/text_secondary
+
+        if (isUpcomingTab) {
+            tvUpcoming.setTextColor(primaryColor);
+            indicatorUpcoming.setBackgroundColor(primaryColor);
+            tvPast.setTextColor(grayColor);
+            indicatorPast.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        } else {
+            tvPast.setTextColor(primaryColor);
+            indicatorPast.setBackgroundColor(primaryColor);
+            tvUpcoming.setTextColor(grayColor);
+            indicatorUpcoming.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        }
+    }
+
     private void setupBottomNav() {
         BottomNavUtils.setupBottomNav(this, R.id.navBookings);
+    }
+
+    private void filterBookings() {
+        displayedBookings.clear();
+        for (JsonObject booking : allBookings) {
+            String status = booking.has("status") && !booking.get("status").isJsonNull()
+                    ? booking.get("status").getAsString().toUpperCase() : "CONFIRMED";
+
+            boolean isPast = status.equals("COMPLETED") || status.equals("EXPIRED") || status.equals("CANCELLED");
+
+            if (isUpcomingTab && !isPast) {
+                displayedBookings.add(booking);
+            } else if (!isUpcomingTab && isPast) {
+                displayedBookings.add(booking);
+            }
+        }
+
+        bookingAdapter = new BookingAdapter(displayedBookings, isUpcomingTab, booking -> {
+            int id = booking.has("id") ? booking.get("id").getAsInt() : -1;
+            if (id > 0) {
+                loadBookingDetail(id);
+            } else {
+                Toast.makeText(this, "Invalid booking ID", Toast.LENGTH_SHORT).show();
+            }
+        });
+        rvBookings.setAdapter(bookingAdapter);
+        tvEmpty.setVisibility(displayedBookings.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
     private void loadBookingDetail(int bookingId) {
@@ -107,7 +175,8 @@ public class BookingsActivity extends AppCompatActivity {
     private void loadBookings() {
         progressBar.setVisibility(View.VISIBLE);
         tvEmpty.setVisibility(View.GONE);
-        bookingList.clear();
+        allBookings.clear();
+        displayedBookings.clear();
         bookingAdapter.notifyDataSetChanged();
 
         bookingRepository.getBookings(new ApiCallback<JsonArray>() {
@@ -115,10 +184,9 @@ public class BookingsActivity extends AppCompatActivity {
             public void onSuccess(JsonArray result) {
                 progressBar.setVisibility(View.GONE);
                 for (int i = 0; i < result.size(); i++) {
-                    bookingList.add(result.get(i).getAsJsonObject());
+                    allBookings.add(result.get(i).getAsJsonObject());
                 }
-                bookingAdapter.notifyDataSetChanged();
-                tvEmpty.setVisibility(bookingList.isEmpty() ? View.VISIBLE : View.GONE);
+                filterBookings();
             }
 
             @Override
@@ -164,14 +232,16 @@ public class BookingsActivity extends AppCompatActivity {
 
     public static class BookingAdapter extends RecyclerView.Adapter<BookingAdapter.ViewHolder> {
         private final List<JsonObject> items;
+        private final boolean isUpcoming;
         private final OnBookingClickListener listener;
 
         public interface OnBookingClickListener {
             void onBookingClick(JsonObject booking);
         }
 
-        public BookingAdapter(List<JsonObject> items, OnBookingClickListener listener) {
+        public BookingAdapter(List<JsonObject> items, boolean isUpcoming, OnBookingClickListener listener) {
             this.items = items;
+            this.isUpcoming = isUpcoming;
             this.listener = listener;
         }
 
@@ -198,17 +268,24 @@ public class BookingsActivity extends AppCompatActivity {
             holder.tvDate.setText(slotDate);
             holder.tvTime.setText(startTime + " - " + endTime);
 
-            holder.btnViewTicket.setOnClickListener(v -> listener.onBookingClick(booking));
-            holder.btnCancelBooking.setOnClickListener(v -> {
-                if ("PENDING".equals(status)) {
-                    if (holder.itemView.getContext() instanceof BookingsActivity) {
-                        ((BookingsActivity) holder.itemView.getContext()).confirmAndCancelBooking(booking);
+            if (isUpcoming) {
+                holder.layoutButtonsRow.setVisibility(View.VISIBLE);
+                holder.btnViewTicket.setOnClickListener(v -> listener.onBookingClick(booking));
+                holder.btnCancelBooking.setOnClickListener(v -> {
+                    if (status.equalsIgnoreCase("PENDING")) {
+                        if (holder.itemView.getContext() instanceof BookingsActivity) {
+                            ((BookingsActivity) holder.itemView.getContext()).confirmAndCancelBooking(booking);
+                        }
+                    } else {
+                        Toast.makeText(holder.itemView.getContext(), "Only pending bookings can be cancelled", Toast.LENGTH_SHORT).show();
                     }
-                } else {
-                    Toast.makeText(holder.itemView.getContext(), "Only pending bookings can be cancelled", Toast.LENGTH_SHORT).show();
-                }
-            });
-            holder.itemView.setOnClickListener(v -> listener.onBookingClick(booking));
+                });
+                holder.itemView.setOnClickListener(v -> listener.onBookingClick(booking));
+            } else {
+                // Past tab: hide action buttons and disable click on past tickets
+                holder.layoutButtonsRow.setVisibility(View.GONE);
+                holder.itemView.setOnClickListener(null);
+            }
         }
 
         @Override
@@ -219,6 +296,7 @@ public class BookingsActivity extends AppCompatActivity {
         static class ViewHolder extends RecyclerView.ViewHolder {
             TextView tvCourtName, tvAmount, tvStatus, tvDate, tvTime;
             Button btnCancelBooking, btnViewTicket;
+            View layoutButtonsRow;
 
             ViewHolder(View itemView) {
                 super(itemView);
@@ -229,6 +307,7 @@ public class BookingsActivity extends AppCompatActivity {
                 tvTime = itemView.findViewById(R.id.tvBookingTime);
                 btnCancelBooking = itemView.findViewById(R.id.btnCancelBooking);
                 btnViewTicket = itemView.findViewById(R.id.btnViewTicket);
+                layoutButtonsRow = itemView.findViewById(R.id.layoutButtonsRow);
             }
         }
     }

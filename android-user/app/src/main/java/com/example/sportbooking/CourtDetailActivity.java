@@ -124,32 +124,91 @@ public class CourtDetailActivity extends AppCompatActivity {
             return;
         }
 
+        TextView tvLocation = findViewById(R.id.tvDetailLocation);
+        TextView tvAboutHeader = findViewById(R.id.tvAboutHeader);
+        TextView tvDetailStatus = findViewById(R.id.tvDetailStatus);
+
         courtRepository.getCourt(courtId, new ApiCallback<JsonObject>() {
             @Override
             public void onSuccess(JsonObject court) {
+                boolean active = !court.has("is_active") || court.get("is_active").getAsBoolean();
+                if (tvDetailStatus != null) {
+                    tvDetailStatus.setText(active ? "● Available" : "● Busy");
+                    tvDetailStatus.setTextColor(active ? 0xFF0C8B63 : 0xFFC62828);
+                }
+
                 String name = court.has("name") && !court.get("name").isJsonNull()
                         ? court.get("name").getAsString() : courtName;
                 String description = court.has("description") && !court.get("description").isJsonNull()
-                        ? court.get("description").getAsString() : "";
+                        ? court.get("description").getAsString() : (courtDesc != null ? courtDesc : "");
+                
                 tvName.setText(name != null ? name : "Court Details");
-                tvDesc.setText(description);
-                String price = court.has("price_per_hour") && !court.get("price_per_hour").isJsonNull()
+
+                if (!description.trim().isEmpty()) {
+                    tvDesc.setText(description);
+                    tvDesc.setVisibility(View.VISIBLE);
+                    if (tvAboutHeader != null) tvAboutHeader.setVisibility(View.VISIBLE);
+                } else {
+                    tvDesc.setVisibility(View.GONE);
+                    if (tvAboutHeader != null) tvAboutHeader.setVisibility(View.GONE);
+                }
+
+                String rawPrice = court.has("price_per_hour") && !court.get("price_per_hour").isJsonNull()
                         ? court.get("price_per_hour").getAsString() : null;
-                tvDetailPrice.setText(price == null || price.trim().isEmpty() ? "N/A" : price + " VND/h");
+                tvDetailPrice.setText(formatPrice(rawPrice));
+
                 int primaryImage = SportImageMapper.getPrimaryImage(court, courtName);
                 ivHero.setImageResource(primaryImage);
                 ivPhoto1.setImageResource(primaryImage);
                 ivPhoto2.setImageResource(SportImageMapper.getSecondaryImage(court, courtName));
                 ivPhoto3.setImageResource(primaryImage);
+
+                if (court.has("venue_id") && !court.get("venue_id").isJsonNull()) {
+                    int venueId = court.get("venue_id").getAsInt();
+                    courtRepository.getVenue(venueId, new ApiCallback<JsonObject>() {
+                        @Override
+                        public void onSuccess(JsonObject venue) {
+                            String vName = venue.has("name") ? venue.get("name").getAsString() : "";
+                            String vAddress = venue.has("address") && !venue.get("address").isJsonNull() ? venue.get("address").getAsString() : "";
+                            String loc = vName + (!vAddress.isEmpty() ? ", " + vAddress : "");
+                            if (!loc.isEmpty() && tvLocation != null) {
+                                tvLocation.setText(loc);
+                                tvLocation.setVisibility(View.VISIBLE);
+                            }
+                        }
+
+                        @Override
+                        public void onError(String error) {}
+                    });
+                }
             }
 
             @Override
             public void onError(String error) {
                 tvName.setText(courtName != null ? courtName : "Court Details");
-                tvDesc.setText(courtDesc != null && !courtDesc.isEmpty() ? courtDesc : "A spacious indoor badminton court with professional wooden flooring.");
+                if (courtDesc != null && !courtDesc.isEmpty()) {
+                    tvDesc.setText(courtDesc);
+                    tvDesc.setVisibility(View.VISIBLE);
+                    if (tvAboutHeader != null) tvAboutHeader.setVisibility(View.VISIBLE);
+                } else {
+                    tvDesc.setVisibility(View.GONE);
+                    if (tvAboutHeader != null) tvAboutHeader.setVisibility(View.GONE);
+                }
                 tvDetailPrice.setText("150,000 VND/h");
             }
         });
+    }
+
+    private String formatPrice(String raw) {
+        if (raw == null || raw.trim().isEmpty()) return "N/A";
+        try {
+            double val = Double.parseDouble(raw);
+            if (val < 1000) val = val * 1000;
+            java.text.NumberFormat nf = java.text.NumberFormat.getInstance(Locale.getDefault());
+            return nf.format(val) + " VND/h";
+        } catch (Exception e) {
+            return raw + " VND/h";
+        }
     }
 
     private void showSlotSelection() {
