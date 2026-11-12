@@ -173,6 +173,84 @@ def test_current_user_returns_authenticated_account(client: TestClient) -> None:
     assert response.json()["role"] == "USER"
 
 
+def test_update_my_profile(client: TestClient) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Old Name",
+            "email": "update@example.com",
+            "password": "strong-pass-123",
+        },
+    )
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"email": "update@example.com", "password": "strong-pass-123"},
+    ).json()["access_token"]
+
+    response = client.patch(
+        "/api/v1/users/me",
+        json={"full_name": "New Name", "phone": "0987654321"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["full_name"] == "New Name"
+    assert response.json()["phone"] == "0987654321"
+
+
+def test_reset_password_with_otp(client: TestClient) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Reset User",
+            "email": "reset@example.com",
+            "password": "old-password-123",
+        },
+    )
+
+    forgot_res = client.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": "reset@example.com"},
+    )
+    assert forgot_res.status_code == 200
+    from app.routes import OTP_STORE
+    otp_code = forgot_res.json().get("otp_debug") or OTP_STORE["reset@example.com"]["code"]
+
+    # Wrong OTP should fail
+    reset_wrong = client.post(
+        "/api/v1/auth/reset-password",
+        json={
+            "email": "reset@example.com",
+            "otp_code": "000000",
+            "new_password": "new-password-456",
+        },
+    )
+    assert reset_wrong.status_code == 400
+
+    # Correct OTP should succeed
+    reset_res = client.post(
+        "/api/v1/auth/reset-password",
+        json={
+            "email": "reset@example.com",
+            "otp_code": otp_code,
+            "new_password": "new-password-456",
+        },
+    )
+    assert reset_res.status_code == 200
+
+    login_old = client.post(
+        "/api/v1/auth/login",
+        json={"email": "reset@example.com", "password": "old-password-123"},
+    )
+    assert login_old.status_code == 401
+
+    login_new = client.post(
+        "/api/v1/auth/login",
+        json={"email": "reset@example.com", "password": "new-password-456"},
+    )
+    assert login_new.status_code == 200
+
+
 def test_admin_users_list_status_and_summary(client: TestClient) -> None:
     from app.security import create_access_token, hash_password
 

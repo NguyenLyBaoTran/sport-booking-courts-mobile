@@ -156,9 +156,11 @@ Google Sign-In dành cho role `USER` qua `POST /api/v1/auth/google` với JSON
 thành OAuth client ID được dùng làm audience của ID token, sau đó cài dependencies
 mới và chạy migration User Service. Backend xác minh chữ ký, audience, issuer và
 hạn token qua Google Auth Library; chỉ email đã xác minh được nhận. Tài khoản mới
-được tạo với role `USER`. Nếu email đã thuộc tài khoản khác, người dùng phải đăng
-nhập theo cách hiện có; Google không tự liên kết tài khoản. OWNER/ADMIN không thể
-đăng nhập qua endpoint này.
+được tạo với role `USER`. Nếu Gmail đã thuộc tài khoản `USER` dùng mật khẩu, backend
+tự liên kết Google subject và đăng nhập vào đúng tài khoản đó. Email Workspace cũng
+được tự liên kết khi email đã xác minh khớp hosted domain. Email Google khác không
+tự liên kết và cần dùng đăng nhập mật khẩu.
+OWNER/ADMIN không thể đăng nhập qua endpoint này.
 
 Chạy Auth tests (SQLite in-memory, không cần kết nối MySQL):
 

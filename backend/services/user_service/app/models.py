@@ -14,7 +14,6 @@ class User(Base):
             name="ck_users_role",
         ),
     )
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)

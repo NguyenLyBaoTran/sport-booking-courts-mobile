@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.example.sportbooking.api.ApiClient;
 import com.example.sportbooking.api.AuthApi;
 import com.example.sportbooking.api.model.UserResponse;
+import com.example.sportbooking.api.model.UserUpdateRequest;
 import com.example.sportbooking.auth.TokenStore;
 import com.example.sportbooking.utils.BottomNavUtils;
 
@@ -50,6 +51,7 @@ public class ProfileActivity extends AppCompatActivity {
 
         btnLogout.setOnClickListener(v -> {
             TokenStore.clearToken(this);
+            getSharedPreferences("user_profile_prefs", MODE_PRIVATE).edit().clear().apply();
             Intent intent = new Intent(this, LoginActivity.class);
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(intent);
@@ -66,20 +68,47 @@ public class ProfileActivity extends AppCompatActivity {
             return;
         }
 
-        tvProfileName.setText(name);
+        btnSaveProfile.setEnabled(false);
 
-        // Save locally in SharedPreferences for session persistence
-        getSharedPreferences("user_profile_prefs", MODE_PRIVATE)
-                .edit()
-                .putString("saved_full_name", name)
-                .putString("saved_phone", phone)
-                .apply();
+        authApi.updateProfile(new UserUpdateRequest(name, phone)).enqueue(new Callback<UserResponse>() {
+            @Override
+            public void onResponse(Call<UserResponse> call, Response<UserResponse> response) {
+                btnSaveProfile.setEnabled(true);
+                if (response.isSuccessful() && response.body() != null) {
+                    UserResponse updated = response.body();
+                    String updatedName = updated.getFull_name();
+                    String updatedPhone = updated.getPhone();
 
-        Toast.makeText(this, "Profile updated successfully!", Toast.LENGTH_SHORT).show();
+                    tvProfileName.setText(updatedName);
+
+                    getSharedPreferences("user_profile_prefs", MODE_PRIVATE)
+                            .edit()
+                            .putString("saved_full_name", updatedName)
+                            .putString("saved_phone", updatedPhone)
+                            .apply();
+
+                    Toast.makeText(ProfileActivity.this, "Profile updated successfully!", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(ProfileActivity.this, "Failed to update profile", Toast.LENGTH_SHORT).show();
+                }
+            }
+
+            @Override
+            public void onFailure(Call<UserResponse> call, Throwable t) {
+                btnSaveProfile.setEnabled(true);
+                // Fallback to local save if offline
+                tvProfileName.setText(name);
+                getSharedPreferences("user_profile_prefs", MODE_PRIVATE)
+                        .edit()
+                        .putString("saved_full_name", name)
+                        .putString("saved_phone", phone)
+                        .apply();
+                Toast.makeText(ProfileActivity.this, "Saved locally (offline)", Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     private void loadUserProfile() {
-        // First check local saved profile
         String savedName = getSharedPreferences("user_profile_prefs", MODE_PRIVATE).getString("saved_full_name", null);
         String savedPhone = getSharedPreferences("user_profile_prefs", MODE_PRIVATE).getString("saved_phone", null);
 
@@ -88,17 +117,21 @@ public class ProfileActivity extends AppCompatActivity {
             public void onResponse(Call<UserResponse> call, Response<UserResponse> response) {
                 if (response.isSuccessful() && response.body() != null) {
                     UserResponse user = response.body();
-                    String name = savedName != null ? savedName : user.getFull_name();
+                    String name = !TextUtils.isEmpty(user.getFull_name()) ? user.getFull_name() : (savedName != null ? savedName : "");
                     String email = user.getEmail();
-                    String phone = savedPhone != null ? savedPhone : user.getPhone();
+                    String phone = !TextUtils.isEmpty(user.getPhone()) ? user.getPhone() : (savedPhone != null ? savedPhone : "");
 
                     tvProfileName.setText(!TextUtils.isEmpty(name) ? name : "Customer");
                     tvProfileEmail.setText(!TextUtils.isEmpty(email) ? email : "");
                     etFullName.setText(!TextUtils.isEmpty(name) ? name : "");
                     etEmail.setText(!TextUtils.isEmpty(email) ? email : "");
-                    if (!TextUtils.isEmpty(phone)) {
-                        etPhone.setText(phone);
-                    }
+                    etPhone.setText(!TextUtils.isEmpty(phone) ? phone : "");
+
+                    getSharedPreferences("user_profile_prefs", MODE_PRIVATE)
+                            .edit()
+                            .putString("saved_full_name", name)
+                            .putString("saved_phone", phone)
+                            .apply();
                 } else if (savedName != null) {
                     tvProfileName.setText(savedName);
                     etFullName.setText(savedName);

@@ -39,6 +39,8 @@ public class MainActivity extends AppCompatActivity {
     private AuthApi authApi;
     private boolean openingLogin = false;
     private CourtRepository courtRepository;
+    private TextView tvWelcome;
+    private UserResponse currentUser;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,6 +56,33 @@ public class MainActivity extends AppCompatActivity {
         } else {
             validateToken(token);
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateWelcomeText();
+    }
+
+    private void updateWelcomeText() {
+        if (tvWelcome == null) {
+            return;
+        }
+
+        String savedName = getSharedPreferences("user_profile_prefs", MODE_PRIVATE)
+                .getString("saved_full_name", null);
+
+        String name = savedName != null ? savedName : (currentUser != null ? currentUser.getFull_name() : null);
+
+        if (TextUtils.isEmpty(name) && currentUser != null) {
+            name = currentUser.getEmail();
+        }
+
+        tvWelcome.setText(
+                TextUtils.isEmpty(name)
+                        ? "Welcome to Sport Booking!"
+                        : "Welcome, " + name + "!"
+        );
     }
 
     private void validateToken(String token) {
@@ -88,28 +117,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showHome(UserResponse user) {
+        currentUser = user;
         setContentView(R.layout.activity_main);
 
-        TextView tvWelcome = findViewById(R.id.tvWelcome);
+        tvWelcome = findViewById(R.id.tvWelcome);
+        updateWelcomeText();
         View btnFindCourt = findViewById(R.id.btnFindCourt);
         View btnMyBookings = findViewById(R.id.btnMyBookings);
         View btnProfile = findViewById(R.id.imgProfileIcon);
-
-        String name = null;
-
-        if (user != null) {
-            name = user.getFull_name();
-
-            if (TextUtils.isEmpty(name)) {
-                name = user.getEmail();
-            }
-        }
-
-        tvWelcome.setText(
-                TextUtils.isEmpty(name)
-                        ? "Welcome to Sport Booking!"
-                        : "Welcome, " + name + "!"
-        );
 
         btnFindCourt.setOnClickListener(v ->
                 startActivity(new Intent(this, CourtSearchActivity.class))

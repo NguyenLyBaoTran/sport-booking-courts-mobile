@@ -10,6 +10,7 @@ Thời gian trả về theo ISO 8601 UTC. Protected customer routes cần
 |---|---|---|
 | POST | `/auth/register` | Public; luôn tạo USER |
 | POST | `/auth/login` | Public |
+| POST | `/auth/google` | Public; Google ID token login |
 | GET | `/users/me` | Authenticated |
 
 Register body:
@@ -27,6 +28,12 @@ Login response có `access_token`, `token_type`, `expires_in` (giây) và `user`
 JWT ký HS256, claims `sub` (user ID dạng chuỗi), `role`, `iat`, `exp`.
 Đăng ký public không nhận role tùy ý. Tạo OWNER/ADMIN cho môi trường local bằng
 `python -m app.create_test_account` trong `backend/services/user_service`.
+
+Google Sign-In receives `{"id_token":"<Google ID token>"}` and requires
+`GOOGLE_CLIENT_ID` to match the token audience. First Google sign-in automatically
+links an existing USER with the same verified Gmail address (or a matching
+verified Workspace hosted domain). Other Google email domains do not auto-link to
+an existing account. OWNER/ADMIN cannot use Google Sign-In.
 
 ## Booking
 
