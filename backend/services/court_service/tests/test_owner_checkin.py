@@ -115,6 +115,11 @@ class OwnerCheckInAdapterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertIsNone(FakeBookingClient.captured)
 
+    def test_admin_role_cannot_use_owner_only_checkin(self):
+        response = self._post({"qr_token": QR_TOKEN}, self._token(role="ADMIN", owner_id=3))
+        self.assertEqual(response.status_code, 403)
+        self.assertIsNone(FakeBookingClient.captured)
+
     def test_owner_id_is_derived_from_jwt_and_client_internal_header_is_ignored(self):
         response = self._post(
             {"qr_token": QR_TOKEN},

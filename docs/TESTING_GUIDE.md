@@ -21,28 +21,22 @@ Copy `backend/.env.example` to `backend/.env` if it does not already exist. Set:
 - `COURT_SERVICE_URL` and `BOOKING_SERVICE_URL` to the reachable service URLs.
 - `APP_ENV=development` for the local Owner/Admin account tool.
 
-Create the databases using `backend/scripts/create_databases.sql` or your local
-database tooling. Apply the User Service migration and initialize the development
-Booking/Payment schemas:
+On Windows, install backend dependencies in `backend/.venv`, configure the four
+development URLs in `backend/.env`, and run `setup.bat` from the repository root.
+It creates only the four `sports_*_db` development schemas, applies the User
+Service migration, initializes Court/Booking/Payment schemas, and imports the
+idempotent demo seed after an explicit `SETUP` confirmation. It refuses E2E
+database targets. For macOS/Linux, follow the service-specific initialization
+commands in the [root README](../README.md#first-time-setup).
 
-```bash
-cd backend/services/user_service
-../../../.venv/bin/python -m alembic -c alembic.ini upgrade head
-
-cd ../booking_service
-../../../.venv/bin/python -m app.init_db
-
-cd ../payment_service
-../../../.venv/bin/python -m app.init_db
-```
-
-The Booking/Payment initializer uses `create_all` for local development; it is not
-a production migration strategy. Create a test customer via the register API. To
-create an Owner/Admin, run `python -m app.create_test_account` from the User Service
-directory; its password prompt is hidden, and it prints the new user ID. Run it
-once with role `OWNER` and again with role `ADMIN` if both accounts are needed.
-The password is chosen by the developer and cannot be recovered from the database;
-keep test credentials in a password manager or another private, untracked location.
+The Booking/Payment initializer uses `create_all` for local development; it is
+not a production migration strategy. Create a test customer via the register
+API. To create an Owner/Admin, run `python -m app.create_test_account` from the
+User Service directory; its password prompt is hidden, and it prints the new
+user ID. Run it once with role `OWNER` and again with role `ADMIN` if both
+accounts are needed. The password is chosen by the developer and cannot be
+recovered from the database; keep test credentials in a password manager or
+another private, untracked location.
 
 ## 2. Run automated tests
 
@@ -189,6 +183,29 @@ curl -i -X POST http://127.0.0.1:8003/api/v1/internal/bookings/<BOOKING_ID>/comp
 
 Expected: `COMPLETED`. This direct call only tests Booking's state transition; the
 real integration test must go through Court's Owner-authenticated endpoint.
+
+## Owner/Admin manual demo checklist
+
+Use the local demo accounts and database setup in the [root README](../README.md#demo-accounts). Record actual outcomes during the demo; do not pre-mark a manual test as passed.
+
+| ID | Role | Action | Expected result | Actual result | Status |
+|---|---|---|---|---|---|
+| A1 | ADMIN | Login and open dashboard | ADMIN workspace; available catalogue counts come from API | | |
+| A2 | ADMIN | Create, edit, deactivate a test Sport | Changes appear after successful API responses | | |
+| A3 | ADMIN | Create/edit/deactivate a test Venue and Court | System-wide changes persist and remain visible | | |
+| A4 | ADMIN | Create/edit/deactivate future Time Slots | Validation rejects invalid or overlapping slots | | |
+| A5 | ADMIN | Open Users/Owners | Management API is unavailable until S1 provides it | | PENDING S1 |
+| A6 | ADMIN | Open Bookings/Check-ins | Management API is unavailable until S1 provides it | | PENDING S1 |
+| O1 | OWNER | Login and open dashboard | OWNER workspace shows only owned catalogue data | | |
+| O2 | OWNER | Create/edit/deactivate own Venue, Court, and Time Slot | Changes persist through API | | |
+| O3 | OWNER | Open Bookings, filters, and booking detail | Only own venue bookings appear; `qr_token` is hidden | | |
+| O4 | OWNER | Check in a valid Customer QR, then scan it again | First request checks in; duplicate returns `409` | | |
+| O5 | OWNER | Complete a checked-in booking and reload | Status remains `COMPLETED` after reload | | |
+| O6 | OWNER | Try a resource owned by the other demo Owner | Backend denies access without exposing the record | | |
+| C1 | CUSTOMER | Login and browse Sports/Venues/Courts/Time Slots | Public catalogue loads | | |
+| C2 | CUSTOMER | Create a booking and complete mock payment through API | Booking is `PENDING`, then `CONFIRMED`; QR comes from Booking API | | |
+| C3 | CUSTOMER | Open booking history and QR in Android | Booking/history/QR UI is not implemented in current Android client | | PENDING S1 |
+| X1 | ADMIN/OWNER | Logout, then reopen a protected page | Session clears and protected page requires login | | |
 
 ## 7. Expiry and common failures
 
