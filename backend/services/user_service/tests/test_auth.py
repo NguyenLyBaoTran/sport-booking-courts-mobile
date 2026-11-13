@@ -37,11 +37,13 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    app.state.test_session = test_session
     try:
         with TestClient(app) as test_client:
             yield test_client
     finally:
         app.dependency_overrides.clear()
+        del app.state.test_session
         Base.metadata.drop_all(engine, tables=[User.__table__])
         engine.dispose()
 
@@ -169,3 +171,127 @@ def test_current_user_returns_authenticated_account(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["email"] == "linh@example.com"
     assert response.json()["role"] == "USER"
+
+
+def test_update_my_profile(client: TestClient) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Old Name",
+            "email": "update@example.com",
+            "password": "strong-pass-123",
+        },
+    )
+    token = client.post(
+        "/api/v1/auth/login",
+        json={"email": "update@example.com", "password": "strong-pass-123"},
+    ).json()["access_token"]
+
+    response = client.patch(
+        "/api/v1/users/me",
+        json={"full_name": "New Name", "phone": "0987654321"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["full_name"] == "New Name"
+    assert response.json()["phone"] == "0987654321"
+
+
+def test_reset_password_with_otp(client: TestClient) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Reset User",
+            "email": "reset@example.com",
+            "password": "old-password-123",
+        },
+    )
+
+    forgot_res = client.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": "reset@example.com"},
+    )
+    assert forgot_res.status_code == 200
+    from app.routes import OTP_STORE
+    otp_code = forgot_res.json().get("otp_debug") or OTP_STORE["reset@example.com"]["code"]
+
+    # Wrong OTP should fail
+    reset_wrong = client.post(
+        "/api/v1/auth/reset-password",
+        json={
+            "email": "reset@example.com",
+            "otp_code": "000000",
+            "new_password": "new-password-456",
+        },
+    )
+    assert reset_wrong.status_code == 400
+
+    # Correct OTP should succeed
+    reset_res = client.post(
+        "/api/v1/auth/reset-password",
+        json={
+            "email": "reset@example.com",
+            "otp_code": otp_code,
+            "new_password": "new-password-456",
+        },
+    )
+    assert reset_res.status_code == 200
+
+    login_old = client.post(
+        "/api/v1/auth/login",
+        json={"email": "reset@example.com", "password": "old-password-123"},
+    )
+    assert login_old.status_code == 401
+
+    login_new = client.post(
+        "/api/v1/auth/login",
+        json={"email": "reset@example.com", "password": "new-password-456"},
+    )
+    assert login_new.status_code == 200
+
+
+def test_admin_users_list_status_and_summary(client: TestClient) -> None:
+    from app.security import create_access_token, hash_password
+
+    with app.state.test_session() as db:
+        admin = User(
+            full_name="Admin One",
+            email="admin@example.com",
+            password_hash=hash_password("strong-pass-123"),
+            role="ADMIN",
+            is_active=True,
+        )
+        user = User(
+            full_name="Linh Nguyen",
+            email="linh@example.com",
+            password_hash=hash_password("strong-pass-123"),
+            role="USER",
+            is_active=True,
+        )
+        db.add_all([admin, user])
+        db.commit()
+        db.refresh(admin)
+        db.refresh(user)
+        admin_id = admin.id
+        user_id = user.id
+
+    token = create_access_token(admin_id, "ADMIN")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    listed = client.get("/api/v1/admin/users?q=linh&page=1&page_size=25", headers=headers)
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    assert listed.json()["items"][0]["id"] == user_id
+
+    updated = client.patch(
+        f"/api/v1/admin/users/{user_id}/status",
+        json={"is_active": False},
+        headers=headers,
+    )
+    assert updated.status_code == 200
+    assert updated.json()["is_active"] is False
+
+    summary = client.get("/api/v1/admin/users/summary", headers=headers)
+    assert summary.status_code == 200
+    assert summary.json()["users"]["inactive"] == 1

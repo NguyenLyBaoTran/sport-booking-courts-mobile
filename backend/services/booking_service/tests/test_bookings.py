@@ -156,6 +156,49 @@ def test_booking_is_private_and_cancel_releases_pending_slot(
     assert released == [(8, created["id"])]
 
 
+def test_admin_booking_and_checkin_endpoints(client: TestClient) -> None:
+    checked_at = datetime.now(timezone.utc)
+    with app.state.test_session() as db:
+        booking = Booking(
+            user_id=5,
+            time_slot_id=8,
+            court_id=4,
+            venue_id=2,
+            owner_id=22,
+            slot_date=date(2026, 10, 29),
+            start_time=time(18, 0),
+            end_time=time(19, 0),
+            status="CHECKED_IN",
+            total_amount=Decimal("180.00"),
+            checked_in_by=22,
+            checked_in_at=checked_at,
+            created_at=datetime.now(timezone.utc),
+        )
+        db.add(booking)
+        db.commit()
+        db.refresh(booking)
+        booking_id = booking.id
+
+    headers = {"Authorization": f"Bearer {_token(1, 'ADMIN')}"}
+    listed = client.get("/api/v1/admin/bookings?status=CHECKED_IN&page=1&page_size=25", headers=headers)
+    assert listed.status_code == 200
+    assert listed.json()["total"] == 1
+    assert listed.json()["items"][0]["id"] == booking_id
+    assert "qr_token" not in listed.json()["items"][0]
+
+    checkins = client.get("/api/v1/admin/checkins?page=1&page_size=25", headers=headers)
+    assert checkins.status_code == 200
+    assert checkins.json()["items"][0]["checked_in_by"] == 22
+
+    summary = client.get("/api/v1/admin/bookings/summary", headers=headers)
+    assert summary.status_code == 200
+    assert summary.json()["bookings"]["checked_in"] == 1
+
+    detail = client.get(f"/api/v1/admin/bookings/{booking_id}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["status"] == "CHECKED_IN"
+
+
 def test_only_customers_can_create_bookings(client: TestClient) -> None:
     response = client.post(
         "/api/v1/bookings",
