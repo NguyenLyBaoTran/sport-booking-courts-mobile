@@ -157,6 +157,16 @@
                 android:visibility="gone"
                 android:layout_marginTop="24dp" />
 
+            <TextView
+                android:id="@+id/tvSelectionSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:layout_marginBottom="8dp"
+                android:text="Choose one or more consecutive available slots."
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp" />
+
             <!-- Time Slots Grid -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rvTimeSlots"

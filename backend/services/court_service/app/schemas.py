@@ -113,6 +113,8 @@ class TimeSlotOutput(BaseModel):
     start_time: time
     end_time: time
     is_active: bool
+    reservation_status: str = "AVAILABLE"
+    is_selectable: bool = False
 
 
 class OwnerCheckInInput(InputModel):

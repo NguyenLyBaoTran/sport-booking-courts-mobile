@@ -206,6 +206,13 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json(), {"detail": "Time slot is unavailable"})
 
+    def test_gateway_routes_multi_slot_quote_ids_without_rewriting_them(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.get("/api/v1/booking-quotes/15,16")
+        self.assertEqual(response.status_code, 200)
+        assert FakeUpstreamClient.captured_request is not None
+        self.assertEqual(FakeUpstreamClient.captured_request["url"], "http://127.0.0.1:8003/api/v1/booking-quotes/15,16")
+
     def test_gateway_routes_time_slots_and_does_not_expose_internal_contract(self):
         with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
             response = self.client.get("/api/v1/time-slots?court_id=12")

@@ -9,6 +9,8 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 
+import java.util.List;
+
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
@@ -31,8 +33,25 @@ public class BookingRepository {
         api.createBooking(body).enqueue(objectCallback(callback));
     }
 
+    public void createBooking(List<Integer> timeSlotIds, ApiCallback<JsonObject> callback) {
+        JsonObject body = new JsonObject();
+        JsonArray ids = new JsonArray();
+        for (Integer id : timeSlotIds) ids.add(id);
+        body.add("time_slot_ids", ids);
+        api.createBooking(body).enqueue(objectCallback(callback));
+    }
+
     public void getBookingQuote(int slotId, ApiCallback<JsonObject> callback) {
-        api.getBookingQuote(slotId).enqueue(objectCallback(callback));
+        getBookingQuote(java.util.Collections.singletonList(slotId), callback);
+    }
+
+    public void getBookingQuote(List<Integer> slotIds, ApiCallback<JsonObject> callback) {
+        StringBuilder ids = new StringBuilder();
+        for (Integer id : slotIds) {
+            if (ids.length() > 0) ids.append(',');
+            ids.append(id);
+        }
+        api.getBookingQuote(ids.toString()).enqueue(objectCallback(callback));
     }
 
     public void getBookings(ApiCallback<JsonArray> callback) {

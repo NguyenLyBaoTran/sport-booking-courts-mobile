@@ -706,10 +706,16 @@ class CourtAuthorizationTests(unittest.TestCase):
             available_id = slots[0].id
         response = self.client.get(f"/api/v1/time-slots?slot_date={future.isoformat()}")
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual({row["id"] for row in response.json()}, {available_id})
+        self.assertEqual({row["id"] for row in response.json()}, {slot.id for slot in slots[:3]})
+        availability = {row["id"]: row for row in response.json()}
+        self.assertTrue(availability[available_id]["is_selectable"])
+        self.assertFalse(availability[slots[1].id]["is_selectable"])
+        self.assertEqual(availability[slots[1].id]["reservation_status"], "HELD")
+        self.assertFalse(availability[slots[2].id]["is_selectable"])
+        self.assertEqual(availability[slots[2].id]["reservation_status"], "BOOKED")
         user = self.client.get(f"/api/v1/time-slots?slot_date={future.isoformat()}", headers=self._headers(role="USER"))
         self.assertEqual(user.status_code, 200, user.text)
-        self.assertEqual({row["id"] for row in user.json()}, {available_id})
+        self.assertEqual({row["id"] for row in user.json()}, {slot.id for slot in slots[:3]})
         # Owners retain all schedule records for management, including reservations.
         owner = self.client.get(f"/api/v1/time-slots?slot_date={future.isoformat()}", headers=self._headers())
         self.assertEqual(owner.status_code, 200, owner.text)
@@ -806,6 +812,40 @@ class CourtAuthorizationTests(unittest.TestCase):
             f"/api/v1/internal/slots/{self.slot_b_id}/hold?booking_id=501"
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_batch_hold_is_atomic_and_batch_release_preserves_newer_owner(self):
+        with self.Session() as db:
+            first = TimeSlot(court_id=self.court_a_id, slot_date=date(2026, 11, 1), start_time=time(11), end_time=time(12))
+            second = TimeSlot(court_id=self.court_a_id, slot_date=date(2026, 11, 1), start_time=time(12), end_time=time(13))
+            blocked = TimeSlot(court_id=self.court_a_id, slot_date=date(2026, 11, 1), start_time=time(13), end_time=time(14), reservation_status="HELD", reservation_booking_id=999, reservation_expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5))
+            db.add_all([first, second, blocked])
+            db.commit()
+            first_id, second_id, blocked_id = first.id, second.id, blocked.id
+        headers = {"X-Internal-Token": "court-internal-test-token"}
+        failed = self.client.post(f"/api/v1/internal/slots/{first_id},{blocked_id}/hold?booking_id=501", headers=headers)
+        self.assertEqual(failed.status_code, 409)
+        with self.Session() as db:
+            self.assertEqual(db.get(TimeSlot, first_id).reservation_status, "AVAILABLE")
+            self.assertEqual(db.get(TimeSlot, blocked_id).reservation_booking_id, 999)
+
+        held = self.client.post(f"/api/v1/internal/slots/{first_id},{second_id}/hold?booking_id=501", headers=headers)
+        self.assertEqual(held.status_code, 200, held.text)
+        self.assertEqual(len(held.json()["slots"]), 2)
+        confirmed = self.client.post(f"/api/v1/internal/slots/{first_id},{second_id}/confirm?booking_id=501", headers=headers)
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["status"], "BOOKED")
+        with self.Session() as db:
+            newer = db.get(TimeSlot, second_id)
+            newer.reservation_status = "HELD"
+            newer.reservation_booking_id = 777
+            newer.reservation_expires_at = datetime(2026, 11, 1, 10, 8)
+            db.commit()
+        released = self.client.post(f"/api/v1/internal/slots/{first_id},{second_id}/release?booking_id=501", headers=headers)
+        self.assertEqual(released.status_code, 200, released.text)
+        with self.Session() as db:
+            self.assertEqual(db.get(TimeSlot, first_id).reservation_status, "AVAILABLE")
+            self.assertEqual(db.get(TimeSlot, second_id).reservation_status, "HELD")
+            self.assertEqual(db.get(TimeSlot, second_id).reservation_booking_id, 777)
 
 
 if __name__ == "__main__":

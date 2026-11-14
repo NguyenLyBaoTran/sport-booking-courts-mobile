@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Integer, Numeric, String, Time, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Time, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from typing import Optional
 
 from app.database import Base
@@ -33,3 +33,21 @@ class Booking(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    slot_links: Mapped[list[BookingTimeSlot]] = relationship(
+        back_populates="booking", cascade="all, delete-orphan", order_by="BookingTimeSlot.position"
+    )
+
+    @property
+    def time_slot_ids(self) -> list[int]:
+        ids = [link.time_slot_id for link in self.slot_links]
+        return ids or [self.time_slot_id]
+
+
+class BookingTimeSlot(Base):
+    __tablename__ = "booking_time_slots"
+
+    booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id", ondelete="CASCADE"), primary_key=True)
+    # Logical reference to Court Service; there is intentionally no cross-service FK.
+    time_slot_id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    booking: Mapped[Booking] = relationship(back_populates="slot_links")

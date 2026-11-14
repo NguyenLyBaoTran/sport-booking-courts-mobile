@@ -17,9 +17,14 @@ import retrofit2.Response;
 
 public class PaymentRepository {
 
+    private static final String PAYMENT_PREFS = "sport_booking_payment_idempotency";
+    private static final String BOOKING_KEY_PREFIX = "booking_";
+
     private final CustomerApi api;
+    private final Context context;
 
     public PaymentRepository(Context context) {
+        this.context = context.getApplicationContext();
         api = ApiClient.getCustomerApi(context);
     }
 
@@ -32,10 +37,28 @@ public class PaymentRepository {
         body.addProperty("booking_id", bookingId);
         body.addProperty("mock_result", mockResult);
 
-        String idempotencyKey = UUID.randomUUID().toString();
+        String idempotencyKey = idempotencyKeyForBooking(bookingId);
+        if (idempotencyKey == null) {
+            callback.onError("Could not save payment retry information. Please try again.");
+            return;
+        }
 
         api.processPayment(body, idempotencyKey)
                 .enqueue(objectCallback(callback));
+    }
+
+    private String idempotencyKeyForBooking(int bookingId) {
+        String preferenceKey = BOOKING_KEY_PREFIX + bookingId;
+        synchronized (PaymentRepository.class) {
+            android.content.SharedPreferences preferences = context
+                    .getSharedPreferences(PAYMENT_PREFS, Context.MODE_PRIVATE);
+            String existing = preferences.getString(preferenceKey, null);
+            if (existing != null && !existing.isEmpty()) return existing;
+
+            String generated = UUID.randomUUID().toString();
+            boolean saved = preferences.edit().putString(preferenceKey, generated).commit();
+            return saved ? generated : null;
+        }
     }
 
     public void getPayments(ApiCallback<JsonArray> callback) {

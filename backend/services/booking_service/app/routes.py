@@ -4,6 +4,7 @@ import secrets
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Literal, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 from app import integrations
 from app.auth import Principal, current_principal, require_customer, require_internal_token, require_owner
 from app.database import get_db
-from app.models import Booking
+from app.models import Booking, BookingTimeSlot
 from app.schemas import (
     BookingCheckIn,
     BookingCompletion,
@@ -28,17 +29,26 @@ from app.schemas import (
 )
 
 router = APIRouter()
+BUSINESS_TIMEZONE = ZoneInfo("Asia/Ho_Chi_Minh")
 
 
 def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
+def _booking_slot_ids(booking: Booking) -> list[int]:
+    return booking.time_slot_ids
+
+
+def _integration_slot_argument(slot_ids: list[int]) -> int | list[int]:
+    return slot_ids[0] if len(slot_ids) == 1 else slot_ids
+
+
 def _finish_expiration_release(booking: Booking, db: Session) -> bool:
     """Release a terminal booking's slot; expires_at marks unfinished cleanup."""
     released = False
     try:
-        integrations.release_slot(booking.time_slot_id, booking.id)
+        integrations.release_slot(_integration_slot_argument(_booking_slot_ids(booking)), booking.id)
         released = True
     except HTTPException as error:
         if error.status_code != 409:
@@ -75,22 +85,65 @@ def _owned_booking(db: Session, booking_id: int, principal: Principal) -> Bookin
     return booking
 
 
-def _booking_quote(slot_id: int) -> dict:
-    quote = integrations.get_slot_quote(slot_id)
+def _normalize_slot_quote(slot_ids: list[int], response: dict) -> dict:
     try:
-        price = Decimal(str(quote["price_per_hour"]))
-        slot_date = date.fromisoformat(quote["slot_date"])
-        start_time = time.fromisoformat(quote["start_time"])
-        end_time = time.fromisoformat(quote["end_time"])
-        court_id, venue_id, owner_id = int(quote["court_id"]), int(quote["venue_id"]), int(quote["owner_id"])
-        duration = Decimal(str((datetime.combine(slot_date, end_time) - datetime.combine(slot_date, start_time)).total_seconds())) / Decimal("3600")
-        if price <= 0 or duration <= 0 or min(court_id, venue_id, owner_id) <= 0:
+        raw_slots = response.get("slots")
+        if not raw_slots and len(slot_ids) == 1:
+            raw_slots = [{**response, "time_slot_id": slot_ids[0]}]
+        if not isinstance(raw_slots, list) or len(raw_slots) != len(slot_ids):
             raise ValueError
+        by_id = {}
+        for raw in raw_slots:
+            slot_id = int(raw["time_slot_id"])
+            price = Decimal(str(raw["price_per_hour"]))
+            slot_date = date.fromisoformat(raw["slot_date"])
+            start_time = time.fromisoformat(raw["start_time"])
+            end_time = time.fromisoformat(raw["end_time"])
+            court_id, venue_id, owner_id = int(raw["court_id"]), int(raw["venue_id"]), int(raw["owner_id"])
+            duration = Decimal(str((datetime.combine(slot_date, end_time) - datetime.combine(slot_date, start_time)).total_seconds())) / Decimal("3600")
+            if (slot_id not in slot_ids or price <= 0 or duration <= 0
+                    or min(court_id, venue_id, owner_id) <= 0):
+                raise ValueError
+            by_id[slot_id] = {"time_slot_id": slot_id, "court_id": court_id, "venue_id": venue_id,
+                              "owner_id": owner_id, "slot_date": slot_date, "start_time": start_time,
+                              "end_time": end_time, "price_per_hour": price,
+                              "total_amount": (price * duration).quantize(Decimal("0.01")),
+                              "duration_minutes": int(duration * 60)}
+        if set(by_id) != set(slot_ids):
+            raise ValueError
+        ordered = [by_id[value] for value in slot_ids]
+        first = ordered[0]
+        for prev, current in zip(ordered, ordered[1:]):
+            if (current["court_id"] != first["court_id"] or current["slot_date"] != first["slot_date"]
+                    or prev["end_time"] != current["start_time"]):
+                raise HTTPException(status_code=409, detail="Selected time slots must be consecutive on the same court and date")
+        total = sum((entry["total_amount"] for entry in ordered), Decimal("0.00")).quantize(Decimal("0.01"))
+        return {"time_slot_id": first["time_slot_id"], "time_slot_ids": slot_ids,
+                "court_id": first["court_id"], "venue_id": first["venue_id"], "owner_id": first["owner_id"],
+                "slot_date": first["slot_date"], "start_time": first["start_time"],
+                "end_time": ordered[-1]["end_time"], "duration_minutes": sum(x["duration_minutes"] for x in ordered),
+                "total_amount": total, "slots": ordered}
+    except HTTPException:
+        raise
     except (KeyError, InvalidOperation, TypeError, ValueError):
         raise HTTPException(status_code=502, detail="Court service returned invalid slot data") from None
-    return {"time_slot_id": slot_id, "court_id": court_id, "venue_id": venue_id, "owner_id": owner_id,
-            "slot_date": slot_date, "start_time": start_time, "end_time": end_time,
-            "total_amount": (price * duration).quantize(Decimal("0.01"))}
+
+
+def _booking_quote(slot_ids: list[int]) -> dict:
+    return _normalize_slot_quote(slot_ids, integrations.get_slot_quote(_integration_slot_argument(slot_ids)))
+
+
+def _can_cancel(booking: Booking) -> bool:
+    if booking.status == "PENDING":
+        return booking.expires_at is not None and _as_utc(booking.expires_at) > datetime.now(timezone.utc)
+    return (booking.status == "CONFIRMED" and booking.confirmed_at is not None
+            and datetime.now(timezone.utc) <= _as_utc(booking.confirmed_at) + timedelta(minutes=30))
+
+
+def _is_upcoming(booking: Booking) -> bool:
+    if booking.status != "CONFIRMED" or booking.slot_date is None or booking.start_time is None:
+        return False
+    return datetime.combine(booking.slot_date, booking.start_time, tzinfo=BUSINESS_TIMEZONE) > datetime.now(BUSINESS_TIMEZONE)
 
 
 def _complete_booking(db: Session, booking_id: int, owner_id: int) -> dict:
@@ -100,7 +153,7 @@ def _complete_booking(db: Session, booking_id: int, owner_id: int) -> dict:
     if booking.status == "COMPLETED":
         # Completion is already durable; retry the booking-scoped release.
         try:
-            integrations.release_slot(booking.time_slot_id, booking.id)
+            integrations.release_slot(_integration_slot_argument(_booking_slot_ids(booking)), booking.id)
         except HTTPException as error:
             if error.status_code != 409:
                 raise
@@ -122,7 +175,7 @@ def _complete_booking(db: Session, booking_id: int, owner_id: int) -> dict:
         raise HTTPException(status_code=503, detail="Could not persist booking completion; retry completion") from None
     # Persist first so a Court outage cannot leave a reusable slot attached to a
     # CHECKED_IN booking. A repeated completion retries release.
-    integrations.release_slot(booking.time_slot_id, booking.id)
+    integrations.release_slot(_integration_slot_argument(_booking_slot_ids(booking)), booking.id)
     return {
         "booking_id": booking.id,
         "status": booking.status,
@@ -325,52 +378,43 @@ def create_booking(
 ):
     require_customer(principal)
 
+    try:
+        slot_ids = payload.selected_slot_ids()
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None
     booking = Booking(
         user_id=principal.user_id,
-        time_slot_id=payload.time_slot_id,
+        time_slot_id=slot_ids[0],
         status="PENDING",
         total_amount=Decimal("0.00"),
         expires_at=None,
     )
     db.add(booking)
     db.flush()
+    booking.slot_links = [BookingTimeSlot(time_slot_id=slot_id, position=index) for index, slot_id in enumerate(slot_ids)]
     try:
-        hold = integrations.hold_slot(payload.time_slot_id, booking.id)
-        price = Decimal(str(hold["price_per_hour"]))
-        slot_date = date.fromisoformat(hold["slot_date"])
-        start_time = time.fromisoformat(hold["start_time"])
-        end_time = time.fromisoformat(hold["end_time"])
-        starts = datetime.combine(slot_date, start_time)
-        ends = datetime.combine(slot_date, end_time)
-        duration_hours = Decimal(str((ends - starts).total_seconds())) / Decimal("3600")
+        hold = integrations.hold_slot(_integration_slot_argument(slot_ids), booking.id)
+        quote = _normalize_slot_quote(slot_ids, hold)
         expires_at = datetime.fromisoformat(hold["expires_at"])
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
-        court_id = int(hold["court_id"])
-        venue_id = int(hold["venue_id"])
-        owner_id = int(hold["owner_id"])
         if (
-            price <= 0
-            or duration_hours <= 0
-            or court_id <= 0
-            or venue_id <= 0
-            or owner_id <= 0
-            or expires_at <= datetime.now(timezone.utc)
+            quote["total_amount"] <= 0 or expires_at <= datetime.now(timezone.utc)
         ):
             raise ValueError("Court service returned an invalid slot price or duration")
-        booking.total_amount = (price * duration_hours).quantize(Decimal("0.01"))
+        booking.total_amount = quote["total_amount"]
         booking.expires_at = expires_at
-        booking.court_id = court_id
-        booking.venue_id = venue_id
-        booking.owner_id = owner_id
-        booking.slot_date = slot_date
-        booking.start_time = start_time
-        booking.end_time = end_time
+        booking.court_id = quote["court_id"]
+        booking.venue_id = quote["venue_id"]
+        booking.owner_id = quote["owner_id"]
+        booking.slot_date = quote["slot_date"]
+        booking.start_time = quote["start_time"]
+        booking.end_time = quote["end_time"]
         db.commit()
     except (KeyError, InvalidOperation, TypeError, ValueError):
         db.rollback()
         try:
-            integrations.release_slot(payload.time_slot_id, booking.id)
+            integrations.release_slot(_integration_slot_argument(slot_ids), booking.id)
         except HTTPException:
             raise HTTPException(status_code=503, detail="Could not release slot after invalid Court response; retry cleanup") from None
         raise HTTPException(status_code=502, detail="Court service returned invalid slot data") from None
@@ -379,7 +423,7 @@ def create_booking(
         # The Court hold may have succeeded before the local booking commit failed.
         # Release is idempotent and booking-scoped, so retrying this cleanup is safe.
         try:
-            integrations.release_slot(payload.time_slot_id, booking.id)
+            integrations.release_slot(_integration_slot_argument(slot_ids), booking.id)
         except HTTPException:
             if isinstance(error, HTTPException):
                 if error.status_code >= 500:
@@ -391,13 +435,19 @@ def create_booking(
     return booking
 
 
-@router.get("/booking-quotes/{slot_id}", tags=["bookings"])
+@router.get("/booking-quotes/{slot_ids}", tags=["bookings"])
 def get_booking_quote(
-    slot_id: int,
+    slot_ids: str,
     principal: Principal = Depends(current_principal),
 ):
     require_customer(principal)
-    return _booking_quote(slot_id)
+    try:
+        ids = [int(value) for value in slot_ids.split(",")]
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid time slot IDs") from None
+    if not ids or len(ids) > 24 or any(value <= 0 for value in ids) or len(set(ids)) != len(ids):
+        raise HTTPException(status_code=422, detail="Time slot IDs must be unique positive IDs (up to 24)")
+    return _booking_quote(ids)
 
 
 @router.get("/bookings", response_model=list[BookingResponse], tags=["bookings"])
@@ -415,7 +465,15 @@ def list_bookings(
     )
     for booking in bookings:
         _expire_if_needed(booking, db)
-    return [booking for booking in bookings if booking.status == "CONFIRMED"]
+    responses = []
+    for booking in bookings:
+        response = BookingResponse.model_validate(booking).model_copy(
+            update={"can_cancel": _can_cancel(booking), "is_upcoming": _is_upcoming(booking)}
+        )
+        if booking.status != "CONFIRMED":
+            response = response.model_copy(update={"qr_token": None})
+        responses.append(response)
+    return responses
 
 
 @router.get("/bookings/{booking_id}", response_model=BookingResponse, tags=["bookings"])
@@ -427,6 +485,7 @@ def get_booking(
     require_customer(principal)
     booking = _owned_booking(db, booking_id, principal)
     response = BookingResponse.model_validate(booking)
+    response = response.model_copy(update={"can_cancel": _can_cancel(booking), "is_upcoming": _is_upcoming(booking)})
     if booking.status != "CONFIRMED":
         response = response.model_copy(update={"qr_token": None})
     return response
@@ -503,14 +562,13 @@ def payment_context(
     _expire_if_needed(booking, db)
     if booking.status == "PENDING" and booking.expires_at is None:
         raise HTTPException(status_code=409, detail="Booking has no active slot hold")
-    if booking.status not in {"PENDING", "CONFIRMED"}:
-        raise HTTPException(status_code=409, detail="Booking is not payable")
     return PaymentContext(
         booking_id=booking.id,
         user_id=booking.user_id,
         status=booking.status,
         total_amount=booking.total_amount,
         expires_at=booking.expires_at,
+        qr_token=booking.qr_token if booking.status == "CONFIRMED" else None,
     )
 
 
@@ -534,7 +592,7 @@ def confirm_booking(
         }
     if booking.status != "PENDING":
         raise HTTPException(status_code=409, detail="Booking cannot be confirmed")
-    integrations.confirm_slot(booking.time_slot_id, booking.id)
+    integrations.confirm_slot(_integration_slot_argument(_booking_slot_ids(booking)), booking.id)
     booking.status = "CONFIRMED"
     booking.confirmed_at = datetime.now(timezone.utc)
     booking.expires_at = None
@@ -566,6 +624,13 @@ def check_in_booking(
         "booking_id": booking.id,
         "status": booking.status,
         "checked_in_at": booking.checked_in_at,
+        "user_id": booking.user_id,
+        "venue_id": booking.venue_id,
+        "court_id": booking.court_id,
+        "slot_date": booking.slot_date,
+        "start_time": booking.start_time,
+        "end_time": booking.end_time,
+        "total_amount": booking.total_amount,
     }
 
 

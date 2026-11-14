@@ -48,8 +48,8 @@ public interface CustomerApi {
             @Body JsonObject request
     );
 
-    @GET("api/v1/booking-quotes/{slot_id}")
-    Call<JsonObject> getBookingQuote(@Path("slot_id") int slotId);
+    @GET("api/v1/booking-quotes/{slot_ids}")
+    Call<JsonObject> getBookingQuote(@Path(value = "slot_ids", encoded = true) String slotIds);
 
     @GET("api/v1/bookings")
     Call<JsonElement> getBookings();

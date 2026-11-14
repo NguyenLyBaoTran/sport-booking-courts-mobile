@@ -1,6 +1,7 @@
 package com.example.sportbooking;
 
 import android.content.Intent;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -194,7 +195,7 @@ public class CourtDetailActivity extends AppCompatActivity {
                     tvDesc.setVisibility(View.GONE);
                     if (tvAboutHeader != null) tvAboutHeader.setVisibility(View.GONE);
                 }
-                tvDetailPrice.setText("150,000 VND/h");
+                tvDetailPrice.setText("Price unavailable");
             }
         });
     }
@@ -203,7 +204,6 @@ public class CourtDetailActivity extends AppCompatActivity {
         if (raw == null || raw.trim().isEmpty()) return "N/A";
         try {
             double val = Double.parseDouble(raw);
-            if (val < 1000) val = val * 1000;
             java.text.NumberFormat nf = java.text.NumberFormat.getInstance(Locale.getDefault());
             return nf.format(val) + " VND/h";
         } catch (Exception e) {
@@ -387,20 +387,48 @@ public class CourtDetailActivity extends AppCompatActivity {
         @Override
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             JsonObject slot = items.get(position);
-            String startTime = slot.has("start_time") ? slot.get("start_time").getAsString() : "00:00";
-            String endTime = slot.has("end_time") ? slot.get("end_time").getAsString() : "00:00";
+            String startTime = slot.has("start_time") ? formatTime(slot.get("start_time").getAsString()) : "--:--";
+            String endTime = slot.has("end_time") ? formatTime(slot.get("end_time").getAsString()) : "--:--";
             holder.tvTime.setText(startTime + " - " + endTime);
 
-            holder.itemView.setSelected(position == selectedPosition);
-            holder.itemView.setBackgroundColor(position == selectedPosition ? 0xFFE0F2F1 : 0xFFFFFFFF);
+            String state = slot.has("reservation_status") ? slot.get("reservation_status").getAsString() : "UNAVAILABLE";
+            boolean selectable = slot.has("is_selectable") && slot.get("is_selectable").getAsBoolean();
+            if (!selectable && "AVAILABLE".equalsIgnoreCase(state)) state = "UNAVAILABLE";
+            holder.tvTime.setText(startTime + " - " + endTime + "\n" + state);
+            holder.itemView.setEnabled(selectable);
+            holder.itemView.setAlpha(selectable ? 1f : 0.72f);
+            holder.tvTime.setTextColor("AVAILABLE".equalsIgnoreCase(state) ? 0xFF176B4D
+                    : "HELD".equalsIgnoreCase(state) ? 0xFF895500
+                    : "BOOKED".equalsIgnoreCase(state) ? 0xFF8C3A32 : 0xFF71829C);
+            GradientDrawable slotBackground = new GradientDrawable();
+            slotBackground.setColor("AVAILABLE".equalsIgnoreCase(state) ? 0xFFE7F5EF
+                    : "HELD".equalsIgnoreCase(state) ? 0xFFFFF2D8
+                    : "BOOKED".equalsIgnoreCase(state) ? 0xFFFCE8E6 : 0xFFE9EDF2);
+            slotBackground.setCornerRadius(10 * holder.itemView.getResources().getDisplayMetrics().density);
+            holder.itemView.setBackground(slotBackground);
+
+            boolean selected = position == selectedPosition;
+            holder.itemView.setSelected(selected);
+            if (selected) {
+                GradientDrawable selectedBackground = new GradientDrawable();
+                selectedBackground.setColor(0xFF0C8B63);
+                selectedBackground.setCornerRadius(10 * holder.itemView.getResources().getDisplayMetrics().density);
+                holder.itemView.setBackground(selectedBackground);
+                holder.tvTime.setTextColor(0xFFFFFFFF);
+            }
 
             holder.itemView.setOnClickListener(v -> {
+                if (!selectable) return;
                 int oldPos = selectedPosition;
                 selectedPosition = holder.getAbsoluteAdapterPosition();
                 if (oldPos != -1) notifyItemChanged(oldPos);
                 notifyItemChanged(selectedPosition);
                 listener.onSlotClick(slot);
             });
+        }
+
+        private static String formatTime(String value) {
+            return value != null && value.length() >= 5 ? value.substring(0, 5) : value;
         }
 
         @Override

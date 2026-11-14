@@ -162,97 +162,126 @@ def _ensure_slot_not_reserved(slot: TimeSlot) -> None:
         raise HTTPException(status_code=409, detail="Time slot is booked")
 
 
-@router.get("/internal/slots/{slot_id}/quote", dependencies=[Depends(require_internal_token)])
-def quote_slot(slot_id: int, db: Session = Depends(get_db)):
-    slot = _locked_slot(db, slot_id)
+def _parse_slot_ids(raw: str) -> list[int]:
+    try:
+        ids = [int(value) for value in raw.split(",")]
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="Invalid time slot IDs") from None
+    if not ids or len(ids) > 24 or any(value <= 0 for value in ids) or len(set(ids)) != len(ids):
+        raise HTTPException(status_code=422, detail="Time slot IDs must be unique positive IDs (up to 24)")
+    return ids
+
+
+def _slot_reservation_data(db: Session, slot: TimeSlot) -> dict:
     if not slot.is_active or datetime.combine(slot.slot_date, slot.start_time, tzinfo=BUSINESS_TIMEZONE) <= business_now():
-        raise HTTPException(status_code=409, detail="Time slot is unavailable")
-    court = get_or_404(db, Court, slot.court_id, "Court")
-    venue = get_or_404(db, Venue, court.venue_id, "Venue")
-    if not court.is_active or not venue.is_active or slot.reservation_status != "AVAILABLE":
-        raise HTTPException(status_code=409, detail="Time slot is unavailable")
-    return {"price_per_hour": court.price_per_hour, "slot_date": slot.slot_date.isoformat(),
-            "start_time": slot.start_time.isoformat(), "end_time": slot.end_time.isoformat(),
-            "court_id": court.id, "venue_id": venue.id, "owner_id": venue.owner_id}
-
-
-@router.post("/internal/slots/{slot_id}/hold", dependencies=[Depends(require_internal_token)])
-def hold_slot(slot_id: int, booking_id: int = Query(gt=0), db: Session = Depends(get_db)):
-    slot = _locked_slot(db, slot_id)
-    now = _reservation_now()
-    if not slot.is_active:
-        raise HTTPException(status_code=409, detail="Time slot is unavailable")
-    if datetime.combine(slot.slot_date, slot.start_time, tzinfo=BUSINESS_TIMEZONE) <= business_now():
         raise HTTPException(status_code=409, detail="Time slot is unavailable")
     court = get_or_404(db, Court, slot.court_id, "Court")
     venue = get_or_404(db, Venue, court.venue_id, "Venue")
     if not court.is_active or not venue.is_active:
         raise HTTPException(status_code=409, detail="Time slot is unavailable")
-    if slot.reservation_status == "BOOKED":
-        raise HTTPException(status_code=409, detail="Time slot is unavailable")
-    if slot.reservation_status == "HELD" and slot.reservation_booking_id == booking_id:
-        if slot.reservation_expires_at is None or slot.reservation_expires_at <= now:
+    return {"time_slot_id": slot.id, "price_per_hour": str(court.price_per_hour),
+            "slot_date": slot.slot_date.isoformat(), "start_time": slot.start_time.isoformat(),
+            "end_time": slot.end_time.isoformat(), "court_id": court.id,
+            "venue_id": venue.id, "owner_id": venue.owner_id}
+
+
+@router.get("/internal/slots/{slot_ids}/quote", dependencies=[Depends(require_internal_token)])
+def quote_slot(slot_ids: str, db: Session = Depends(get_db)):
+    ids = _parse_slot_ids(slot_ids)
+    slots = [_locked_slot(db, slot_id) for slot_id in sorted(ids)]
+    data = [_slot_reservation_data(db, slot) for slot in slots]
+    for slot in slots:
+        expired_hold = (slot.reservation_status == "HELD" and slot.reservation_expires_at is not None
+                        and slot.reservation_expires_at <= _reservation_now())
+        if slot.reservation_status != "AVAILABLE" and not expired_hold:
             raise HTTPException(status_code=409, detail="Time slot is unavailable")
-    if slot.reservation_status == "HELD" and slot.reservation_expires_at and slot.reservation_expires_at > now:
-        if slot.reservation_booking_id != booking_id:
+    by_id = {entry["time_slot_id"]: entry for entry in data}
+    result = {"slots": [by_id[slot_id] for slot_id in ids]}
+    if len(ids) == 1:
+        result.update({key: value for key, value in by_id[ids[0]].items() if key != "time_slot_id"})
+    return result
+
+
+@router.post("/internal/slots/{slot_ids}/hold", dependencies=[Depends(require_internal_token)])
+def hold_slot(slot_ids: str, booking_id: int = Query(gt=0), db: Session = Depends(get_db)):
+    ids = _parse_slot_ids(slot_ids)
+    slots = [_locked_slot(db, slot_id) for slot_id in sorted(ids)]
+    now = _reservation_now()
+    details = [_slot_reservation_data(db, slot) for slot in slots]
+    try:
+        ttl = int(os.getenv("BOOKING_HOLD_MINUTES", "10"))
+    except ValueError:
+        raise HTTPException(status_code=503, detail="Booking hold duration is not configured") from None
+    if ttl <= 0:
+        raise HTTPException(status_code=503, detail="Booking hold duration is not configured")
+    # Validate all before changing any row. The transaction commits every hold together.
+    for slot in slots:
+        if slot.reservation_status == "BOOKED":
             raise HTTPException(status_code=409, detail="Time slot is unavailable")
-    else:
-        try:
-            ttl = int(os.getenv("BOOKING_HOLD_MINUTES", "10"))
-        except ValueError:
-            raise HTTPException(status_code=503, detail="Booking hold duration is not configured") from None
-        if ttl <= 0:
-            raise HTTPException(status_code=503, detail="Booking hold duration is not configured")
+        if slot.reservation_status == "HELD" and slot.reservation_booking_id == booking_id:
+            if slot.reservation_expires_at is None or slot.reservation_expires_at <= now:
+                raise HTTPException(status_code=409, detail="Time slot is unavailable")
+        elif slot.reservation_status == "HELD" and slot.reservation_expires_at and slot.reservation_expires_at > now:
+            raise HTTPException(status_code=409, detail="Time slot is unavailable")
+    reusable_expiries = [slot.reservation_expires_at for slot in slots]
+    idempotent_retry = all(
+        slot.reservation_status == "HELD" and slot.reservation_booking_id == booking_id
+        and slot.reservation_expires_at is not None and slot.reservation_expires_at > now
+        for slot in slots
+    ) and len(set(reusable_expiries)) == 1
+    expiry_at = reusable_expiries[0] if idempotent_retry else now + timedelta(minutes=ttl)
+    for slot in slots:
         slot.reservation_status = "HELD"
         slot.reservation_booking_id = booking_id
-        slot.reservation_expires_at = now + timedelta(minutes=ttl)
+        slot.reservation_expires_at = expiry_at
     try:
         db.commit()
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=500, detail="Database operation failed") from None
-    expiry = slot.reservation_expires_at.replace(tzinfo=timezone.utc)
-    return {
-        "court_id": court.id,
-        "venue_id": venue.id,
-        "owner_id": venue.owner_id,
-        "price_per_hour": str(court.price_per_hour),
-        "slot_date": slot.slot_date.isoformat(),
-        "start_time": slot.start_time.isoformat(),
-        "end_time": slot.end_time.isoformat(),
-        "expires_at": expiry.isoformat(),
-    }
+    expiry = expiry_at.replace(tzinfo=timezone.utc)
+    result = {"slots": details, "expires_at": expiry.isoformat()}
+    if len(ids) == 1:
+        result.update(details[0])
+    return result
 
 
-@router.post("/internal/slots/{slot_id}/confirm", dependencies=[Depends(require_internal_token)])
-def confirm_slot(slot_id: int, booking_id: int = Query(gt=0), db: Session = Depends(get_db)):
-    slot = _locked_slot(db, slot_id)
-    # Preserve idempotency for the owning booking even if the slot time has
-    # since started or its Court/Venue was deactivated.
-    if slot.reservation_status == "BOOKED" and slot.reservation_booking_id == booking_id:
+@router.post("/internal/slots/{slot_ids}/confirm", dependencies=[Depends(require_internal_token)])
+def confirm_slot(slot_ids: str, booking_id: int = Query(gt=0), db: Session = Depends(get_db)):
+    ids = _parse_slot_ids(slot_ids)
+    slots = [_locked_slot(db, slot_id) for slot_id in sorted(ids)]
+    now = _reservation_now()
+    if all(slot.reservation_status == "BOOKED" and slot.reservation_booking_id == booking_id for slot in slots):
         return {"status": "BOOKED"}
-    if datetime.combine(slot.slot_date, slot.start_time, tzinfo=BUSINESS_TIMEZONE) <= business_now():
-        raise HTTPException(status_code=409, detail="Time slot is unavailable")
-    court = get_or_404(db, Court, slot.court_id, "Court")
-    venue = get_or_404(db, Venue, court.venue_id, "Venue")
-    if not slot.is_active or not court.is_active or not venue.is_active:
-        raise HTTPException(status_code=409, detail="Time slot is unavailable")
-    if (
-        slot.reservation_status != "HELD"
-        or slot.reservation_booking_id != booking_id
-        or slot.reservation_expires_at is None
-        or slot.reservation_expires_at <= _reservation_now()
-    ):
-        raise HTTPException(status_code=409, detail="Booking does not hold this time slot")
-    slot.reservation_status = "BOOKED"
-    slot.reservation_expires_at = None
+    for slot in slots:
+        _slot_reservation_data(db, slot)
+        if (slot.reservation_status != "HELD" or slot.reservation_booking_id != booking_id
+                or slot.reservation_expires_at is None or slot.reservation_expires_at <= now):
+            raise HTTPException(status_code=409, detail="Booking does not hold every requested time slot")
+    for slot in slots:
+        slot.reservation_status = "BOOKED"
+        slot.reservation_expires_at = None
     commit_or_conflict(db)
-    return {"status": "BOOKED"}
+    return {"status": "BOOKED"} if len(ids) == 1 else {"status": "BOOKED", "time_slot_ids": ids}
 
 
-@router.post("/internal/slots/{slot_id}/release", dependencies=[Depends(require_internal_token)])
-def release_slot(slot_id: int, booking_id: int = Query(gt=0), db: Session = Depends(get_db)):
-    slot = _locked_slot(db, slot_id)
+@router.post("/internal/slots/{slot_ids}/release", dependencies=[Depends(require_internal_token)])
+def release_slot(slot_ids: str, booking_id: int = Query(gt=0), db: Session = Depends(get_db)):
+    ids = _parse_slot_ids(slot_ids)
+    slots = [_locked_slot(db, slot_id) for slot_id in sorted(ids)]
+    if len(ids) > 1:
+        # Batch cleanup is booking scoped. Newer reservations are skipped, never touched.
+        for slot in slots:
+            if slot.reservation_status in {"HELD", "BOOKED"} and slot.reservation_booking_id == booking_id:
+                slot.reservation_status = "AVAILABLE"
+                slot.reservation_booking_id = None
+                slot.reservation_expires_at = None
+            elif slot.reservation_status == "AVAILABLE" and slot.reservation_booking_id == booking_id:
+                slot.reservation_booking_id = None
+                slot.reservation_expires_at = None
+        commit_or_conflict(db)
+        return {"status": "AVAILABLE", "time_slot_ids": ids}
+    slot = slots[0]
     if slot.reservation_status == "AVAILABLE":
         if slot.reservation_booking_id not in (None, booking_id):
             raise HTTPException(status_code=409, detail="Time slot reservation belongs to another booking")
@@ -496,21 +525,34 @@ def list_time_slots(
         query = query.where(TimeSlot.slot_date == slot_date)
     if is_active is not None:
         query = query.where(TimeSlot.is_active == is_active)
-    if principal is None or principal.role == "USER":
+    customer_view = principal is None or principal.role == "USER"
+    if customer_view:
         now = business_now()
         query = (
             query.join(Court, TimeSlot.court_id == Court.id)
             .join(Venue, Court.venue_id == Venue.id)
             .where(
                 TimeSlot.is_active.is_(True),
-                TimeSlot.reservation_status == "AVAILABLE",
                 Court.is_active.is_(True),
                 Venue.is_active.is_(True),
                 (TimeSlot.slot_date > now.date())
                 | ((TimeSlot.slot_date == now.date()) & (TimeSlot.start_time > now.timetz().replace(tzinfo=None))),
             )
         )
-    return db.scalars(query.order_by(TimeSlot.slot_date, TimeSlot.start_time)).all()
+    slots = db.scalars(query.order_by(TimeSlot.slot_date, TimeSlot.start_time)).all()
+    if not customer_view:
+        return slots
+    now = _reservation_now()
+    result = []
+    for slot in slots:
+        expired_hold = (slot.reservation_status == "HELD" and slot.reservation_expires_at is not None
+                        and slot.reservation_expires_at <= now)
+        status_value = "AVAILABLE" if expired_hold else slot.reservation_status
+        result.append({"id": slot.id, "court_id": slot.court_id, "slot_date": slot.slot_date,
+                       "start_time": slot.start_time, "end_time": slot.end_time, "is_active": slot.is_active,
+                       "reservation_status": status_value,
+                       "is_selectable": bool(slot.is_active and status_value == "AVAILABLE")})
+    return result
 
 
 @router.get("/time-slots/{slot_id}", response_model=TimeSlotOutput)

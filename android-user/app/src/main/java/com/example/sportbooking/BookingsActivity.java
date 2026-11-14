@@ -18,33 +18,33 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.BookingRepository;
+import com.example.sportbooking.repository.PaymentRepository;
 import com.example.sportbooking.utils.BottomNavUtils;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
-import java.util.List;
-import java.text.SimpleDateFormat;
-import java.text.ParsePosition;
-import java.util.Date;
+import java.text.NumberFormat;
 import java.util.Locale;
-import java.util.Calendar;
-import java.util.TimeZone;
+import java.util.List;
 
 public class BookingsActivity extends AppCompatActivity {
 
     private BookingRepository bookingRepository;
+    private PaymentRepository paymentRepository;
     private RecyclerView rvBookings;
     private ProgressBar progressBar;
     private TextView tvEmpty;
-    private View tabUpcoming, tabPast;
-    private TextView tvUpcoming, tvPast;
-    private View indicatorUpcoming, indicatorPast;
+    private View tabUpcoming, tabPast, tabPayments;
+    private TextView tvUpcoming, tvPast, tvPayments;
+    private View indicatorUpcoming, indicatorPast, indicatorPayments;
 
     private final List<JsonObject> allBookings = new ArrayList<>();
     private final List<JsonObject> displayedBookings = new ArrayList<>();
+    private final List<JsonObject> displayedPayments = new ArrayList<>();
     private BookingAdapter bookingAdapter;
-    private boolean isUpcomingTab = true;
+    private int selectedTab = 0;
+    private boolean resumedOnce;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -52,19 +52,23 @@ public class BookingsActivity extends AppCompatActivity {
         setContentView(R.layout.activity_bookings);
 
         bookingRepository = new BookingRepository(this);
+        paymentRepository = new PaymentRepository(this);
 
         rvBookings = findViewById(R.id.rvBookings);
         progressBar = findViewById(R.id.progressBar);
         tvEmpty = findViewById(R.id.tvEmpty);
         tabUpcoming = findViewById(R.id.tabUpcoming);
         tabPast = findViewById(R.id.tabPast);
+        tabPayments = findViewById(R.id.tabPayments);
         tvUpcoming = findViewById(R.id.tvUpcoming);
         tvPast = findViewById(R.id.tvPast);
+        tvPayments = findViewById(R.id.tvPayments);
         indicatorUpcoming = findViewById(R.id.indicatorUpcoming);
         indicatorPast = findViewById(R.id.indicatorPast);
+        indicatorPayments = findViewById(R.id.indicatorPayments);
 
         rvBookings.setLayoutManager(new LinearLayoutManager(this));
-        bookingAdapter = new BookingAdapter(displayedBookings, isUpcomingTab, booking -> {
+        bookingAdapter = new BookingAdapter(displayedBookings, true, false, booking -> {
             int id = booking.has("id") ? booking.get("id").getAsInt() : -1;
             if (id > 0) {
                 loadBookingDetail(id);
@@ -75,18 +79,25 @@ public class BookingsActivity extends AppCompatActivity {
         rvBookings.setAdapter(bookingAdapter);
 
         tabUpcoming.setOnClickListener(v -> {
-            if (!isUpcomingTab) {
-                isUpcomingTab = true;
+            if (selectedTab != 0) {
+                selectedTab = 0;
                 updateTabUi();
                 filterBookings();
             }
         });
 
         tabPast.setOnClickListener(v -> {
-            if (isUpcomingTab) {
-                isUpcomingTab = false;
+            if (selectedTab != 1) {
+                selectedTab = 1;
                 updateTabUi();
                 filterBookings();
+            }
+        });
+        tabPayments.setOnClickListener(v -> {
+            if (selectedTab != 2) {
+                selectedTab = 2;
+                updateTabUi();
+                loadPayments();
             }
         });
 
@@ -98,21 +109,27 @@ public class BookingsActivity extends AppCompatActivity {
         int primaryColor = 0xFF0C8B63; // @color/primary
         int grayColor = 0xFF71829C;  // @color/text_secondary
 
-        if (isUpcomingTab) {
-            tvUpcoming.setTextColor(primaryColor);
-            indicatorUpcoming.setBackgroundColor(primaryColor);
-            tvPast.setTextColor(grayColor);
-            indicatorPast.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        } else {
-            tvPast.setTextColor(primaryColor);
-            indicatorPast.setBackgroundColor(primaryColor);
-            tvUpcoming.setTextColor(grayColor);
-            indicatorUpcoming.setBackgroundColor(android.graphics.Color.TRANSPARENT);
-        }
+        tvUpcoming.setTextColor(selectedTab == 0 ? primaryColor : grayColor);
+        indicatorUpcoming.setBackgroundColor(selectedTab == 0 ? primaryColor : android.graphics.Color.TRANSPARENT);
+        tvPast.setTextColor(selectedTab == 1 ? primaryColor : grayColor);
+        indicatorPast.setBackgroundColor(selectedTab == 1 ? primaryColor : android.graphics.Color.TRANSPARENT);
+        tvPayments.setTextColor(selectedTab == 2 ? primaryColor : grayColor);
+        indicatorPayments.setBackgroundColor(selectedTab == 2 ? primaryColor : android.graphics.Color.TRANSPARENT);
     }
 
     private void setupBottomNav() {
         BottomNavUtils.setupBottomNav(this, R.id.navBookings);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (resumedOnce) {
+            if (selectedTab == 2) loadPayments();
+            else loadBookings();
+        } else {
+            resumedOnce = true;
+        }
     }
 
     private void filterBookings() {
@@ -121,18 +138,15 @@ public class BookingsActivity extends AppCompatActivity {
             String status = booking.has("status") && !booking.get("status").isJsonNull()
                     ? booking.get("status").getAsString().toUpperCase() : "";
 
-            boolean isPast = status.equals("COMPLETED") || status.equals("EXPIRED") || status.equals("CANCELLED") || status.equals("FAILED");
-
-            String slotDate = booking.has("slot_date") && !booking.get("slot_date").isJsonNull()
-                    ? booking.get("slot_date").getAsString() : "";
-            if (isUpcomingTab && status.equals("CONFIRMED") && isUpcomingDate(slotDate)) {
+            boolean upcoming = booking.has("is_upcoming") && booking.get("is_upcoming").getAsBoolean();
+            if (selectedTab == 0 && status.equals("CONFIRMED") && upcoming) {
                 displayedBookings.add(booking);
-            } else if (!isUpcomingTab && isPast) {
+            } else if (selectedTab == 1 && !(status.equals("CONFIRMED") && upcoming)) {
                 displayedBookings.add(booking);
             }
         }
 
-        bookingAdapter = new BookingAdapter(displayedBookings, isUpcomingTab, booking -> {
+        bookingAdapter = new BookingAdapter(displayedBookings, selectedTab == 0, false, booking -> {
             int id = booking.has("id") ? booking.get("id").getAsInt() : -1;
             if (id > 0) {
                 loadBookingDetail(id);
@@ -144,10 +158,25 @@ public class BookingsActivity extends AppCompatActivity {
         tvEmpty.setVisibility(displayedBookings.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
-    private static boolean isUpcomingDate(String slotDate) {
-        if (slotDate == null || slotDate.length() < 10) return false;
-        String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Calendar.getInstance().getTime());
-        return slotDate.substring(0, 10).compareTo(today) >= 0;
+    private void loadPayments() {
+        progressBar.setVisibility(View.VISIBLE);
+        tvEmpty.setVisibility(View.GONE);
+        displayedPayments.clear();
+        paymentRepository.getPayments(new ApiCallback<JsonArray>() {
+            @Override public void onSuccess(JsonArray result) {
+                progressBar.setVisibility(View.GONE);
+                for (int i = 0; i < result.size(); i++) displayedPayments.add(result.get(i).getAsJsonObject());
+                bookingAdapter = new BookingAdapter(displayedPayments, false, true, null);
+                rvBookings.setAdapter(bookingAdapter);
+                tvEmpty.setText("No payment transactions found.");
+                tvEmpty.setVisibility(displayedPayments.isEmpty() ? View.VISIBLE : View.GONE);
+            }
+            @Override public void onError(String error) {
+                progressBar.setVisibility(View.GONE);
+                tvEmpty.setText(error);
+                tvEmpty.setVisibility(View.VISIBLE);
+            }
+        });
     }
 
     private void loadBookingDetail(int bookingId) {
@@ -157,21 +186,23 @@ public class BookingsActivity extends AppCompatActivity {
             public void onSuccess(JsonObject booking) {
                 progressBar.setVisibility(View.GONE);
                 String amount = booking.has("total_amount") && !booking.get("total_amount").isJsonNull()
-                        ? booking.get("total_amount").getAsString() : "150,000";
+                        ? booking.get("total_amount").getAsString() : "";
                 String slotDate = booking.has("slot_date") && !booking.get("slot_date").isJsonNull()
-                        ? booking.get("slot_date").getAsString() : "Tue, Apr 22, 2025";
+                        ? booking.get("slot_date").getAsString() : "";
                 String startTime = booking.has("start_time") && !booking.get("start_time").isJsonNull()
-                        ? booking.get("start_time").getAsString() : "11:00 AM";
+                        ? BookingAdapter.formatTime(booking.get("start_time").getAsString()) : "";
                 String endTime = booking.has("end_time") && !booking.get("end_time").isJsonNull()
-                        ? booking.get("end_time").getAsString() : "12:00 PM";
+                        ? BookingAdapter.formatTime(booking.get("end_time").getAsString()) : "";
                 String qrToken = booking.has("qr_token") && !booking.get("qr_token").isJsonNull()
                         ? booking.get("qr_token").getAsString() : null;
 
                 Intent intent = new Intent(BookingsActivity.this, BookingSuccessActivity.class);
                 intent.putExtra("booking_id", bookingId);
                 intent.putExtra("qr_token", qrToken);
-                intent.putExtra("court_name", "Court 1");
-                intent.putExtra("venue_name", "Greenfield Sports Complex");
+                intent.putExtra("court_name", booking.has("court_id") && !booking.get("court_id").isJsonNull()
+                        ? "Court #" + booking.get("court_id").getAsString() : "");
+                intent.putExtra("venue_name", booking.has("venue_id") && !booking.get("venue_id").isJsonNull()
+                        ? "Venue #" + booking.get("venue_id").getAsString() : "");
                 intent.putExtra("date", slotDate);
                 intent.putExtra("time_slot", startTime + " - " + endTime);
                 intent.putExtra("total_amount", amount);
@@ -200,7 +231,7 @@ public class BookingsActivity extends AppCompatActivity {
                 for (int i = 0; i < result.size(); i++) {
                     allBookings.add(result.get(i).getAsJsonObject());
                 }
-                filterBookings();
+                if (selectedTab != 2) filterBookings();
             }
 
             @Override
@@ -247,15 +278,17 @@ public class BookingsActivity extends AppCompatActivity {
     public static class BookingAdapter extends RecyclerView.Adapter<BookingAdapter.ViewHolder> {
         private final List<JsonObject> items;
         private final boolean isUpcoming;
+        private final boolean isPayment;
         private final OnBookingClickListener listener;
 
         public interface OnBookingClickListener {
             void onBookingClick(JsonObject booking);
         }
 
-        public BookingAdapter(List<JsonObject> items, boolean isUpcoming, OnBookingClickListener listener) {
+        public BookingAdapter(List<JsonObject> items, boolean isUpcoming, boolean isPayment, OnBookingClickListener listener) {
             this.items = items;
             this.isUpcoming = isUpcoming;
+            this.isPayment = isPayment;
             this.listener = listener;
         }
 
@@ -270,40 +303,48 @@ public class BookingsActivity extends AppCompatActivity {
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             JsonObject booking = items.get(position);
             int id = booking.has("id") ? booking.get("id").getAsInt() : -1;
-            String status = booking.has("status") && !booking.get("status").isJsonNull() ? booking.get("status").getAsString() : "CONFIRMED";
-            String amount = booking.has("total_amount") && !booking.get("total_amount").isJsonNull() ? booking.get("total_amount").getAsString() : "150,000";
-            String slotDate = booking.has("slot_date") && !booking.get("slot_date").isJsonNull() ? booking.get("slot_date").getAsString() : "Tue, Apr 22, 2025";
-            String startTime = booking.has("start_time") && !booking.get("start_time").isJsonNull() ? booking.get("start_time").getAsString() : "11:00 AM";
-            String endTime = booking.has("end_time") && !booking.get("end_time").isJsonNull() ? booking.get("end_time").getAsString() : "12:00 PM";
-            String confirmedAt = booking.has("confirmed_at") && !booking.get("confirmed_at").isJsonNull()
-                    ? booking.get("confirmed_at").getAsString() : null;
-            boolean confirmedStatus = "CONFIRMED".equalsIgnoreCase(status);
-            boolean canCancel = confirmedStatus && isWithinCancellationWindow(confirmedAt);
-            boolean missingConfirmationTime = confirmedStatus && confirmedAt == null;
-
-            holder.tvCourtName.setText("Court 1");
-            holder.tvAmount.setText(amount + " VND");
+            String status = booking.has("status") && !booking.get("status").isJsonNull() ? booking.get("status").getAsString() : "UNKNOWN";
+            String amount = booking.has("amount") && !booking.get("amount").isJsonNull()
+                    ? booking.get("amount").getAsString()
+                    : booking.has("total_amount") && !booking.get("total_amount").isJsonNull() ? booking.get("total_amount").getAsString() : "";
+            if (isPayment) {
+                int bookingId = booking.has("booking_id") ? booking.get("booking_id").getAsInt() : -1;
+                holder.tvCourtName.setText("Payment #" + id + (bookingId > 0 ? " · Booking #" + bookingId : ""));
+                holder.tvDate.setText(booking.has("created_at") ? booking.get("created_at").getAsString() : "");
+                holder.tvTime.setText(booking.has("transaction_code") && !booking.get("transaction_code").isJsonNull()
+                        ? "Transaction " + booking.get("transaction_code").getAsString() : "");
+            } else {
+                int courtId = booking.has("court_id") && !booking.get("court_id").isJsonNull() ? booking.get("court_id").getAsInt() : -1;
+                holder.tvCourtName.setText(courtId > 0 ? "Court #" + courtId : "Booking #" + id);
+                holder.tvDate.setText(booking.has("slot_date") && !booking.get("slot_date").isJsonNull()
+                        ? booking.get("slot_date").getAsString() : "");
+                String startTime = booking.has("start_time") && !booking.get("start_time").isJsonNull() ? formatTime(booking.get("start_time").getAsString()) : "";
+                String endTime = booking.has("end_time") && !booking.get("end_time").isJsonNull() ? formatTime(booking.get("end_time").getAsString()) : "";
+                holder.tvTime.setText(startTime + (endTime.isEmpty() ? "" : " - " + endTime));
+            }
+            holder.tvAmount.setText(amount.isEmpty() ? "" : formatAmount(amount) + " VND");
             holder.tvStatus.setText(status);
-            holder.tvDate.setText(slotDate);
-            holder.tvTime.setText(startTime + " - " + endTime);
-
-            if (isUpcoming) {
+            if (isPayment) {
+                holder.layoutButtonsRow.setVisibility(View.GONE);
+                holder.itemView.setOnClickListener(null);
+            } else if ("PENDING".equalsIgnoreCase(status)
+                    && booking.has("can_cancel") && booking.get("can_cancel").getAsBoolean()) {
                 holder.layoutButtonsRow.setVisibility(View.VISIBLE);
-                holder.btnViewTicket.setVisibility("CONFIRMED".equalsIgnoreCase(status) ? View.VISIBLE : View.GONE);
-                holder.btnCancelBooking.setVisibility(canCancel || missingConfirmationTime ? View.VISIBLE : View.GONE);
+                holder.btnViewTicket.setVisibility(View.GONE);
+                holder.btnCancelBooking.setVisibility(View.VISIBLE);
+                holder.btnCancelBooking.setEnabled(true);
+                holder.btnCancelBooking.setOnClickListener(v -> ((BookingsActivity) holder.itemView.getContext()).confirmAndCancelBooking(booking));
+                holder.itemView.setOnClickListener(null);
+            } else if (isUpcoming) {
+                holder.layoutButtonsRow.setVisibility(View.VISIBLE);
+                boolean confirmedStatus = "CONFIRMED".equalsIgnoreCase(status);
+                boolean canCancel = booking.has("can_cancel") && booking.get("can_cancel").getAsBoolean();
+                holder.btnViewTicket.setVisibility(confirmedStatus ? View.VISIBLE : View.GONE);
+                holder.btnCancelBooking.setVisibility(canCancel ? View.VISIBLE : View.GONE);
                 holder.btnCancelBooking.setEnabled(canCancel);
-                holder.btnCancelBooking.setText(missingConfirmationTime ? "Cancel unavailable" : "Cancel");
-                holder.btnCancelBooking.setOnClickListener(v -> {
-                    if (missingConfirmationTime) {
-                        Toast.makeText(holder.itemView.getContext(),
-                                "Cancellation cannot be offered because this booking has no recorded confirmation time.",
-                                Toast.LENGTH_LONG).show();
-                    } else if (canCancel) {
-                        ((BookingsActivity) holder.itemView.getContext()).confirmAndCancelBooking(booking);
-                    }
-                });
-                holder.btnViewTicket.setOnClickListener(v -> { if ("CONFIRMED".equalsIgnoreCase(status)) listener.onBookingClick(booking); });
-                holder.itemView.setOnClickListener(v -> listener.onBookingClick(booking));
+                holder.btnCancelBooking.setOnClickListener(v -> ((BookingsActivity) holder.itemView.getContext()).confirmAndCancelBooking(booking));
+                holder.btnViewTicket.setOnClickListener(v -> { if (confirmedStatus && listener != null) listener.onBookingClick(booking); });
+                holder.itemView.setOnClickListener(v -> { if (confirmedStatus && listener != null) listener.onBookingClick(booking); });
             } else {
                 // Past tab: hide action buttons and disable click on past tickets
                 holder.layoutButtonsRow.setVisibility(View.GONE);
@@ -311,21 +352,13 @@ public class BookingsActivity extends AppCompatActivity {
             }
         }
 
-        private static boolean isWithinCancellationWindow(String value) {
-            if (value == null) return false;
-            try {
-                SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US);
-                format.setTimeZone(TimeZone.getTimeZone("UTC"));
-                Date confirmed = format.parse(value, new ParsePosition(0));
-                if (confirmed == null) {
-                    format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX", Locale.US);
-                    format.setTimeZone(TimeZone.getTimeZone("UTC"));
-                    confirmed = format.parse(value, new ParsePosition(0));
-                }
-                return confirmed != null && System.currentTimeMillis() <= confirmed.getTime() + 30L * 60L * 1000L;
-            } catch (Exception ignored) {
-                return false;
-            }
+        private static String formatTime(String value) {
+            return value != null && value.length() >= 5 ? value.substring(0, 5) : value;
+        }
+
+        private static String formatAmount(String value) {
+            try { return NumberFormat.getNumberInstance(Locale.getDefault()).format(Double.parseDouble(value)); }
+            catch (Exception ignored) { return value; }
         }
 
         @Override

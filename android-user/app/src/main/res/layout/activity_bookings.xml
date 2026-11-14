@@ -79,12 +79,38 @@
                     android:id="@+id/tvPast"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Past"
+                    android:text="History"
                     android:textColor="@color/text_secondary"
                     android:textSize="15sp"
                     android:textStyle="bold" />
                 <View
                     android:id="@+id/indicatorPast"
+                    android:layout_width="match_parent"
+                    android:layout_height="3dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@android:color/transparent" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/tabPayments"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:paddingBottom="8dp">
+                <TextView
+                    android:id="@+id/tvPayments"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Payments"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+                <View
+                    android:id="@+id/indicatorPayments"
                     android:layout_width="match_parent"
                     android:layout_height="3dp"
                     android:layout_marginTop="6dp"

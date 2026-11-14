@@ -96,6 +96,10 @@ test("scanner supports API and Demo modes without token display or mock fallback
   assert.match(appSource, /Use a booking QR code or enter its code to check in/);
   assert.match(appSource, /Scan a booking QR code or enter its code to check in/);
   assert.match(appSource, /ownerBookingsState\.status = "idle"/);
+  assert.match(appSource, /CHECK-IN SUCCESSFUL/);
+  assert.match(appSource, /apiBooking\.venue_id/);
+  assert.match(appSource, /apiBooking\.court_id/);
+  assert.match(appSource, /apiBooking\.slot_date/);
   for (const status of [401, 403, 404, 409, 422, 503, 504]) assert.match(appSource, new RegExp("status === " + status));
   assert.doesNotMatch(appSource, /console\.(log|debug|info)\([^\n]*qrToken/i);
 });

@@ -47,11 +47,19 @@ def process_payment(
     if paid is not None:
         if paid.user_id != principal.user_id:
             raise HTTPException(status_code=404, detail="Booking not found")
-        return _response(paid, {"status": "CONFIRMED"})
+        context = integrations.get_payment_context(payload.booking_id)
+        if int(context["user_id"]) != principal.user_id:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        return _response(paid, {
+            "status": context["status"],
+            "qr_token": context.get("qr_token") if context["status"] == "CONFIRMED" else None,
+        })
 
     context = integrations.get_payment_context(payload.booking_id)
     if int(context["user_id"]) != principal.user_id:
         raise HTTPException(status_code=404, detail="Booking not found")
+    if context["status"] not in {"PENDING", "CONFIRMED"}:
+        raise HTTPException(status_code=409, detail="Booking is not payable")
 
     key = idempotency_key or secrets.token_urlsafe(24)
     attempt = db.scalar(select(Payment).where(Payment.idempotency_key == key))

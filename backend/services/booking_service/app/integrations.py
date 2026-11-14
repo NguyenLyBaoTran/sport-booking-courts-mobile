@@ -36,29 +36,34 @@ def _request(method: str, path: str, **kwargs) -> dict:
         raise HTTPException(status_code=503, detail="Court service returned an invalid response") from None
 
 
-def hold_slot(slot_id: int, booking_id: int) -> dict:
+def _slot_path(slot_ids: int | list[int]) -> str:
+    values = [slot_ids] if isinstance(slot_ids, int) else slot_ids
+    return ",".join(str(value) for value in values)
+
+
+def hold_slot(slot_ids: int | list[int], booking_id: int) -> dict:
     return _request(
         "POST",
-        f"/api/v1/internal/slots/{slot_id}/hold",
+        f"/api/v1/internal/slots/{_slot_path(slot_ids)}/hold",
         params={"booking_id": booking_id},
     )
 
 
-def get_slot_quote(slot_id: int) -> dict:
-    return _request("GET", f"/api/v1/internal/slots/{slot_id}/quote")
+def get_slot_quote(slot_ids: int | list[int]) -> dict:
+    return _request("GET", f"/api/v1/internal/slots/{_slot_path(slot_ids)}/quote")
 
 
-def confirm_slot(slot_id: int, booking_id: int) -> dict:
+def confirm_slot(slot_ids: int | list[int], booking_id: int) -> dict:
     return _request(
         "POST",
-        f"/api/v1/internal/slots/{slot_id}/confirm",
+        f"/api/v1/internal/slots/{_slot_path(slot_ids)}/confirm",
         params={"booking_id": booking_id},
     )
 
 
-def release_slot(slot_id: int, booking_id: int) -> dict:
+def release_slot(slot_ids: int | list[int], booking_id: int) -> dict:
     return _request(
         "POST",
-        f"/api/v1/internal/slots/{slot_id}/release",
+        f"/api/v1/internal/slots/{_slot_path(slot_ids)}/release",
         params={"booking_id": booking_id},
     )

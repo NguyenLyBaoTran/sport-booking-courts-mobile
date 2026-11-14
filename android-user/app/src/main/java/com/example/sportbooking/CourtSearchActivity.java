@@ -428,7 +428,6 @@ public class CourtSearchActivity extends AppCompatActivity {
             if (raw == null || raw.trim().isEmpty()) return "";
             try {
                 double val = Double.parseDouble(raw);
-                if (val < 1000) val = val * 1000;
                 NumberFormat nf = NumberFormat.getInstance(Locale.getDefault());
                 return nf.format(val) + " VND/h";
             } catch (Exception e) {

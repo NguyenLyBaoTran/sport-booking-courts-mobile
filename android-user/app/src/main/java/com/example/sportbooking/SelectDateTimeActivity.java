@@ -2,6 +2,7 @@ package com.example.sportbooking;
 
 import android.app.DatePickerDialog;
 import android.content.Intent;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -32,6 +33,9 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Set;
 
 public class SelectDateTimeActivity extends AppCompatActivity {
 
@@ -45,13 +49,14 @@ public class SelectDateTimeActivity extends AppCompatActivity {
     private RecyclerView rvTimeSlots;
     private ProgressBar progressBar;
     private TextView tvEmptySlots;
+    private TextView tvSelectionSummary;
     private Button btnProceedToBook;
 
     private final List<JsonObject> slotList = new ArrayList<>();
     private TimeSlotAdapter slotAdapter;
-    private Integer selectedTimeSlotId = null;
     private String selectedDateStr = "";
-    private JsonObject selectedSlot;
+    private final List<JsonObject> selectedSlots = new ArrayList<>();
+    private int quoteRequestVersion = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,18 +73,14 @@ public class SelectDateTimeActivity extends AppCompatActivity {
         rvTimeSlots = findViewById(R.id.rvTimeSlots);
         progressBar = findViewById(R.id.progressBar);
         tvEmptySlots = findViewById(R.id.tvEmptySlots);
+        tvSelectionSummary = findViewById(R.id.tvSelectionSummary);
         btnProceedToBook = findViewById(R.id.btnProceedToBook);
 
         findViewById(R.id.ivBack).setOnClickListener(v -> finish());
         findViewById(R.id.btnPickCalendar).setOnClickListener(v -> showFullCalendar());
 
         rvTimeSlots.setLayoutManager(new GridLayoutManager(this, 4));
-        slotAdapter = new TimeSlotAdapter(slotList, slot -> {
-            selectedTimeSlotId = slot.has("id") && !slot.get("id").isJsonNull()
-                    ? slot.get("id").getAsInt() : null;
-            selectedSlot = slot;
-            btnProceedToBook.setEnabled(selectedTimeSlotId != null && selectedTimeSlotId > 0);
-        });
+        slotAdapter = new TimeSlotAdapter(slotList, this::toggleSlotSelection);
         rvTimeSlots.setAdapter(slotAdapter);
 
         setupDateCards();
@@ -160,8 +161,10 @@ public class SelectDateTimeActivity extends AppCompatActivity {
         tvEmptySlots.setVisibility(View.GONE);
         slotList.clear();
         slotAdapter.notifyDataSetChanged();
-        selectedTimeSlotId = null;
-        selectedSlot = null;
+        selectedSlots.clear();
+        slotAdapter.setSelectedIds(new ArrayList<>());
+        quoteRequestVersion++;
+        updateSelectionSummary(null);
         btnProceedToBook.setEnabled(false);
 
         courtRepository.getTimeSlots(courtId, date, new ApiCallback<JsonArray>() {
@@ -190,19 +193,20 @@ public class SelectDateTimeActivity extends AppCompatActivity {
     }
 
     private void bookSelectedSlot() {
-        if (selectedTimeSlotId == null) {
+        if (selectedSlots.isEmpty()) {
             return;
         }
 
         btnProceedToBook.setEnabled(false);
         progressBar.setVisibility(View.VISIBLE);
-        bookingRepository.getBookingQuote(selectedTimeSlotId, new ApiCallback<JsonObject>() {
+        List<Integer> selectedIds = selectedSlotIds();
+        bookingRepository.getBookingQuote(selectedIds, new ApiCallback<JsonObject>() {
             @Override
             public void onSuccess(JsonObject result) {
                 progressBar.setVisibility(View.GONE);
                 String totalAmount = getValidQuoteAmount(result);
                 if (totalAmount == null) {
-                    btnProceedToBook.setEnabled(true);
+                    btnProceedToBook.setEnabled(false);
                     Toast.makeText(
                             SelectDateTimeActivity.this,
                             "The booking quote did not include a valid price. Please try again.",
@@ -212,10 +216,14 @@ public class SelectDateTimeActivity extends AppCompatActivity {
                 }
 
                 Intent intent = new Intent(SelectDateTimeActivity.this, PaymentActivity.class);
-                intent.putExtra("time_slot_id", selectedTimeSlotId);
+                intent.putExtra("time_slot_ids", toIntArray(selectedIds));
                 intent.putExtra("total_amount", totalAmount);
-                intent.putExtra("court_name", courtName != null ? courtName : "Badminton Court 1");
+                intent.putExtra("court_name", courtName != null ? courtName : "Court #" + courtId);
                 intent.putExtra("date", selectedDateStr);
+                intent.putExtra("time_slot", formatTime(result.get("start_time").getAsString()) + " - "
+                        + formatTime(result.get("end_time").getAsString()));
+                intent.putExtra("duration_minutes", result.has("duration_minutes")
+                        ? result.get("duration_minutes").getAsInt() : 0);
                 startActivity(intent);
                 finish();
             }
@@ -223,10 +231,114 @@ public class SelectDateTimeActivity extends AppCompatActivity {
             @Override
             public void onError(String error) {
                 progressBar.setVisibility(View.GONE);
-                btnProceedToBook.setEnabled(true);
+                btnProceedToBook.setEnabled(false);
                 Toast.makeText(SelectDateTimeActivity.this, error, Toast.LENGTH_LONG).show();
+                loadTimeSlots(selectedDateStr);
             }
         });
+    }
+
+    private void toggleSlotSelection(JsonObject slot) {
+        if (!isSelectable(slot)) {
+            Toast.makeText(this, "This slot is unavailable.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int id = slot.get("id").getAsInt();
+        List<JsonObject> candidate = new ArrayList<>(selectedSlots);
+        int existing = -1;
+        for (int i = 0; i < candidate.size(); i++) {
+            if (candidate.get(i).get("id").getAsInt() == id) existing = i;
+        }
+        if (existing >= 0) candidate.remove(existing); else candidate.add(slot);
+        candidate.sort(Comparator.comparing(item -> item.get("start_time").getAsString()));
+        if (existing < 0 && !isConsecutive(candidate)) {
+            Toast.makeText(this, "Select only consecutive slots on this court and date.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        selectedSlots.clear();
+        selectedSlots.addAll(candidate);
+        slotAdapter.setSelectedIds(selectedSlotIds());
+        boolean quoteable = !selectedSlots.isEmpty() && isConsecutive(selectedSlots);
+        btnProceedToBook.setEnabled(false);
+        updateSelectionSummary(selectedSlots.isEmpty() ? null : (quoteable ? null : "Selection has a gap. Select the missing slot or remove another selection."));
+        quoteRequestVersion++;
+        if (!quoteable) return;
+        int request = quoteRequestVersion;
+        bookingRepository.getBookingQuote(selectedSlotIds(), new ApiCallback<JsonObject>() {
+            @Override public void onSuccess(JsonObject quote) {
+                if (request != quoteRequestVersion || selectedSlots.isEmpty()) return;
+                String amount = getValidQuoteAmount(quote);
+                if (amount == null) {
+                    updateSelectionSummary("Price quote unavailable. Try again before proceeding.");
+                    return;
+                }
+                int minutes = quote.has("duration_minutes") ? quote.get("duration_minutes").getAsInt() : 0;
+                updateSelectionSummary(selectedSlots.size() + " slot(s) · " + (minutes / 60.0) + " hours · " + formatPrice(amount));
+                btnProceedToBook.setEnabled(true);
+            }
+            @Override public void onError(String error) {
+                if (request == quoteRequestVersion) {
+                    Toast.makeText(SelectDateTimeActivity.this, "Availability changed. Slots have been refreshed.", Toast.LENGTH_LONG).show();
+                    loadTimeSlots(selectedDateStr);
+                }
+            }
+        });
+    }
+
+    private boolean isConsecutive(List<JsonObject> slots) {
+        return areContiguous(slots, courtId, selectedDateStr);
+    }
+
+    static boolean areContiguous(List<JsonObject> slots, int courtId, String selectedDate) {
+        if (slots.isEmpty()) return true;
+        Set<Integer> uniqueIds = new HashSet<>();
+        for (int i = 0; i < slots.size(); i++) {
+            JsonObject slot = slots.get(i);
+            if (!isSelectable(slot) || slot.get("court_id").getAsInt() != courtId
+                    || !selectedDate.equals(slot.get("slot_date").getAsString())
+                    || !uniqueIds.add(slot.get("id").getAsInt())) return false;
+            if (i > 0 && !slots.get(i - 1).get("end_time").getAsString()
+                    .equals(slot.get("start_time").getAsString())) return false;
+        }
+        return true;
+    }
+
+    static boolean isSelectable(JsonObject slot) {
+        return slot.has("id") && slot.has("is_active") && slot.get("is_active").getAsBoolean()
+                && slot.has("is_selectable") && slot.get("is_selectable").getAsBoolean()
+                && slot.has("reservation_status") && "AVAILABLE".equalsIgnoreCase(slot.get("reservation_status").getAsString());
+    }
+
+    private List<Integer> selectedSlotIds() {
+        List<Integer> ids = new ArrayList<>();
+        for (JsonObject slot : selectedSlots) ids.add(slot.get("id").getAsInt());
+        return ids;
+    }
+
+    private static int[] toIntArray(List<Integer> values) {
+        int[] result = new int[values.size()];
+        for (int i = 0; i < values.size(); i++) result[i] = values.get(i);
+        return result;
+    }
+
+    private void updateSelectionSummary(String message) {
+        if (message != null) {
+            tvSelectionSummary.setText(message);
+        } else if (selectedSlots.isEmpty()) {
+            tvSelectionSummary.setText("Choose one or more consecutive available slots.");
+        } else {
+            tvSelectionSummary.setText(selectedSlots.size() + " slot(s) selected · loading price quote…");
+        }
+    }
+
+    private static String formatPrice(String raw) {
+        try {
+            return java.text.NumberFormat.getInstance(Locale.getDefault()).format(new java.math.BigDecimal(raw)) + " VND";
+        } catch (Exception ignored) { return "Price unavailable"; }
+    }
+
+    static String formatTime(String value) {
+        return value != null && value.length() >= 5 ? value.substring(0, 5) : value;
     }
 
     private String getValidQuoteAmount(JsonObject quote) {
@@ -243,7 +355,7 @@ public class SelectDateTimeActivity extends AppCompatActivity {
         }
         try {
             BigDecimal amount = new BigDecimal(amountPrimitive.getAsString());
-            if (amount.signum() < 0 || amount.scale() > 2) {
+            if (amount.signum() <= 0 || amount.scale() > 2) {
                 return null;
             }
             return amountPrimitive.getAsString();
@@ -255,7 +367,7 @@ public class SelectDateTimeActivity extends AppCompatActivity {
     public static class TimeSlotAdapter extends RecyclerView.Adapter<TimeSlotAdapter.ViewHolder> {
         private final List<JsonObject> items;
         private final OnSlotClickListener listener;
-        private int selectedPosition = -1;
+        private final Set<Integer> selectedIds = new HashSet<>();
 
         public interface OnSlotClickListener {
             void onSlotClick(JsonObject slot);
@@ -264,6 +376,12 @@ public class SelectDateTimeActivity extends AppCompatActivity {
         public TimeSlotAdapter(List<JsonObject> items, OnSlotClickListener listener) {
             this.items = items;
             this.listener = listener;
+        }
+
+        public void setSelectedIds(List<Integer> ids) {
+            selectedIds.clear();
+            selectedIds.addAll(ids);
+            notifyDataSetChanged();
         }
 
         @NonNull
@@ -276,26 +394,53 @@ public class SelectDateTimeActivity extends AppCompatActivity {
         @Override
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             JsonObject slot = items.get(position);
-            String startTime = slot.has("start_time") ? slot.get("start_time").getAsString() : "08:00";
-            holder.tvTime.setText(startTime);
+            String startTime = slot.has("start_time") ? formatTime(slot.get("start_time").getAsString()) : "--:--";
+            String endTime = slot.has("end_time") ? formatTime(slot.get("end_time").getAsString()) : "--:--";
+            String state = slot.has("reservation_status") ? slot.get("reservation_status").getAsString() : "UNAVAILABLE";
+            if (!slot.has("is_selectable") || !slot.get("is_selectable").getAsBoolean()) {
+                if ("AVAILABLE".equalsIgnoreCase(state)) state = "UNAVAILABLE";
+            }
+            holder.tvTime.setText(startTime + " - " + endTime + "\n" + state);
 
-            boolean isSelected = (position == selectedPosition);
+            int id = slot.has("id") ? slot.get("id").getAsInt() : -1;
+            boolean isSelected = selectedIds.contains(id);
+            boolean selectable = slot.has("is_selectable") && slot.get("is_selectable").getAsBoolean();
             holder.itemView.setSelected(isSelected);
             if (isSelected) {
-                holder.itemView.setBackgroundResource(R.drawable.bg_primary_radius);
+                holder.itemView.setBackground(slotBackground(0xFF0C8B63, holder.itemView));
                 holder.tvTime.setTextColor(0xFFFFFFFF);
             } else {
-                holder.itemView.setBackgroundResource(R.drawable.bg_card);
-                holder.tvTime.setTextColor(0xFF263449);
+                holder.itemView.setBackground(slotBackground(slotStateColor(state), holder.itemView));
+                holder.tvTime.setTextColor(slotStateTextColor(state));
             }
+            holder.itemView.setAlpha(selectable || isSelected ? 1f : 0.72f);
+            holder.itemView.setEnabled(selectable || isSelected);
 
             holder.itemView.setOnClickListener(v -> {
-                int oldPos = selectedPosition;
-                selectedPosition = holder.getAbsoluteAdapterPosition();
-                if (oldPos != -1) notifyItemChanged(oldPos);
-                notifyItemChanged(selectedPosition);
+                if (!selectable && !isSelected) return;
                 listener.onSlotClick(slot);
             });
+        }
+
+        private GradientDrawable slotBackground(int color, View view) {
+            GradientDrawable background = new GradientDrawable();
+            background.setColor(color);
+            background.setCornerRadius(10 * view.getResources().getDisplayMetrics().density);
+            return background;
+        }
+
+        private int slotStateColor(String state) {
+            if ("AVAILABLE".equalsIgnoreCase(state)) return 0xFFE7F5EF;
+            if ("HELD".equalsIgnoreCase(state)) return 0xFFFFF2D8;
+            if ("BOOKED".equalsIgnoreCase(state)) return 0xFFFCE8E6;
+            return 0xFFE9EDF2;
+        }
+
+        private int slotStateTextColor(String state) {
+            if ("AVAILABLE".equalsIgnoreCase(state)) return 0xFF176B4D;
+            if ("HELD".equalsIgnoreCase(state)) return 0xFF895500;
+            if ("BOOKED".equalsIgnoreCase(state)) return 0xFF8C3A32;
+            return 0xFF71829C;
         }
 
         @Override

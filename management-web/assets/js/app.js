@@ -1466,7 +1466,12 @@
       return '<div class="small">' + esc(demoBooking.id + " | " + demoBooking.court + " | " + demoBooking.date + " " + demoBooking.start_time + " - " + demoBooking.end_time) + '</div>';
     }
     var apiBooking = scanResult.booking;
-    return '<div class="small">Booking #' + esc(apiBooking.id) + ' · ' + esc(apiBooking.status) + (apiBooking.checked_in_at ? ' · ' + esc(apiBooking.checked_in_at) : '') + '</div>';
+    var apiSchedule = [apiBooking.slot_date, apiBooking.start_time && apiBooking.end_time ? apiBooking.start_time + " - " + apiBooking.end_time : ""].filter(Boolean).join(" / ");
+    return '<div class="small">Booking #' + esc(apiBooking.id) + ' · ' + esc(apiBooking.status)
+      + (apiBooking.venue_id ? ' · Venue #' + esc(apiBooking.venue_id) : '')
+      + (apiBooking.court_id ? ' · Court #' + esc(apiBooking.court_id) : '')
+      + (apiSchedule ? ' · ' + esc(apiSchedule) : '')
+      + (apiBooking.checked_in_at ? ' · ' + esc(apiBooking.checked_in_at) : '') + '</div>';
   }
   function ownerCheckinErrorMessage(error) {
     var status = error && error.status;
@@ -1499,10 +1504,15 @@
     updateScannerState();
     return window.OwnerCheckinApi.checkIn(qrToken).then(function (result) {
       succeeded = true;
-      setScanResult(true, "Check-in successful", "The booking was checked in.", {
+      setScanResult(true, "CHECK-IN SUCCESSFUL", "The booking was checked in.", {
         id: result && result.booking_id,
         status: result && result.status || "CHECKED_IN",
-        checked_in_at: result && result.checked_in_at
+        checked_in_at: result && result.checked_in_at,
+        venue_id: result && result.venue_id,
+        court_id: result && result.court_id,
+        slot_date: result && result.slot_date,
+        start_time: result && result.start_time,
+        end_time: result && result.end_time
       });
       ownerBookingsState.status = "idle";
     }).catch(function (error) {

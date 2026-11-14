@@ -13,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import Booking
+from app.models import Booking, BookingTimeSlot
 from app import integrations
 
 SECRET = "test-secret-key-with-32-or-more-characters"
@@ -461,6 +461,11 @@ def test_owner_check_in_and_completion_enforce_transitions(
     assert wrong_owner.status_code == 404
     assert checked_in.status_code == 200
     assert checked_in.json()["status"] == "CHECKED_IN"
+    assert checked_in.json()["court_id"] == 4
+    assert checked_in.json()["venue_id"] == 2
+    assert checked_in.json()["slot_date"] is not None
+    assert checked_in.json()["start_time"] is not None
+    assert checked_in.json()["end_time"] is not None
     assert repeated_check_in.status_code == 409
     assert completed.status_code == 200
     assert completed.json()["status"] == "COMPLETED"
@@ -1046,3 +1051,200 @@ def test_owner_completion_missing_booking_returns_404(client: TestClient) -> Non
     )
 
     assert response.status_code == 404
+
+
+def test_multi_slot_quote_is_read_only_and_calculates_combined_authoritative_total(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.routes.integrations.get_slot_quote", lambda ids: {"slots": [
+        {"time_slot_id": 15, "price_per_hour": "120000", "slot_date": "2026-12-01", "start_time": "08:00:00", "end_time": "09:00:00", "court_id": 4, "venue_id": 2, "owner_id": 22},
+        {"time_slot_id": 16, "price_per_hour": "120000", "slot_date": "2026-12-01", "start_time": "09:00:00", "end_time": "10:00:00", "court_id": 4, "venue_id": 2, "owner_id": 22},
+    ]})
+    response = client.get("/api/v1/booking-quotes/15,16", headers={"Authorization": f"Bearer {_token()}"})
+    assert response.status_code == 200
+    quote = response.json()
+    assert quote["time_slot_ids"] == [15, 16]
+    assert quote["start_time"] == "08:00:00" and quote["end_time"] == "10:00:00"
+    assert quote["duration_minutes"] == 120
+    assert Decimal(quote["total_amount"]) == Decimal("240000.00")
+    with app.state.test_session() as db:
+        assert db.query(Booking).count() == 0
+        assert db.query(BookingTimeSlot).count() == 0
+
+
+def test_multi_slot_quote_rejects_gaps_and_duplicate_ids(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = {"slots": [
+        {"time_slot_id": 15, "price_per_hour": "100", "slot_date": "2026-12-01", "start_time": "08:00:00", "end_time": "09:00:00", "court_id": 4, "venue_id": 2, "owner_id": 22},
+        {"time_slot_id": 16, "price_per_hour": "100", "slot_date": "2026-12-01", "start_time": "10:00:00", "end_time": "11:00:00", "court_id": 4, "venue_id": 2, "owner_id": 22},
+    ]}
+    monkeypatch.setattr("app.routes.integrations.get_slot_quote", lambda ids: data)
+    headers = {"Authorization": f"Bearer {_token()}"}
+    assert client.get("/api/v1/booking-quotes/15,16", headers=headers).status_code == 409
+    data["slots"][1]["start_time"] = "09:00:00"
+    data["slots"][1]["end_time"] = "10:00:00"
+    data["slots"][1]["court_id"] = 5
+    assert client.get("/api/v1/booking-quotes/15,16", headers=headers).status_code == 409
+    data["slots"][1]["court_id"] = 4
+    data["slots"][1]["slot_date"] = "2026-12-02"
+    assert client.get("/api/v1/booking-quotes/15,16", headers=headers).status_code == 409
+    assert client.get("/api/v1/booking-quotes/15,15", headers=headers).status_code == 422
+
+
+def test_multi_slot_confirmation_confirms_the_associated_set_once(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    confirmed_slot_sets = []
+    monkeypatch.setattr("app.routes.integrations.confirm_slot", lambda ids, booking_id: confirmed_slot_sets.append((ids, booking_id)) or {"status": "BOOKED"})
+    with app.state.test_session() as db:
+        booking = Booking(user_id=1, time_slot_id=15, court_id=4, venue_id=2, owner_id=22,
+                          slot_date=date(2026, 12, 1), start_time=time(8), end_time=time(10),
+                          status="PENDING", total_amount=Decimal("200"),
+                          expires_at=datetime.now(timezone.utc) + timedelta(minutes=10))
+        booking.slot_links = [BookingTimeSlot(time_slot_id=15, position=0), BookingTimeSlot(time_slot_id=16, position=1)]
+        db.add(booking)
+        db.commit()
+        booking_id = booking.id
+    headers = {"X-Internal-Token": "test-internal-token"}
+    first = client.post(f"/api/v1/internal/bookings/{booking_id}/confirm", headers=headers)
+    second = client.post(f"/api/v1/internal/bookings/{booking_id}/confirm", headers=headers)
+    assert first.status_code == second.status_code == 200
+    assert first.json()["qr_token"] == second.json()["qr_token"]
+    assert first.json()["confirmed_at"] == second.json()["confirmed_at"]
+    assert confirmed_slot_sets == [([15, 16], booking_id)]
+
+
+def test_duplicate_slot_selection_is_rejected_before_booking_creation(client: TestClient) -> None:
+    response = client.post("/api/v1/bookings", json={"time_slot_ids": [15, 15]}, headers={"Authorization": f"Bearer {_token()}"})
+    assert response.status_code == 422
+    with app.state.test_session() as db:
+        assert db.query(Booking).count() == 0
+
+
+def test_multi_slot_payment_failure_releases_only_that_bookings_slot_set(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    releases = []
+    monkeypatch.setattr("app.routes.integrations.release_slot", lambda ids, booking_id: releases.append((ids, booking_id)) or {})
+    with app.state.test_session() as db:
+        booking = Booking(user_id=1, time_slot_id=31, court_id=4, venue_id=2, owner_id=22,
+                          slot_date=date(2026, 12, 1), start_time=time(8), end_time=time(10),
+                          status="PENDING", total_amount=Decimal("200"),
+                          expires_at=datetime.now(timezone.utc) + timedelta(minutes=10))
+        booking.slot_links = [BookingTimeSlot(time_slot_id=31, position=0), BookingTimeSlot(time_slot_id=32, position=1)]
+        db.add(booking)
+        db.commit()
+        booking_id = booking.id
+    response = client.post(f"/api/v1/internal/bookings/{booking_id}/fail", headers={"X-Internal-Token": "test-internal-token"})
+    assert response.status_code == 200
+    assert response.json()["status"] == "FAILED"
+    assert releases == [([31, 32], booking_id)]
+
+
+@pytest.mark.parametrize("flow", ["cancel", "expire"])
+def test_multi_slot_cancellation_and_expiration_release_the_associated_set(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, flow: str
+) -> None:
+    releases: list[tuple[list[int], int]] = []
+    monkeypatch.setattr(
+        "app.routes.integrations.release_slot",
+        lambda ids, booking_id: releases.append((ids, booking_id)) or {"status": "AVAILABLE"},
+    )
+    with app.state.test_session() as db:
+        booking = Booking(
+            user_id=1,
+            time_slot_id=41,
+            court_id=4,
+            venue_id=2,
+            owner_id=22,
+            slot_date=date(2026, 12, 1),
+            start_time=time(8),
+            end_time=time(10),
+            status="PENDING",
+            total_amount=Decimal("200"),
+            expires_at=(datetime.now(timezone.utc) + timedelta(minutes=10)
+                        if flow == "cancel" else datetime.now(timezone.utc) - timedelta(minutes=1)),
+        )
+        booking.slot_links = [
+            BookingTimeSlot(time_slot_id=41, position=0),
+            BookingTimeSlot(time_slot_id=42, position=1),
+        ]
+        db.add(booking)
+        db.commit()
+        booking_id = booking.id
+
+    if flow == "cancel":
+        response = client.post(
+            f"/api/v1/bookings/{booking_id}/cancel",
+            headers={"Authorization": f"Bearer {_token()}"},
+        )
+    else:
+        response = client.post(
+            "/api/v1/internal/bookings/expire",
+            headers={"X-Internal-Token": "test-internal-token"},
+        )
+
+    assert response.status_code == 200
+    assert releases == [([41, 42], booking_id)]
+    with app.state.test_session() as db:
+        persisted = db.get(Booking, booking_id)
+        assert persisted is not None
+        assert persisted.status == ("CANCELLED" if flow == "cancel" else "EXPIRED")
+
+
+def test_payment_context_reports_current_status_and_only_confirmed_qr(client: TestClient) -> None:
+    with app.state.test_session() as db:
+        confirmed = Booking(
+            user_id=1, time_slot_id=51, court_id=4, venue_id=2, owner_id=22,
+            slot_date=date(2026, 12, 1), start_time=time(8), end_time=time(9),
+            status="CONFIRMED", total_amount=Decimal("100"), qr_token="c" * 32,
+            confirmed_at=datetime.now(timezone.utc),
+        )
+        cancelled = Booking(
+            user_id=1, time_slot_id=52, court_id=4, venue_id=2, owner_id=22,
+            slot_date=date(2026, 12, 1), start_time=time(9), end_time=time(10),
+            status="CANCELLED", total_amount=Decimal("100"), qr_token=None,
+        )
+        db.add_all([confirmed, cancelled])
+        db.commit()
+        confirmed_id, cancelled_id = confirmed.id, cancelled.id
+
+    headers = {"X-Internal-Token": "test-internal-token"}
+    confirmed_context = client.get(
+        f"/api/v1/internal/bookings/{confirmed_id}/payment-context", headers=headers
+    )
+    cancelled_context = client.get(
+        f"/api/v1/internal/bookings/{cancelled_id}/payment-context", headers=headers
+    )
+
+    assert confirmed_context.status_code == cancelled_context.status_code == 200
+    assert confirmed_context.json()["status"] == "CONFIRMED"
+    assert confirmed_context.json()["qr_token"] == "c" * 32
+    assert cancelled_context.json()["status"] == "CANCELLED"
+    assert cancelled_context.json()["qr_token"] is None
+
+
+def test_multi_slot_booking_creates_one_pending_booking_and_associations(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.routes.integrations.hold_slot", lambda ids, booking_id: {
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+        "slots": [
+            {"time_slot_id": 15, "price_per_hour": "120000", "slot_date": "2026-12-01", "start_time": "08:00:00", "end_time": "09:00:00", "court_id": 4, "venue_id": 2, "owner_id": 22},
+            {"time_slot_id": 16, "price_per_hour": "120000", "slot_date": "2026-12-01", "start_time": "09:00:00", "end_time": "10:00:00", "court_id": 4, "venue_id": 2, "owner_id": 22},
+        ]
+    })
+    response = client.post("/api/v1/bookings", json={"time_slot_ids": [15, 16]}, headers={"Authorization": f"Bearer {_token()}"})
+    assert response.status_code == 201, response.text
+    booking = response.json()
+    assert booking["status"] == "PENDING"
+    assert booking["time_slot_id"] == 15 and booking["time_slot_ids"] == [15, 16]
+    assert Decimal(booking["total_amount"]) == Decimal("240000.00")
+    assert booking["start_time"] == "08:00:00" and booking["end_time"] == "10:00:00"
+    with app.state.test_session() as db:
+        assert db.query(Booking).count() == 1
+        assert db.query(BookingTimeSlot).count() == 2
+
+
+def test_customer_booking_history_returns_statuses_and_hides_nonconfirmed_qr(client: TestClient) -> None:
+    with app.state.test_session() as db:
+        db.add_all([
+            Booking(user_id=1, time_slot_id=81, court_id=4, venue_id=2, owner_id=22, slot_date=date(2026, 12, 1), start_time=time(8), end_time=time(9), status="CHECKED_IN", total_amount=Decimal("100"), qr_token="a" * 32),
+            Booking(user_id=1, time_slot_id=82, court_id=4, venue_id=2, owner_id=22, slot_date=date(2026, 12, 1), start_time=time(9), end_time=time(10), status="COMPLETED", total_amount=Decimal("100")),
+        ])
+        db.commit()
+    response = client.get("/api/v1/bookings", headers={"Authorization": f"Bearer {_token()}"})
+    assert response.status_code == 200
+    assert {row["status"] for row in response.json()} == {"CHECKED_IN", "COMPLETED"}
+    assert all(row["qr_token"] is None for row in response.json())
