@@ -10,6 +10,7 @@ import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -86,10 +87,9 @@ public class BookingSuccessActivity extends AppCompatActivity {
 
         btnDone.setOnClickListener(v -> finishToBookings());
 
-        // Default to QR view
-        showQrView();
-
-        // Check backend booking status
+        layoutQrView.setVisibility(View.GONE);
+        layoutBottomBar.setVisibility(View.GONE);
+        // Fetch and validate the authoritative booking before rendering its QR.
         checkBookingStatus();
     }
 
@@ -98,7 +98,13 @@ public class BookingSuccessActivity extends AppCompatActivity {
         layoutSuccessView.setVisibility(View.GONE);
         layoutBottomBar.setVisibility(View.GONE);
 
-        String token = (qrToken != null && !qrToken.trim().isEmpty()) ? qrToken : ("TICKET-" + bookingId);
+        if (qrToken == null || qrToken.trim().isEmpty()) {
+            layoutQrView.setVisibility(View.GONE);
+            layoutSuccessView.setVisibility(View.GONE);
+            layoutBottomBar.setVisibility(View.VISIBLE);
+            return;
+        }
+        String token = qrToken;
         try {
             Bitmap qrBitmap = QrCodeUtils.generateQRCode(token, 400, 400);
             ivQrCode.setImageBitmap(qrBitmap);
@@ -121,19 +127,32 @@ public class BookingSuccessActivity extends AppCompatActivity {
                 String status = booking.has("status") && !booking.get("status").isJsonNull()
                         ? booking.get("status").getAsString() : "CONFIRMED";
 
+                qrToken = booking.has("qr_token") && !booking.get("qr_token").isJsonNull()
+                        ? booking.get("qr_token").getAsString() : null;
+                if ("CONFIRMED".equalsIgnoreCase(status)) {
+                    stopPolling();
+                    showQrView();
+                    return;
+                }
+
                 if ("CHECKED_IN".equalsIgnoreCase(status) || "COMPLETED".equalsIgnoreCase(status)) {
                     stopPolling();
                     showCheckinSuccessView(status);
                 } else {
-                    // Poll again in 3 seconds to catch check-in scan in real-time
-                    startPolling();
+                    stopPolling();
+                    layoutQrView.setVisibility(View.GONE);
+                    layoutSuccessView.setVisibility(View.GONE);
+                    layoutBottomBar.setVisibility(View.VISIBLE);
+                    Toast.makeText(BookingSuccessActivity.this, "This booking does not have an active ticket.", Toast.LENGTH_LONG).show();
                 }
             }
 
             @Override
             public void onError(String error) {
-                // Keep showing QR if polling fails
-                startPolling();
+                stopPolling();
+                layoutQrView.setVisibility(View.GONE);
+                layoutBottomBar.setVisibility(View.VISIBLE);
+                Toast.makeText(BookingSuccessActivity.this, error, Toast.LENGTH_LONG).show();
             }
         });
     }

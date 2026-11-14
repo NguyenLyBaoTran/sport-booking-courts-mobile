@@ -81,6 +81,7 @@ def process_payment(
         raise HTTPException(status_code=409, detail="Idempotency-Key already used")
 
     if payload.mock_result == "FAILED":
+        integrations.fail_booking(payload.booking_id)
         attempt.status = "FAILED"
         db.commit()
         db.refresh(attempt)

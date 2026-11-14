@@ -35,3 +35,7 @@ def get_payment_context(booking_id: int) -> dict:
 
 def confirm_booking(booking_id: int) -> dict:
     return _request("POST", f"/api/v1/internal/bookings/{booking_id}/confirm")
+
+
+def fail_booking(booking_id: int) -> dict:
+    return _request("POST", f"/api/v1/internal/bookings/{booking_id}/fail")

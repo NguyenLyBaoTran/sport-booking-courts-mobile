@@ -37,6 +37,21 @@ an existing account. OWNER/ADMIN cannot use Google Sign-In.
 
 ## Booking
 
+### Read-only quote
+
+`GET /booking-quotes/{slot_id}` is available to a customer JWT. `slot_id` is a
+time-slot ID, not a booking ID. Booking Service requests authoritative schedule
+and price data from Court Service and returns `time_slot_id`, `court_id`,
+`venue_id`, `owner_id`, `slot_date`, `start_time`, `end_time`, and `total_amount`.
+The amount is calculated on the server from the court's hourly price and slot
+duration. The quote is read-only: it does not create a booking or payment and
+does not reserve or hold the slot. Availability can change after the quote;
+Pay Now performs the authoritative reservation.
+
+Missing/invalid customer authentication returns `401`; a non-customer role
+returns `403`. An unavailable slot returns `409`. Invalid data from Court
+Service returns `502`, and Court dependency failures return `503` or `504`.
+
 | Method | Path | Access | Purpose |
 |---|---|---|---|
 | POST | `/bookings` | USER | Giữ slot và tạo PENDING booking |

@@ -103,12 +103,14 @@ def test_successful_mock_payment_confirms_booking_and_is_idempotent(
     assert confirmations == [5]
 
 
-def test_failed_payment_does_not_confirm_and_can_be_retried(
+def test_failed_payment_marks_booking_failed_and_releases_slot(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
         "app.routes.integrations.get_payment_context", lambda _: _payment_context()
     )
+    failures: list[int] = []
+    monkeypatch.setattr("app.routes.integrations.fail_booking", lambda booking_id: failures.append(booking_id) or {"status": "FAILED"})
     confirmations: list[int] = []
     monkeypatch.setattr(
         "app.routes.integrations.confirm_booking",
@@ -122,15 +124,10 @@ def test_failed_payment_does_not_confirm_and_can_be_retried(
         json={"booking_id": 5, "mock_result": "FAILED"},
         headers={**auth, "Idempotency-Key": "failed-attempt"},
     )
-    successful = client.post(
-        "/api/v1/payments/process",
-        json={"booking_id": 5, "mock_result": "SUCCESS"},
-        headers={**auth, "Idempotency-Key": "retry-attempt"},
-    )
-
     assert failed.json()["status"] == "FAILED"
-    assert successful.json()["status"] == "PAID"
-    assert confirmations == [5]
+    assert confirmations == []
+    assert failures == [5]
+    assert failures == [5]
 
 
 def test_customer_cannot_pay_another_users_booking(

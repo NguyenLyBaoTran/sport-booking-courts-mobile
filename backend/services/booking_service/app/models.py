@@ -29,6 +29,7 @@ class Booking(Base):
     checked_in_by: Mapped[Optional[int]] = mapped_column(Integer)
     checked_in_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -591,7 +591,152 @@ class CourtAuthorizationTests(unittest.TestCase):
             {"status": "BOOKED"},
         )
         self.assertEqual(self.client.post(url.replace("501", "502"), headers=headers).status_code, 409)
-        self.assertEqual(self.client.post(release_url, headers=headers).status_code, 409)
+        self.assertEqual(self.client.post(release_url, headers=headers).status_code, 200)
+        with self.Session() as db:
+            released = db.get(TimeSlot, slot_id)
+            self.assertEqual(released.reservation_status, "AVAILABLE")
+            self.assertIsNone(released.reservation_booking_id)
+            self.assertIsNone(released.reservation_expires_at)
+
+    def test_quote_does_not_reserve_available_slot(self):
+        with self.Session() as db:
+            slot = TimeSlot(
+                court_id=self.court_a_id,
+                slot_date=date.today() + timedelta(days=10),
+                start_time=time(8),
+                end_time=time(9),
+            )
+            db.add(slot)
+            db.commit()
+            slot_id = slot.id
+        headers = {"X-Internal-Token": "court-internal-test-token"}
+        response = self.client.get(f"/api/v1/internal/slots/{slot_id}/quote", headers=headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["court_id"], self.court_a_id)
+        with self.Session() as db:
+            quoted = db.get(TimeSlot, slot_id)
+            self.assertEqual(quoted.reservation_status, "AVAILABLE")
+            self.assertIsNone(quoted.reservation_booking_id)
+            self.assertIsNone(quoted.reservation_expires_at)
+
+    def test_release_booked_slot_only_for_matching_booking(self):
+        with self.Session() as db:
+            slot = TimeSlot(court_id=self.court_a_id, slot_date=date(2026, 11, 5), start_time=time(8), end_time=time(9))
+            db.add(slot)
+            db.commit()
+            slot_id = slot.id
+        headers = {"X-Internal-Token": "court-internal-test-token"}
+        base = f"/api/v1/internal/slots/{slot_id}"
+        self.assertEqual(self.client.post(f"{base}/hold?booking_id=901", headers=headers).status_code, 200)
+        self.assertEqual(self.client.post(f"{base}/confirm?booking_id=901", headers=headers).status_code, 200)
+        self.assertEqual(self.client.post(f"{base}/release?booking_id=902", headers=headers).status_code, 409)
+        with self.Session() as db:
+            slot = db.get(TimeSlot, slot_id)
+            self.assertEqual(slot.reservation_status, "BOOKED")
+            self.assertEqual(slot.reservation_booking_id, 901)
+        self.assertEqual(self.client.post(f"{base}/release?booking_id=901", headers=headers).status_code, 200)
+        self.assertEqual(self.client.post(f"{base}/release?booking_id=901", headers=headers).status_code, 200)
+        with self.Session() as db:
+            slot = db.get(TimeSlot, slot_id)
+            self.assertEqual(slot.reservation_status, "AVAILABLE")
+            self.assertIsNone(slot.reservation_booking_id)
+            self.assertIsNone(slot.reservation_expires_at)
+
+    def test_confirm_is_idempotent_for_same_booking_and_rejects_other_booking(self):
+        with self.Session() as db:
+            slot = TimeSlot(court_id=self.court_a_id, slot_date=date(2026, 11, 5), start_time=time(8), end_time=time(9))
+            db.add(slot)
+            db.commit()
+            slot_id = slot.id
+        headers = {"X-Internal-Token": "court-internal-test-token"}
+        root = f"/api/v1/internal/slots/{slot_id}"
+        self.assertEqual(self.client.post(f"{root}/hold?booking_id=111", headers=headers).status_code, 200)
+        self.assertEqual(self.client.post(f"{root}/confirm?booking_id=111", headers=headers).json(), {"status": "BOOKED"})
+        with self.Session() as db:
+            db.get(Court, self.court_a_id).is_active = False
+            db.commit()
+        self.assertEqual(self.client.post(f"{root}/confirm?booking_id=111", headers=headers).json(), {"status": "BOOKED"})
+        self.assertEqual(self.client.post(f"{root}/confirm?booking_id=222", headers=headers).status_code, 409)
+        with self.Session() as db:
+            slot = db.get(TimeSlot, slot_id)
+            self.assertEqual(slot.reservation_status, "BOOKED")
+            self.assertEqual(slot.reservation_booking_id, 111)
+
+    def test_release_available_slot_clears_only_matching_stale_reservation_fields(self):
+        with self.Session() as db:
+            matching = TimeSlot(court_id=self.court_a_id, slot_date=date(2026, 11, 5), start_time=time(8), end_time=time(9), reservation_status="AVAILABLE", reservation_booking_id=333, reservation_expires_at=datetime(2026, 11, 1, 0, 0))
+            foreign = TimeSlot(court_id=self.court_a_id, slot_date=date(2026, 11, 5), start_time=time(9), end_time=time(10), reservation_status="AVAILABLE", reservation_booking_id=444, reservation_expires_at=datetime(2026, 11, 1, 0, 0))
+            db.add_all([matching, foreign])
+            db.commit()
+            matching_id, foreign_id = matching.id, foreign.id
+        headers = {"X-Internal-Token": "court-internal-test-token"}
+        root = "/api/v1/internal/slots"
+        self.assertEqual(self.client.post(f"{root}/{matching_id}/release?booking_id=333", headers=headers).json(), {"status": "AVAILABLE"})
+        self.assertEqual(self.client.post(f"{root}/{foreign_id}/release?booking_id=333", headers=headers).status_code, 409)
+        with self.Session() as db:
+            matching = db.get(TimeSlot, matching_id)
+            foreign = db.get(TimeSlot, foreign_id)
+            self.assertIsNone(matching.reservation_booking_id)
+            self.assertIsNone(matching.reservation_expires_at)
+            self.assertEqual(foreign.reservation_booking_id, 444)
+            self.assertIsNotNone(foreign.reservation_expires_at)
+
+    def test_customer_availability_filters_reserved_past_and_inactive_parent_slots(self):
+        with self.Session() as db:
+            future = self.FROZEN_BUSINESS_NOW.date() + timedelta(days=1)
+            slots = [
+                TimeSlot(court_id=self.court_a_id, slot_date=future, start_time=time(hour), end_time=time(hour + 1), reservation_status=state, reservation_booking_id=501 if state != "AVAILABLE" else None)
+                for hour, state in ((8, "AVAILABLE"), (9, "HELD"), (10, "BOOKED"))
+            ]
+            slots.append(TimeSlot(court_id=self.court_a_id, slot_date=self.FROZEN_BUSINESS_NOW.date() - timedelta(days=1), start_time=time(8), end_time=time(9)))
+            inactive_court = Court(venue_id=self.venue_a_id, sport_id=self.sport_id, name="Inactive Court", price_per_hour=25, is_active=False)
+            db.add(inactive_court)
+            db.flush()
+            slots.append(TimeSlot(court_id=inactive_court.id, slot_date=future, start_time=time(11), end_time=time(12)))
+            inactive_venue = Venue(owner_id=10, name="Inactive Venue", address="4 Example Street", created_at=datetime.now(), is_active=False)
+            db.add(inactive_venue)
+            db.flush()
+            inactive_venue_court = Court(venue_id=inactive_venue.id, sport_id=self.sport_id, name="Inactive Venue Court", price_per_hour=25)
+            db.add(inactive_venue_court)
+            db.flush()
+            slots.append(TimeSlot(court_id=inactive_venue_court.id, slot_date=future, start_time=time(12), end_time=time(13)))
+            db.add_all(slots)
+            db.commit()
+            public_ids = {slot.id for slot in slots}
+            available_id = slots[0].id
+        response = self.client.get(f"/api/v1/time-slots?slot_date={future.isoformat()}")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual({row["id"] for row in response.json()}, {available_id})
+        user = self.client.get(f"/api/v1/time-slots?slot_date={future.isoformat()}", headers=self._headers(role="USER"))
+        self.assertEqual(user.status_code, 200, user.text)
+        self.assertEqual({row["id"] for row in user.json()}, {available_id})
+        # Owners retain all schedule records for management, including reservations.
+        owner = self.client.get(f"/api/v1/time-slots?slot_date={future.isoformat()}", headers=self._headers())
+        self.assertEqual(owner.status_code, 200, owner.text)
+        self.assertEqual({row["id"] for row in owner.json()}, public_ids - {slots[3].id})
+        admin = self.client.get(f"/api/v1/time-slots?slot_date={future.isoformat()}", headers=self._headers(role="ADMIN", user_id=3))
+        self.assertEqual(admin.status_code, 200, admin.text)
+        self.assertEqual({row["id"] for row in admin.json()}, public_ids - {slots[3].id})
+
+    def test_time_slot_availability_authorization_responses(self):
+        url = "/api/v1/time-slots"
+        self.assertEqual(self.client.get(url, headers=self._headers(role="SUPERUSER")).status_code, 403)
+        expired = make_token(exp=datetime.now(timezone.utc) - timedelta(seconds=1))
+        self.assertEqual(self.client.get(url, headers=self._headers(token=expired)).status_code, 401)
+        wrong_signature = jwt.encode(
+            {"sub": "10", "role": "USER", "iat": datetime.now(timezone.utc), "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
+            "different-secret-key-with-32-characters", algorithm="HS256",
+        )
+        self.assertEqual(self.client.get(url, headers=self._headers(token=wrong_signature)).status_code, 401)
+        with patch.dict(os.environ, {"JWT_SECRET_KEY": ""}):
+            self.assertEqual(self.client.get(url, headers=self._headers(role="USER")).status_code, 503)
+
+    def test_customer_availability_hides_slot_already_started_vietnam_time(self):
+        with self.Session() as db:
+            slot = TimeSlot(court_id=self.court_a_id, slot_date=self.FROZEN_BUSINESS_NOW.date(), start_time=time(9), end_time=time(11))
+            db.add(slot)
+            db.commit()
+        self.assertEqual(self.client.get(f"/api/v1/time-slots?slot_date={self.FROZEN_BUSINESS_NOW.date().isoformat()}").json(), [])
 
     def test_expired_hold_cannot_be_confirmed_and_can_be_reacquired(self):
         with self.Session() as db:

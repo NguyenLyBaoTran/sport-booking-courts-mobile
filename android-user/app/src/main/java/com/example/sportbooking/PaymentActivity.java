@@ -20,7 +20,8 @@ import java.util.Locale;
 
 public class PaymentActivity extends AppCompatActivity {
 
-    private int bookingId;
+    private int bookingId = -1;
+    private int timeSlotId;
     private String totalAmount, courtName, dateStr;
 
     private PaymentRepository paymentRepository;
@@ -36,6 +37,7 @@ public class PaymentActivity extends AppCompatActivity {
         setContentView(R.layout.activity_payment);
 
         bookingId = getIntent().getIntExtra("booking_id", -1);
+        timeSlotId = getIntent().getIntExtra("time_slot_id", -1);
         totalAmount = getIntent().getStringExtra("total_amount");
         courtName = getIntent().getStringExtra("court_name");
         dateStr = getIntent().getStringExtra("date");
@@ -83,14 +85,41 @@ public class PaymentActivity extends AppCompatActivity {
     }
 
     private void processPayment() {
-        if (bookingId == -1) {
-            Toast.makeText(this, "Invalid booking ID", Toast.LENGTH_SHORT).show();
+        if (bookingId == -1 && timeSlotId <= 0) {
+            Toast.makeText(this, "Invalid time slot", Toast.LENGTH_SHORT).show();
             return;
         }
 
         btnPayNow.setEnabled(false);
         progressBar.setVisibility(View.VISIBLE);
 
+        if (bookingId > 0) {
+            submitPayment();
+            return;
+        }
+        new com.example.sportbooking.repository.BookingRepository(this).createBooking(timeSlotId, new ApiCallback<JsonObject>() {
+            @Override
+            public void onSuccess(JsonObject booking) {
+                bookingId = booking.has("id") ? booking.get("id").getAsInt() : -1;
+                if (bookingId <= 0 || !booking.has("status") || !"PENDING".equals(booking.get("status").getAsString())) {
+                    progressBar.setVisibility(View.GONE);
+                    btnPayNow.setEnabled(true);
+                    Toast.makeText(PaymentActivity.this, "Slot could not be reserved. Please choose another.", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                submitPayment();
+            }
+
+            @Override
+            public void onError(String error) {
+                progressBar.setVisibility(View.GONE);
+                btnPayNow.setEnabled(true);
+                Toast.makeText(PaymentActivity.this, error, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void submitPayment() {
         paymentRepository.processPayment(bookingId, "SUCCESS", new ApiCallback<JsonObject>() {
             @Override
             public void onSuccess(JsonObject result) {
@@ -119,6 +148,12 @@ public class PaymentActivity extends AppCompatActivity {
                 progressBar.setVisibility(View.GONE);
                 btnPayNow.setEnabled(true);
                 Toast.makeText(PaymentActivity.this, error, Toast.LENGTH_LONG).show();
+                if (bookingId > 0) {
+                    new com.example.sportbooking.repository.BookingRepository(PaymentActivity.this).cancelBooking(bookingId, new ApiCallback<JsonObject>() {
+                        @Override public void onSuccess(JsonObject result) { bookingId = -1; }
+                        @Override public void onError(String ignored) { }
+                    });
+                }
             }
         });
     }

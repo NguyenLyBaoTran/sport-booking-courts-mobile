@@ -28,6 +28,10 @@ class JWTConfigurationError(RuntimeError):
     pass
 
 
+class UnsupportedRoleError(JWTError):
+    """A correctly signed token whose role is not recognized by this service."""
+
+
 def get_jwt_settings() -> JWTSettings:
     secret_key = os.getenv("JWT_SECRET_KEY", "").strip()
     algorithm = os.getenv("JWT_ALGORITHM", "HS256").strip()
@@ -72,7 +76,6 @@ def decode_access_token(token: str) -> Principal:
         or not subject.isdigit()
         or int(subject) <= 0
         or not isinstance(role, str)
-        or role not in ALLOWED_ROLES
         or isinstance(issued_at, bool)
         or not isinstance(issued_at, (int, float))
         or issued_at < 0
@@ -81,5 +84,8 @@ def decode_access_token(token: str) -> Principal:
         or expires_at <= issued_at
     ):
         raise JWTError("Token claims are invalid")
+
+    if role not in ALLOWED_ROLES:
+        raise UnsupportedRoleError("Token role is not supported")
 
     return Principal(user_id=int(subject), role=role)

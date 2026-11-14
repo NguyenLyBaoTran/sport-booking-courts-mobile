@@ -55,7 +55,7 @@ Every response schema contains the fields shown below; list routes return arrays
 
 | Method and URL | Function | Query/body | Response | Status and access |
 |---|---|---|---|---|
-| `GET /api/v1/time-slots` | List time slots | Optional positive `court_id`, `slot_date`, `is_active` | `200`, `TimeSlot[]` | Public |
+| `GET /api/v1/time-slots` | List time slots | Optional positive `court_id`, `slot_date`, `is_active` | `200`, `TimeSlot[]` | Anonymous/customer reads show only active future AVAILABLE slots under active Courts/Venues; OWNER/ADMIN reads retain the full schedule; unsupported authenticated roles receive `403`, invalid tokens `401`, missing JWT configuration `503` |
 | `GET /api/v1/time-slots/{slot_id}` | Get one time slot | Positive integer path ID | `200`, `TimeSlot` | Public; `404` if absent |
 | `POST /api/v1/time-slots` | Create time slot | `TimeSlotInput` | `201`, `TimeSlot` | OWNER of related Court's Venue or ADMIN |
 | `PUT /api/v1/time-slots/{slot_id}` | Replace editable time-slot fields | `TimeSlotInput` | `200`, `TimeSlot` | OWNER of current and target Court Venues or ADMIN |
@@ -214,13 +214,13 @@ User Service on `feature/s1-w1-auth-usecase` issues HS256 access tokens with str
 
 The existing GET APIs provide these fields:
 
-- `GET /api/v1/time-slots?court_id={id}&slot_date=YYYY-MM-DD` returns `id`, `court_id`, `slot_date`, `start_time`, `end_time`, `is_active`.
+- `GET /api/v1/time-slots?court_id={id}&slot_date=YYYY-MM-DD` returns `id`, `court_id`, `slot_date`, `start_time`, `end_time`, `is_active`. Anonymous/customer reads filter out past, inactive, HELD and BOOKED slots and slots under inactive Courts/Venues; Owner/Admin reads preserve the full management schedule.
 - `GET /api/v1/courts/{court_id}` returns `venue_id`, `sport_id`, `name`, `price_per_hour`, `is_active` and `description`.
 - `GET /api/v1/venues/{venue_id}` and `GET /api/v1/sports/{sport_id}` provide the corresponding venue and sport fields.
 
 Booking can obtain the basic slot and price data with multiple GET calls, but there is no single joined availability response. These reads do not reserve a slot. The current `is_active` flag is not a booking/hold state.
 
-Court Service implements the S1 internal contract with `POST /api/v1/internal/slots/{slot_id}/hold|confirm|release`, `booking_id` query parameter, and `X-Internal-Token`. These endpoints are service-to-service only; the Gateway does not expose `/api/v1/internal`. Hold returns the slot, court, venue, owner and hourly price fields required by Booking, with an ISO 8601 UTC `expires_at`. Repeating hold/confirm/release for the same booking is idempotent. A competing booking, wrong booking ID, expired hold confirmation, or booked-slot release returns `409`. The hold duration defaults to 10 minutes and is configured with `BOOKING_HOLD_MINUTES`; Court and Booking must share the same `INTERNAL_SERVICE_TOKEN` and hold duration. `time_slots.is_active` remains catalogue state, separate from reservation state.
+Court Service implements the S1 internal contract with `POST /api/v1/internal/slots/{slot_id}/hold|confirm|release`, `booking_id` query parameter, and `X-Internal-Token`. These endpoints are service-to-service only; the Gateway does not expose `/api/v1/internal`. Hold returns the slot, court, venue, owner and hourly price fields required by Booking, with an ISO 8601 UTC `expires_at`. Repeating hold/confirm/release for the same booking is idempotent. A competing booking, wrong booking ID, or expired hold confirmation returns `409`. Release accepts a matching HELD or BOOKED reservation. An AVAILABLE slot with clean reservation fields is safe to release again; stale fields are cleared only when their booking ID is empty or matches the request, while a different stored booking ID returns `409`. The hold duration defaults to 10 minutes and is configured with `BOOKING_HOLD_MINUTES`; Court and Booking must share the same `INTERNAL_SERVICE_TOKEN` and hold duration. `time_slots.is_active` remains catalogue state, separate from reservation state.
 
 The reservation state is stored on `time_slots` using `reservation_status`, `reservation_booking_id`, and `reservation_expires_at`. Existing databases require the SQL migration in `backend/migrations/20261026_add_time_slot_reservations.sql`; it has not been run. Hold, confirm, release and slot edits lock the slot row; schedule create/update also locks the affected Court rows to serialize overlap checks on MySQL. SQLite tests verify state behavior but do not establish production concurrency behavior. There is no joined availability API; no endpoint is invented for one.
 

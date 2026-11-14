@@ -27,6 +27,7 @@ class BookingResponse(BaseModel):
     status: str
     total_amount: Decimal
     expires_at: Optional[datetime]
+    confirmed_at: Optional[datetime]
     qr_token: Optional[str]
     created_at: datetime
 
@@ -45,6 +46,7 @@ class OwnerBookingResponse(BaseModel):
     status: str
     total_amount: Decimal
     expires_at: Optional[datetime]
+    confirmed_at: Optional[datetime]
     checked_in_at: Optional[datetime]
     completed_at: Optional[datetime]
     created_at: datetime
@@ -92,6 +94,7 @@ class AdminBookingResponse(BaseModel):
     status: str
     total_amount: Decimal
     expires_at: Optional[datetime]
+    confirmed_at: Optional[datetime]
     checked_in_by: Optional[int]
     checked_in_at: Optional[datetime]
     completed_at: Optional[datetime]

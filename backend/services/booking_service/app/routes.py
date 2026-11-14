@@ -34,15 +34,37 @@ def _as_utc(value: datetime) -> datetime:
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
-def _expire_if_needed(booking: Booking, db: Session) -> None:
-    if (
-        booking.status == "PENDING"
-        and booking.expires_at is not None
-        and _as_utc(booking.expires_at) <= datetime.now(timezone.utc)
-    ):
+def _finish_expiration_release(booking: Booking, db: Session) -> bool:
+    """Release a terminal booking's slot; expires_at marks unfinished cleanup."""
+    released = False
+    try:
         integrations.release_slot(booking.time_slot_id, booking.id)
-        booking.status = "EXPIRED"
+        released = True
+    except HTTPException as error:
+        if error.status_code != 409:
+            raise
+        # Court confirms this booking no longer owns a releasable reservation.
+        # Keep any newer reservation untouched and mark cleanup resolved locally.
+    booking.expires_at = None
+    try:
         db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Could not persist expiration cleanup; retry expiration") from None
+    return released
+
+
+def _expire_if_needed(booking: Booking, db: Session) -> None:
+    if booking.status == "PENDING" and booking.expires_at is not None and _as_utc(booking.expires_at) <= datetime.now(timezone.utc):
+        booking.status = "EXPIRED"
+        try:
+            db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+            raise HTTPException(status_code=503, detail="Could not persist booking expiration; retry expiration") from None
+    if booking.status in {"EXPIRED", "FAILED", "CANCELLED"} and booking.expires_at is not None:
+        # expires_at is the durable marker for retrying terminal cleanup.
+        _finish_expiration_release(booking, db)
 
 
 def _owned_booking(db: Session, booking_id: int, principal: Principal) -> Booking:
@@ -53,15 +75,54 @@ def _owned_booking(db: Session, booking_id: int, principal: Principal) -> Bookin
     return booking
 
 
+def _booking_quote(slot_id: int) -> dict:
+    quote = integrations.get_slot_quote(slot_id)
+    try:
+        price = Decimal(str(quote["price_per_hour"]))
+        slot_date = date.fromisoformat(quote["slot_date"])
+        start_time = time.fromisoformat(quote["start_time"])
+        end_time = time.fromisoformat(quote["end_time"])
+        court_id, venue_id, owner_id = int(quote["court_id"]), int(quote["venue_id"]), int(quote["owner_id"])
+        duration = Decimal(str((datetime.combine(slot_date, end_time) - datetime.combine(slot_date, start_time)).total_seconds())) / Decimal("3600")
+        if price <= 0 or duration <= 0 or min(court_id, venue_id, owner_id) <= 0:
+            raise ValueError
+    except (KeyError, InvalidOperation, TypeError, ValueError):
+        raise HTTPException(status_code=502, detail="Court service returned invalid slot data") from None
+    return {"time_slot_id": slot_id, "court_id": court_id, "venue_id": venue_id, "owner_id": owner_id,
+            "slot_date": slot_date, "start_time": start_time, "end_time": end_time,
+            "total_amount": (price * duration).quantize(Decimal("0.01"))}
+
+
 def _complete_booking(db: Session, booking_id: int, owner_id: int) -> dict:
     booking = db.scalar(select(Booking).where(Booking.id == booking_id).with_for_update())
     if booking is None or booking.owner_id != owner_id:
         raise HTTPException(status_code=404, detail="Booking not found for this owner")
+    if booking.status == "COMPLETED":
+        # Completion is already durable; retry the booking-scoped release.
+        try:
+            integrations.release_slot(booking.time_slot_id, booking.id)
+        except HTTPException as error:
+            if error.status_code != 409:
+                raise
+            # Court confirms this booking no longer owns the slot. Preserve any
+            # newer reservation and return the already-durable completion.
+        return {
+            "booking_id": booking.id,
+            "status": booking.status,
+            "completed_at": booking.completed_at,
+        }
     if booking.status != "CHECKED_IN":
         raise HTTPException(status_code=409, detail="Only checked-in bookings can be completed")
     booking.status = "COMPLETED"
     booking.completed_at = datetime.now(timezone.utc)
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Could not persist booking completion; retry completion") from None
+    # Persist first so a Court outage cannot leave a reusable slot attached to a
+    # CHECKED_IN booking. A repeated completion retries release.
+    integrations.release_slot(booking.time_slot_id, booking.id)
     return {
         "booking_id": booking.id,
         "status": booking.status,
@@ -212,7 +273,7 @@ def admin_list_checkins(
 def list_owner_bookings(
     venue_id: Optional[int] = Query(default=None, gt=0),
     slot_date: Optional[date] = Query(default=None, alias="date"),
-    booking_status: Optional[Literal["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "EXPIRED"]] = Query(default=None, alias="status"),
+    booking_status: Optional[Literal["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "FAILED", "EXPIRED"]] = Query(default=None, alias="status"),
     db: Session = Depends(get_db),
     principal: Principal = Depends(current_principal),
 ):
@@ -308,14 +369,35 @@ def create_booking(
         db.commit()
     except (KeyError, InvalidOperation, TypeError, ValueError):
         db.rollback()
-        integrations.release_slot(payload.time_slot_id, booking.id)
+        try:
+            integrations.release_slot(payload.time_slot_id, booking.id)
+        except HTTPException:
+            raise HTTPException(status_code=503, detail="Could not release slot after invalid Court response; retry cleanup") from None
         raise HTTPException(status_code=502, detail="Court service returned invalid slot data") from None
-    except (HTTPException, SQLAlchemyError):
+    except (HTTPException, SQLAlchemyError) as error:
         db.rollback()
-        integrations.release_slot(payload.time_slot_id, booking.id)
+        # The Court hold may have succeeded before the local booking commit failed.
+        # Release is idempotent and booking-scoped, so retrying this cleanup is safe.
+        try:
+            integrations.release_slot(payload.time_slot_id, booking.id)
+        except HTTPException:
+            if isinstance(error, HTTPException):
+                if error.status_code >= 500:
+                    raise HTTPException(status_code=503, detail="Could not release slot after booking failure; retry cleanup") from None
+                raise error
+            raise HTTPException(status_code=503, detail="Could not release slot after booking failure") from None
         raise
     db.refresh(booking)
     return booking
+
+
+@router.get("/booking-quotes/{slot_id}", tags=["bookings"])
+def get_booking_quote(
+    slot_id: int,
+    principal: Principal = Depends(current_principal),
+):
+    require_customer(principal)
+    return _booking_quote(slot_id)
 
 
 @router.get("/bookings", response_model=list[BookingResponse], tags=["bookings"])
@@ -333,7 +415,7 @@ def list_bookings(
     )
     for booking in bookings:
         _expire_if_needed(booking, db)
-    return bookings
+    return [booking for booking in bookings if booking.status == "CONFIRMED"]
 
 
 @router.get("/bookings/{booking_id}", response_model=BookingResponse, tags=["bookings"])
@@ -343,7 +425,11 @@ def get_booking(
     principal: Principal = Depends(current_principal),
 ):
     require_customer(principal)
-    return _owned_booking(db, booking_id, principal)
+    booking = _owned_booking(db, booking_id, principal)
+    response = BookingResponse.model_validate(booking)
+    if booking.status != "CONFIRMED":
+        response = response.model_copy(update={"qr_token": None})
+    return response
 
 
 @router.post("/bookings/{booking_id}/cancel", response_model=BookingResponse, tags=["bookings"])
@@ -354,13 +440,54 @@ def cancel_booking(
 ):
     require_customer(principal)
     booking = _owned_booking(db, booking_id, principal)
-    if booking.status != "PENDING":
-        raise HTTPException(status_code=409, detail="Only pending bookings can be cancelled")
-    integrations.release_slot(booking.time_slot_id, booking.id)
+    if booking.status == "CONFIRMED":
+        if booking.confirmed_at is None:
+            raise HTTPException(status_code=409, detail="This legacy confirmed booking has no recorded confirmation time and cannot be cancelled")
+        confirmed_at = _as_utc(booking.confirmed_at)
+        if datetime.now(timezone.utc) > confirmed_at + timedelta(minutes=30):
+            raise HTTPException(status_code=409, detail="The 30-minute cancellation period has expired")
+    elif booking.status != "PENDING":
+        raise HTTPException(status_code=409, detail="Only pending or recently confirmed bookings can be cancelled")
     booking.status = "CANCELLED"
-    db.commit()
+    booking.qr_token = None
+    if booking.expires_at is None:
+        booking.expires_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Could not persist booking cancellation") from None
+    _finish_expiration_release(booking, db)
     db.refresh(booking)
     return booking
+
+
+@router.post("/internal/bookings/{booking_id}/fail", tags=["internal"])
+def fail_booking(
+    booking_id: int,
+    x_internal_token: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    require_internal_token(x_internal_token)
+    booking = db.scalar(select(Booking).where(Booking.id == booking_id).with_for_update())
+    if booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.status == "FAILED":
+        if booking.expires_at is not None:
+            _finish_expiration_release(booking, db)
+        return {"booking_id": booking.id, "status": booking.status}
+    if booking.status != "PENDING":
+        raise HTTPException(status_code=409, detail="Booking cannot be failed")
+    booking.status = "FAILED"
+    if booking.expires_at is None:
+        booking.expires_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=503, detail="Could not persist booking failure") from None
+    _finish_expiration_release(booking, db)
+    return {"booking_id": booking.id, "status": booking.status}
 
 
 @router.get("/internal/bookings/{booking_id}/payment-context", tags=["internal"])
@@ -399,15 +526,22 @@ def confirm_booking(
         raise HTTPException(status_code=404, detail="Booking not found")
     _expire_if_needed(booking, db)
     if booking.status == "CONFIRMED":
-        return {"booking_id": booking.id, "status": booking.status, "qr_token": booking.qr_token}
+        return {
+            "booking_id": booking.id,
+            "status": booking.status,
+            "qr_token": booking.qr_token,
+            "confirmed_at": booking.confirmed_at,
+        }
     if booking.status != "PENDING":
         raise HTTPException(status_code=409, detail="Booking cannot be confirmed")
     integrations.confirm_slot(booking.time_slot_id, booking.id)
     booking.status = "CONFIRMED"
+    booking.confirmed_at = datetime.now(timezone.utc)
     booking.expires_at = None
     booking.qr_token = secrets.token_urlsafe(32)
     db.commit()
-    return {"booking_id": booking.id, "status": booking.status, "qr_token": booking.qr_token}
+    return {"booking_id": booking.id, "status": booking.status, "qr_token": booking.qr_token,
+            "confirmed_at": booking.confirmed_at}
 
 
 @router.post("/internal/bookings/check-in", tags=["internal"])
@@ -452,16 +586,35 @@ def expire_bookings(
     db: Session = Depends(get_db),
 ):
     require_internal_token(x_internal_token)
-    pending = list(
-        db.scalars(
-            select(Booking).where(
-                Booking.status == "PENDING",
-                Booking.expires_at <= datetime.now(timezone.utc),
+    now = datetime.now(timezone.utc)
+    candidates = list(db.scalars(
+        select(Booking).where(
+            (
+                (Booking.status == "PENDING")
+                & Booking.expires_at.is_not(None)
+                & (Booking.expires_at <= now)
             )
-        )
-    )
-    for booking in pending:
-        integrations.release_slot(booking.time_slot_id, booking.id)
-        booking.status = "EXPIRED"
-        db.commit()
-    return {"expired": len(pending), "released": len(pending)}
+            | ((Booking.status.in_(["EXPIRED", "FAILED", "CANCELLED"])) & Booking.expires_at.is_not(None))
+        ).with_for_update()
+    ))
+    expired = 0
+    released = 0
+    for booking in candidates:
+        if booking.status == "PENDING":
+            booking.status = "EXPIRED"
+            try:
+                db.commit()
+            except SQLAlchemyError:
+                db.rollback()
+                continue
+            expired += 1
+        try:
+            was_released = _finish_expiration_release(booking, db)
+        except HTTPException:
+            db.rollback()
+            # EXPIRED remains durable and is retried by this job. A 409 protects
+            # any newer booking currently holding/booked on the slot.
+            continue
+        if was_released:
+            released += 1
+    return {"expired": expired, "released": released}

@@ -180,6 +180,32 @@ class GatewayTests(unittest.TestCase):
             "http://127.0.0.1:8004/api/v1/payments",
         )
 
+    def test_booking_quote_routes_to_booking_and_preserves_slot_id_and_authorization(self):
+        FakeUpstreamClient.response_body = b'{"time_slot_id":15,"total_amount":"180.00"}'
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.get(
+                "/api/v1/booking-quotes/15",
+                headers={"Authorization": "Bearer customer-token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"time_slot_id": 15, "total_amount": "180.00"})
+        captured = FakeUpstreamClient.captured_request
+        self.assertIsNotNone(captured)
+        assert captured is not None
+        self.assertEqual(captured["method"], "GET")
+        self.assertEqual(captured["url"], "http://127.0.0.1:8003/api/v1/booking-quotes/15")
+        self.assertEqual(captured["headers"]["authorization"], "Bearer customer-token")
+
+    def test_booking_quote_preserves_upstream_error_status_and_body(self):
+        FakeUpstreamClient.response_status = 409
+        FakeUpstreamClient.response_body = b'{"detail":"Time slot is unavailable"}'
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.get("/api/v1/booking-quotes/15")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json(), {"detail": "Time slot is unavailable"})
+
     def test_gateway_routes_time_slots_and_does_not_expose_internal_contract(self):
         with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
             response = self.client.get("/api/v1/time-slots?court_id=12")
@@ -279,13 +305,14 @@ class GatewayTests(unittest.TestCase):
                 self.assertEqual(response.content, b'{"detail":"upstream response"}')
 
     def test_internal_booking_and_court_paths_are_not_public(self):
-        for path in (
-            "/api/v1/internal/slots/12/hold?booking_id=44",
-            "/api/v1/internal/bookings/check-in",
+        for method, path in (
+            ("POST", "/api/v1/internal/slots/12/hold?booking_id=44"),
+            ("GET", "/api/v1/internal/slots/12/quote"),
+            ("POST", "/api/v1/internal/bookings/check-in"),
         ):
             with self.subTest(path=path):
                 FakeUpstreamClient.captured_request = None
-                response = self.client.post(path)
+                response = self.client.request(method, path)
                 self.assertEqual(response.status_code, 404)
                 self.assertIsNone(FakeUpstreamClient.captured_request)
 

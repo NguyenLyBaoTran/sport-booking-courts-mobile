@@ -21,11 +21,19 @@ def _request(method: str, path: str, **kwargs) -> dict:
             if response.status_code == 409:
                 raise HTTPException(status_code=409, detail="Time slot is unavailable")
             raise HTTPException(status_code=503, detail="Court service rejected the request")
-        return response.json()
+        try:
+            payload = response.json()
+        except ValueError:
+            raise HTTPException(status_code=503, detail="Court service returned an invalid response") from None
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=503, detail="Court service returned an invalid response")
+        return payload
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Court service timed out") from None
     except httpx.RequestError:
         raise HTTPException(status_code=503, detail="Court service is unavailable") from None
+    except ValueError:
+        raise HTTPException(status_code=503, detail="Court service returned an invalid response") from None
 
 
 def hold_slot(slot_id: int, booking_id: int) -> dict:
@@ -34,6 +42,10 @@ def hold_slot(slot_id: int, booking_id: int) -> dict:
         f"/api/v1/internal/slots/{slot_id}/hold",
         params={"booking_id": booking_id},
     )
+
+
+def get_slot_quote(slot_id: int) -> dict:
+    return _request("GET", f"/api/v1/internal/slots/{slot_id}/quote")
 
 
 def confirm_slot(slot_id: int, booking_id: int) -> dict:

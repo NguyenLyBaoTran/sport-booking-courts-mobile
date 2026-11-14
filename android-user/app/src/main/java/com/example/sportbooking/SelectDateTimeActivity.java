@@ -21,8 +21,11 @@ import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.BookingRepository;
 import com.example.sportbooking.repository.CourtRepository;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 
+import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -48,6 +51,7 @@ public class SelectDateTimeActivity extends AppCompatActivity {
     private TimeSlotAdapter slotAdapter;
     private Integer selectedTimeSlotId = null;
     private String selectedDateStr = "";
+    private JsonObject selectedSlot;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,6 +77,7 @@ public class SelectDateTimeActivity extends AppCompatActivity {
         slotAdapter = new TimeSlotAdapter(slotList, slot -> {
             selectedTimeSlotId = slot.has("id") && !slot.get("id").isJsonNull()
                     ? slot.get("id").getAsInt() : null;
+            selectedSlot = slot;
             btnProceedToBook.setEnabled(selectedTimeSlotId != null && selectedTimeSlotId > 0);
         });
         rvTimeSlots.setAdapter(slotAdapter);
@@ -156,6 +161,7 @@ public class SelectDateTimeActivity extends AppCompatActivity {
         slotList.clear();
         slotAdapter.notifyDataSetChanged();
         selectedTimeSlotId = null;
+        selectedSlot = null;
         btnProceedToBook.setEnabled(false);
 
         courtRepository.getTimeSlots(courtId, date, new ApiCallback<JsonArray>() {
@@ -190,27 +196,23 @@ public class SelectDateTimeActivity extends AppCompatActivity {
 
         btnProceedToBook.setEnabled(false);
         progressBar.setVisibility(View.VISIBLE);
-
-        bookingRepository.createBooking(selectedTimeSlotId, new ApiCallback<JsonObject>() {
+        bookingRepository.getBookingQuote(selectedTimeSlotId, new ApiCallback<JsonObject>() {
             @Override
             public void onSuccess(JsonObject result) {
                 progressBar.setVisibility(View.GONE);
-                int bookingId = result.has("id") ? result.get("id").getAsInt() : -1;
-                String status = result.has("status") && !result.get("status").isJsonNull()
-                        ? result.get("status").getAsString() : "";
-                if (bookingId <= 0 || !"PENDING".equals(status)) {
+                String totalAmount = getValidQuoteAmount(result);
+                if (totalAmount == null) {
                     btnProceedToBook.setEnabled(true);
-                    Toast.makeText(SelectDateTimeActivity.this,
-                            "Booking was not created. Please try another slot.",
-                            Toast.LENGTH_LONG).show();
-                    loadTimeSlots(selectedDateStr);
+                    Toast.makeText(
+                            SelectDateTimeActivity.this,
+                            "The booking quote did not include a valid price. Please try again.",
+                            Toast.LENGTH_LONG
+                    ).show();
                     return;
                 }
-                String totalAmount = result.has("total_amount") && !result.get("total_amount").isJsonNull()
-                        ? result.get("total_amount").getAsString() : "150,000";
 
                 Intent intent = new Intent(SelectDateTimeActivity.this, PaymentActivity.class);
-                intent.putExtra("booking_id", bookingId);
+                intent.putExtra("time_slot_id", selectedTimeSlotId);
                 intent.putExtra("total_amount", totalAmount);
                 intent.putExtra("court_name", courtName != null ? courtName : "Badminton Court 1");
                 intent.putExtra("date", selectedDateStr);
@@ -223,12 +225,31 @@ public class SelectDateTimeActivity extends AppCompatActivity {
                 progressBar.setVisibility(View.GONE);
                 btnProceedToBook.setEnabled(true);
                 Toast.makeText(SelectDateTimeActivity.this, error, Toast.LENGTH_LONG).show();
-                if (error.toLowerCase(Locale.US).contains("unavailable")
-                        || error.toLowerCase(Locale.US).contains("no longer available")) {
-                    loadTimeSlots(selectedDateStr);
-                }
             }
         });
+    }
+
+    private String getValidQuoteAmount(JsonObject quote) {
+        if (quote == null || !quote.has("total_amount")) {
+            return null;
+        }
+        JsonElement amountElement = quote.get("total_amount");
+        if (amountElement == null || amountElement.isJsonNull() || !amountElement.isJsonPrimitive()) {
+            return null;
+        }
+        JsonPrimitive amountPrimitive = amountElement.getAsJsonPrimitive();
+        if (!amountPrimitive.isNumber() && !amountPrimitive.isString()) {
+            return null;
+        }
+        try {
+            BigDecimal amount = new BigDecimal(amountPrimitive.getAsString());
+            if (amount.signum() < 0 || amount.scale() > 2) {
+                return null;
+            }
+            return amountPrimitive.getAsString();
+        } catch (NumberFormatException error) {
+            return null;
+        }
     }
 
     public static class TimeSlotAdapter extends RecyclerView.Adapter<TimeSlotAdapter.ViewHolder> {

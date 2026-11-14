@@ -24,6 +24,12 @@ import com.google.gson.JsonObject;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.text.SimpleDateFormat;
+import java.text.ParsePosition;
+import java.util.Date;
+import java.util.Locale;
+import java.util.Calendar;
+import java.util.TimeZone;
 
 public class BookingsActivity extends AppCompatActivity {
 
@@ -113,11 +119,13 @@ public class BookingsActivity extends AppCompatActivity {
         displayedBookings.clear();
         for (JsonObject booking : allBookings) {
             String status = booking.has("status") && !booking.get("status").isJsonNull()
-                    ? booking.get("status").getAsString().toUpperCase() : "CONFIRMED";
+                    ? booking.get("status").getAsString().toUpperCase() : "";
 
-            boolean isPast = status.equals("COMPLETED") || status.equals("EXPIRED") || status.equals("CANCELLED");
+            boolean isPast = status.equals("COMPLETED") || status.equals("EXPIRED") || status.equals("CANCELLED") || status.equals("FAILED");
 
-            if (isUpcomingTab && !isPast) {
+            String slotDate = booking.has("slot_date") && !booking.get("slot_date").isJsonNull()
+                    ? booking.get("slot_date").getAsString() : "";
+            if (isUpcomingTab && status.equals("CONFIRMED") && isUpcomingDate(slotDate)) {
                 displayedBookings.add(booking);
             } else if (!isUpcomingTab && isPast) {
                 displayedBookings.add(booking);
@@ -134,6 +142,12 @@ public class BookingsActivity extends AppCompatActivity {
         });
         rvBookings.setAdapter(bookingAdapter);
         tvEmpty.setVisibility(displayedBookings.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
+    private static boolean isUpcomingDate(String slotDate) {
+        if (slotDate == null || slotDate.length() < 10) return false;
+        String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Calendar.getInstance().getTime());
+        return slotDate.substring(0, 10).compareTo(today) >= 0;
     }
 
     private void loadBookingDetail(int bookingId) {
@@ -261,6 +275,11 @@ public class BookingsActivity extends AppCompatActivity {
             String slotDate = booking.has("slot_date") && !booking.get("slot_date").isJsonNull() ? booking.get("slot_date").getAsString() : "Tue, Apr 22, 2025";
             String startTime = booking.has("start_time") && !booking.get("start_time").isJsonNull() ? booking.get("start_time").getAsString() : "11:00 AM";
             String endTime = booking.has("end_time") && !booking.get("end_time").isJsonNull() ? booking.get("end_time").getAsString() : "12:00 PM";
+            String confirmedAt = booking.has("confirmed_at") && !booking.get("confirmed_at").isJsonNull()
+                    ? booking.get("confirmed_at").getAsString() : null;
+            boolean confirmedStatus = "CONFIRMED".equalsIgnoreCase(status);
+            boolean canCancel = confirmedStatus && isWithinCancellationWindow(confirmedAt);
+            boolean missingConfirmationTime = confirmedStatus && confirmedAt == null;
 
             holder.tvCourtName.setText("Court 1");
             holder.tvAmount.setText(amount + " VND");
@@ -270,21 +289,42 @@ public class BookingsActivity extends AppCompatActivity {
 
             if (isUpcoming) {
                 holder.layoutButtonsRow.setVisibility(View.VISIBLE);
-                holder.btnViewTicket.setOnClickListener(v -> listener.onBookingClick(booking));
+                holder.btnViewTicket.setVisibility("CONFIRMED".equalsIgnoreCase(status) ? View.VISIBLE : View.GONE);
+                holder.btnCancelBooking.setVisibility(canCancel || missingConfirmationTime ? View.VISIBLE : View.GONE);
+                holder.btnCancelBooking.setEnabled(canCancel);
+                holder.btnCancelBooking.setText(missingConfirmationTime ? "Cancel unavailable" : "Cancel");
                 holder.btnCancelBooking.setOnClickListener(v -> {
-                    if (status.equalsIgnoreCase("PENDING")) {
-                        if (holder.itemView.getContext() instanceof BookingsActivity) {
-                            ((BookingsActivity) holder.itemView.getContext()).confirmAndCancelBooking(booking);
-                        }
-                    } else {
-                        Toast.makeText(holder.itemView.getContext(), "Only pending bookings can be cancelled", Toast.LENGTH_SHORT).show();
+                    if (missingConfirmationTime) {
+                        Toast.makeText(holder.itemView.getContext(),
+                                "Cancellation cannot be offered because this booking has no recorded confirmation time.",
+                                Toast.LENGTH_LONG).show();
+                    } else if (canCancel) {
+                        ((BookingsActivity) holder.itemView.getContext()).confirmAndCancelBooking(booking);
                     }
                 });
+                holder.btnViewTicket.setOnClickListener(v -> { if ("CONFIRMED".equalsIgnoreCase(status)) listener.onBookingClick(booking); });
                 holder.itemView.setOnClickListener(v -> listener.onBookingClick(booking));
             } else {
                 // Past tab: hide action buttons and disable click on past tickets
                 holder.layoutButtonsRow.setVisibility(View.GONE);
                 holder.itemView.setOnClickListener(null);
+            }
+        }
+
+        private static boolean isWithinCancellationWindow(String value) {
+            if (value == null) return false;
+            try {
+                SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US);
+                format.setTimeZone(TimeZone.getTimeZone("UTC"));
+                Date confirmed = format.parse(value, new ParsePosition(0));
+                if (confirmed == null) {
+                    format = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX", Locale.US);
+                    format.setTimeZone(TimeZone.getTimeZone("UTC"));
+                    confirmed = format.parse(value, new ParsePosition(0));
+                }
+                return confirmed != null && System.currentTimeMillis() <= confirmed.getTime() + 30L * 60L * 1000L;
+            } catch (Exception ignored) {
+                return false;
             }
         }
 

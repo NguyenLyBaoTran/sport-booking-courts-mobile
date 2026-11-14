@@ -31,6 +31,10 @@ public class BookingRepository {
         api.createBooking(body).enqueue(objectCallback(callback));
     }
 
+    public void getBookingQuote(int slotId, ApiCallback<JsonObject> callback) {
+        api.getBookingQuote(slotId).enqueue(objectCallback(callback));
+    }
+
     public void getBookings(ApiCallback<JsonArray> callback) {
         api.getBookings().enqueue(arrayCallback(callback));
     }
