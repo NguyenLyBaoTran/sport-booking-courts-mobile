@@ -14,10 +14,13 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.BookingRepository;
 import com.example.sportbooking.utils.QrCodeUtils;
 import com.google.gson.JsonObject;
+
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
 
 public class BookingSuccessActivity extends AppCompatActivity {
 
@@ -25,7 +28,9 @@ public class BookingSuccessActivity extends AppCompatActivity {
 
     private LinearLayout layoutQrView, layoutSuccessView, layoutBottomBar;
     private TextView tvCourtName, tvVenueName, tvTicketDate, tvTicketTime;
-    private TextView tvSuccessCourtName, tvSuccessVenueName, tvSuccessCustomer, tvSuccessTimeSlot;
+    private TextView tvSuccessCourtName, tvSuccessVenueName, tvSuccessCustomer;
+    private TextView tvSuccessBookingId, tvSuccessBookingDate, tvSuccessTimeSlot, tvSuccessMessage;
+    private TextView tvSuccessIcon;
     private ImageView ivQrCode;
     private Button btnDone;
 
@@ -33,6 +38,12 @@ public class BookingSuccessActivity extends AppCompatActivity {
     private String qrToken, courtName, venueName, dateStr, timeSlotStr, customerName;
     private final Handler pollHandler = new Handler(Looper.getMainLooper());
     private Runnable pollRunnable;
+    private Call<JsonObject> statusCall;
+    private boolean screenResumed;
+    private boolean requestInFlight;
+    private boolean terminalStatus;
+    private boolean inactiveMessageShown;
+    private int requestGeneration;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -62,7 +73,11 @@ public class BookingSuccessActivity extends AppCompatActivity {
         tvSuccessCourtName = findViewById(R.id.tvSuccessCourtName);
         tvSuccessVenueName = findViewById(R.id.tvSuccessVenueName);
         tvSuccessCustomer = findViewById(R.id.tvSuccessCustomer);
+        tvSuccessBookingId = findViewById(R.id.tvSuccessBookingId);
+        tvSuccessBookingDate = findViewById(R.id.tvSuccessBookingDate);
         tvSuccessTimeSlot = findViewById(R.id.tvSuccessTimeSlot);
+        tvSuccessMessage = findViewById(R.id.tvSuccessMessage);
+        tvSuccessIcon = findViewById(R.id.tvSuccessIcon);
         btnDone = findViewById(R.id.btnDone);
 
         // Bind initial Intent data
@@ -89,8 +104,7 @@ public class BookingSuccessActivity extends AppCompatActivity {
 
         layoutQrView.setVisibility(View.GONE);
         layoutBottomBar.setVisibility(View.GONE);
-        // Fetch and validate the authoritative booking before rendering its QR.
-        checkBookingStatus();
+        // Do not render the QR until Booking Service confirms the current state.
     }
 
     private void showQrView() {
@@ -112,55 +126,157 @@ public class BookingSuccessActivity extends AppCompatActivity {
         }
     }
 
-    private void showCheckinSuccessView(String status) {
+    private void showCheckinSuccessView() {
         layoutQrView.setVisibility(View.GONE);
         layoutSuccessView.setVisibility(View.VISIBLE);
         layoutBottomBar.setVisibility(View.VISIBLE);
+        tvSuccessIcon.setText("\u2713");
+        tvSuccessMessage.setText("CHECK-IN SUCCESSFUL");
     }
 
     private void checkBookingStatus() {
-        if (bookingId <= 0) return;
+        if (!shouldPoll(screenResumed, terminalStatus, requestInFlight) || bookingId <= 0) return;
 
-        bookingRepository.getBooking(bookingId, new ApiCallback<JsonObject>() {
+        requestInFlight = true;
+        final int generation = ++requestGeneration;
+        statusCall = bookingRepository.getBookingRequest(bookingId);
+        statusCall.enqueue(new Callback<JsonObject>() {
             @Override
-            public void onSuccess(JsonObject booking) {
-                String status = booking.has("status") && !booking.get("status").isJsonNull()
-                        ? booking.get("status").getAsString() : "CONFIRMED";
+            public void onResponse(Call<JsonObject> call, Response<JsonObject> response) {
+                if (generation != requestGeneration) return;
+                requestInFlight = false;
+                statusCall = null;
+                if (!screenResumed || isFinishing() || isDestroyed()) return;
 
-                qrToken = booking.has("qr_token") && !booking.get("qr_token").isJsonNull()
-                        ? booking.get("qr_token").getAsString() : null;
-                if ("CONFIRMED".equalsIgnoreCase(status)) {
-                    stopPolling();
-                    showQrView();
+                if (!response.isSuccessful() || response.body() == null) {
+                    int code = response.code();
+                    if (code == 401 || code == 403 || code == 404) {
+                        showInactiveTicket("This booking is no longer available.");
+                    } else {
+                        scheduleNextPoll();
+                    }
                     return;
                 }
 
-                if ("CHECKED_IN".equalsIgnoreCase(status) || "COMPLETED".equalsIgnoreCase(status)) {
-                    stopPolling();
-                    showCheckinSuccessView(status);
-                } else {
-                    stopPolling();
-                    layoutQrView.setVisibility(View.GONE);
-                    layoutSuccessView.setVisibility(View.GONE);
-                    layoutBottomBar.setVisibility(View.VISIBLE);
-                    Toast.makeText(BookingSuccessActivity.this, "This booking does not have an active ticket.", Toast.LENGTH_LONG).show();
-                }
+                applyBookingStatus(response.body());
             }
 
             @Override
-            public void onError(String error) {
-                stopPolling();
-                layoutQrView.setVisibility(View.GONE);
-                layoutBottomBar.setVisibility(View.VISIBLE);
-                Toast.makeText(BookingSuccessActivity.this, error, Toast.LENGTH_LONG).show();
+            public void onFailure(Call<JsonObject> call, Throwable throwable) {
+                if (generation != requestGeneration) return;
+                requestInFlight = false;
+                statusCall = null;
+                if (screenResumed && !isFinishing() && !isDestroyed()) scheduleNextPoll();
             }
         });
     }
 
-    private void startPolling() {
+    private void applyBookingStatus(JsonObject booking) {
+        String status = booking.has("status") && !booking.get("status").isJsonNull()
+                ? booking.get("status").getAsString() : "";
+        bindBookingDetails(booking);
+
+        if (isCheckInConfirmed(status)) {
+            terminalStatus = true;
+            stopPolling();
+            showCheckinSuccessView();
+            return;
+        }
+
+        if (isActiveQrStatus(status)) {
+            String previousQrToken = qrToken;
+            qrToken = booking.has("qr_token") && !booking.get("qr_token").isJsonNull()
+                    ? booking.get("qr_token").getAsString() : null;
+            if (qrToken == null || qrToken.trim().isEmpty()) {
+                showInactiveTicket("This confirmed booking has no active QR ticket.");
+                return;
+            }
+            if (layoutQrView.getVisibility() != View.VISIBLE || !qrToken.equals(previousQrToken)) {
+                showQrView();
+            }
+            scheduleNextPoll();
+            return;
+        }
+
+        showInactiveTicket("This booking does not have an active ticket.");
+    }
+
+    private void bindBookingDetails(JsonObject booking) {
+        String currentCourt = booking.has("court_id") && !booking.get("court_id").isJsonNull()
+                ? "Court #" + booking.get("court_id").getAsString() : courtName;
+        String currentVenue = booking.has("venue_id") && !booking.get("venue_id").isJsonNull()
+                ? "Venue #" + booking.get("venue_id").getAsString() : venueName;
+        String currentDate = booking.has("slot_date") && !booking.get("slot_date").isJsonNull()
+                ? booking.get("slot_date").getAsString() : dateStr;
+        String startTime = booking.has("start_time") && !booking.get("start_time").isJsonNull()
+                ? formatTime(booking.get("start_time").getAsString()) : "";
+        String endTime = booking.has("end_time") && !booking.get("end_time").isJsonNull()
+                ? formatTime(booking.get("end_time").getAsString()) : "";
+        String currentTime = !startTime.isEmpty() && !endTime.isEmpty()
+                ? startTime + " - " + endTime : timeSlotStr;
+
+        courtName = currentCourt;
+        venueName = currentVenue;
+        dateStr = currentDate;
+        timeSlotStr = currentTime;
+        if (currentCourt != null) {
+            tvCourtName.setText(currentCourt);
+            tvSuccessCourtName.setText(currentCourt);
+        }
+        if (currentVenue != null) {
+            tvVenueName.setText(currentVenue);
+            tvSuccessVenueName.setText(currentVenue);
+        }
+        if (currentDate != null) {
+            tvTicketDate.setText(currentDate);
+            tvSuccessBookingDate.setText(currentDate);
+        }
+        if (currentTime != null) {
+            tvTicketTime.setText(currentTime);
+            tvSuccessTimeSlot.setText(currentTime);
+        }
+        tvSuccessBookingId.setText("Booking #" + bookingId);
+        if (booking.has("user_id") && !booking.get("user_id").isJsonNull()) {
+            tvSuccessCustomer.setText("Customer #" + booking.get("user_id").getAsString());
+        }
+    }
+
+    static String formatTime(String value) {
+        return value != null && value.length() >= 5 ? value.substring(0, 5) : value;
+    }
+
+    static boolean isCheckInConfirmed(String status) {
+        return "CHECKED_IN".equalsIgnoreCase(status);
+    }
+
+    static boolean isActiveQrStatus(String status) {
+        return "CONFIRMED".equalsIgnoreCase(status);
+    }
+
+    static boolean shouldPoll(boolean resumed, boolean terminal, boolean inFlight) {
+        return resumed && !terminal && !inFlight;
+    }
+
+    private void showInactiveTicket(String message) {
+        terminalStatus = true;
         stopPolling();
-        pollRunnable = this::checkBookingStatus;
-        pollHandler.postDelayed(pollRunnable, 3000);
+        layoutQrView.setVisibility(View.GONE);
+        layoutSuccessView.setVisibility(View.GONE);
+        layoutBottomBar.setVisibility(View.VISIBLE);
+        ivQrCode.setImageDrawable(null);
+        if (!inactiveMessageShown) {
+            inactiveMessageShown = true;
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void scheduleNextPoll() {
+        if (!shouldPoll(screenResumed, terminalStatus, requestInFlight) || pollRunnable != null) return;
+        pollRunnable = () -> {
+            pollRunnable = null;
+            checkBookingStatus();
+        };
+        pollHandler.postDelayed(pollRunnable, 2500);
     }
 
     private void stopPolling() {
@@ -168,6 +284,26 @@ public class BookingSuccessActivity extends AppCompatActivity {
             pollHandler.removeCallbacks(pollRunnable);
             pollRunnable = null;
         }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        screenResumed = true;
+        checkBookingStatus();
+    }
+
+    @Override
+    protected void onPause() {
+        screenResumed = false;
+        stopPolling();
+        requestGeneration++;
+        requestInFlight = false;
+        if (statusCall != null) {
+            statusCall.cancel();
+            statusCall = null;
+        }
+        super.onPause();
     }
 
     private void finishToBookings() {
@@ -180,7 +316,13 @@ public class BookingSuccessActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
-        super.onDestroy();
+        screenResumed = false;
         stopPolling();
+        requestGeneration++;
+        if (statusCall != null) {
+            statusCall.cancel();
+            statusCall = null;
+        }
+        super.onDestroy();
     }
 }

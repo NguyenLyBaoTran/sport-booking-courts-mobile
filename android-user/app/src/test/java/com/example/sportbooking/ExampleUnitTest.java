@@ -47,6 +47,32 @@ public class ExampleUnitTest {
         assertEquals("09:30", SelectDateTimeActivity.formatTime("09:30:59"));
     }
 
+    @Test
+    public void checkInSuccessRequiresConfirmedBackendStatus() {
+        assertTrue(BookingSuccessActivity.isCheckInConfirmed("CHECKED_IN"));
+        assertFalse(BookingSuccessActivity.isCheckInConfirmed("CONFIRMED"));
+        assertFalse(BookingSuccessActivity.isCheckInConfirmed("CANCELLED"));
+        assertFalse(BookingSuccessActivity.isCheckInConfirmed("EXPIRED"));
+        assertFalse(BookingSuccessActivity.isCheckInConfirmed("COMPLETED"));
+    }
+
+    @Test
+    public void onlyConfirmedBookingsKeepAnActiveQrScreen() {
+        assertTrue(BookingSuccessActivity.isActiveQrStatus("CONFIRMED"));
+        assertFalse(BookingSuccessActivity.isActiveQrStatus("CHECKED_IN"));
+        assertFalse(BookingSuccessActivity.isActiveQrStatus("CANCELLED"));
+        assertFalse(BookingSuccessActivity.isActiveQrStatus("EXPIRED"));
+        assertFalse(BookingSuccessActivity.isActiveQrStatus(null));
+    }
+
+    @Test
+    public void pollingRequiresResumedScreenAndNoTerminalOrInflightRequest() {
+        assertTrue(BookingSuccessActivity.shouldPoll(true, false, false));
+        assertFalse(BookingSuccessActivity.shouldPoll(false, false, false));
+        assertFalse(BookingSuccessActivity.shouldPoll(true, true, false));
+        assertFalse(BookingSuccessActivity.shouldPoll(true, false, true));
+    }
+
     private static JsonObject slot(int id, int courtId, String date, String start, String end, String status, boolean selectable) {
         JsonObject value = new JsonObject();
         value.addProperty("id", id);

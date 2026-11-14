@@ -202,6 +202,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="center"
+                        android:id="@+id/tvSuccessIcon"
                         android:text="✓"
                         android:textColor="@color/primary"
                         android:textSize="42sp"
@@ -209,10 +210,11 @@
                 </FrameLayout>
 
                 <TextView
+                    android:id="@+id/tvSuccessMessage"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center"
-                    android:text="Check-in\nSuccessful"
+                    android:text="CHECK-IN SUCCESSFUL"
                     android:textColor="@color/text_primary"
                     android:textSize="24sp"
                     android:textStyle="bold"
@@ -254,6 +256,25 @@
                         android:textColor="@color/text_secondary"
                         android:textSize="13sp"
                         android:layout_marginBottom="16dp" />
+
+                    <TextView
+                        android:id="@+id/tvSuccessBookingId"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:text="Booking"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvSuccessBookingDate"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="16dp"
+                        android:text=""
+                        android:textColor="@color/text_secondary"
+                        android:textSize="14sp" />
 
                     <View
                         android:layout_width="match_parent"
