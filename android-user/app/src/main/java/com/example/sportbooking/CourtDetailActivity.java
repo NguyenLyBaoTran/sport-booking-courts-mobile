@@ -23,6 +23,7 @@ import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.BookingRepository;
 import com.example.sportbooking.repository.CourtRepository;
 import com.example.sportbooking.utils.SportImageMapper;
+import com.example.sportbooking.utils.CustomerUiUtils;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
@@ -390,14 +391,15 @@ public class CourtDetailActivity extends AppCompatActivity {
             JsonObject slot = items.get(position);
             String startTime = slot.has("start_time") ? formatTime(slot.get("start_time").getAsString()) : "--:--";
             String endTime = slot.has("end_time") ? formatTime(slot.get("end_time").getAsString()) : "--:--";
-            holder.tvTime.setText(startTime + " - " + endTime);
+            holder.tvTime.setText(CustomerUiUtils.timeSlotLabel(startTime, endTime));
 
             String state = slot.has("reservation_status") ? slot.get("reservation_status").getAsString() : "UNAVAILABLE";
             boolean selectable = slot.has("is_selectable") && slot.get("is_selectable").getAsBoolean();
             if (!selectable && "AVAILABLE".equalsIgnoreCase(state)) state = "UNAVAILABLE";
-            holder.tvTime.setText(startTime + " - " + endTime + "\n" + state);
             holder.itemView.setEnabled(selectable);
             holder.itemView.setAlpha(selectable ? 1f : 0.72f);
+            holder.itemView.setContentDescription(startTime + " to " + endTime + ", "
+                    + (selectable ? "available" : state));
             holder.tvTime.setTextColor("AVAILABLE".equalsIgnoreCase(state) ? 0xFF176B4D
                     : "HELD".equalsIgnoreCase(state) ? 0xFF895500
                     : "BOOKED".equalsIgnoreCase(state) ? 0xFF8C3A32 : 0xFF71829C);

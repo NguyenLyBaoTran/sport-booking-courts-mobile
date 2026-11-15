@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/background"
@@ -15,11 +16,20 @@
         android:paddingBottom="8dp">
 
         <TextView
+            android:id="@+id/tvGreeting"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Hello"
+            android:textColor="@color/text_secondary"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
             android:id="@+id/tvTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="5dp"
-            android:text="Courts Search"
+            android:text="Find a court"
             android:textColor="@color/text_primary"
             android:textSize="26sp"
             android:textStyle="bold" />
@@ -29,7 +39,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
-            android:text="Find a court for your next game"
+            android:text="Browse courts by venue or sport"
             android:textColor="@color/text_secondary"
             android:textSize="14sp" />
 
@@ -64,23 +74,82 @@
                 android:textSize="15sp" />
         </LinearLayout>
 
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"
+            android:fillViewport="false"
+            android:scrollbars="none">
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipSports"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingEnd="8dp"
+                app:chipSpacingHorizontal="8dp"
+                app:singleSelection="true"
+                app:selectionRequired="true" />
+        </HorizontalScrollView>
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnFilters"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:backgroundTint="@color/surface"
+                android:text="Filters"
+                android:textAllCaps="false"
+                android:textColor="@color/primary" />
+
+            <TextView
+                android:id="@+id/tvFilterSummary"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="end"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="All courts"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/filterPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:orientation="vertical"
             android:visibility="gone">
 
-            <Spinner
-                android:id="@+id/spinnerVenues"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
 
-            <Spinner
-                android:id="@+id/spinnerSports"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1" />
+                <Spinner
+                    android:id="@+id/spinnerVenues"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:contentDescription="Filter by venue" />
+
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnClearFilters"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:layout_gravity="end"
+                android:text="Clear filters"
+                android:textAllCaps="false"
+                android:visibility="gone" />
         </LinearLayout>
 
         <ProgressBar

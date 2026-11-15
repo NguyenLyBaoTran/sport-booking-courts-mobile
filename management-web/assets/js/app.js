@@ -390,7 +390,6 @@
       body += '<div class="panel-body"><div class="alert alert-warning mb-0" role="alert">' + esc(revenueErrorMessage(state.error)) + ' <button class="btn btn-sm btn-outline-secondary ms-2" type="button" data-revenue-retry>Retry</button></div></div>';
     } else {
       body += '<div class="dashboard-revenue-total"><div><span>Total revenue</span><strong>' + esc(formatRevenueAmount(Number(state.data.summary.total_revenue))) + '</strong></div><span class="dashboard-revenue-period">' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + '</span></div>';
-      if (authUser.role === "ADMIN") body += '<div class="dashboard-revenue-chart">' + revenueChart(state.data.revenue_series) + '</div>';
     }
     var action = '<a class="btn btn-sm btn-outline-secondary" href="' + (authUser.role === "ADMIN" ? "#/admin-revenue" : "#/revenue") + '">Detailed report</a>';
     return panel("Revenue", body, authUser.role === "ADMIN" ? "System-wide" : "Your venues", action, "dashboard-revenue-panel");

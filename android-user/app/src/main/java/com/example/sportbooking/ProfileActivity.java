@@ -29,6 +29,11 @@ public class ProfileActivity extends AppCompatActivity {
     private Button btnSaveProfile, btnLogout;
 
     @Override
+    public void onBackPressed() {
+        BottomNavUtils.handleBack(this);
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_profile);

@@ -54,6 +54,10 @@
             android:exported="false" />
 
         <activity
+            android:name=".BookingReceiptActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".ProfileActivity"
             android:exported="false" />
 

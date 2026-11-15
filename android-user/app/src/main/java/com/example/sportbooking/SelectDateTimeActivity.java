@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.BookingRepository;
 import com.example.sportbooking.repository.CourtRepository;
+import com.example.sportbooking.utils.CustomerUiUtils;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -401,7 +402,7 @@ public class SelectDateTimeActivity extends AppCompatActivity {
             if (!slot.has("is_selectable") || !slot.get("is_selectable").getAsBoolean()) {
                 if ("AVAILABLE".equalsIgnoreCase(state)) state = "UNAVAILABLE";
             }
-            holder.tvTime.setText(startTime + " - " + endTime + "\n" + state);
+            holder.tvTime.setText(CustomerUiUtils.timeSlotLabel(startTime, endTime));
 
             int id = slot.has("id") ? slot.get("id").getAsInt() : -1;
             boolean isSelected = selectedIds.contains(id);
@@ -416,6 +417,8 @@ public class SelectDateTimeActivity extends AppCompatActivity {
             }
             holder.itemView.setAlpha(selectable || isSelected ? 1f : 0.72f);
             holder.itemView.setEnabled(selectable || isSelected);
+            holder.itemView.setContentDescription(startTime + " to " + endTime + ", "
+                    + (isSelected ? "selected" : (selectable ? "available" : state)));
 
             holder.itemView.setOnClickListener(v -> {
                 if (!selectable && !isSelected) return;

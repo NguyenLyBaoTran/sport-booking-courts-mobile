@@ -10,11 +10,14 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.Spinner;
 import android.widget.TextView;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipGroup;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -24,6 +27,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.CourtRepository;
 import com.example.sportbooking.utils.BottomNavUtils;
+import com.example.sportbooking.utils.CustomerUiUtils;
 import com.example.sportbooking.utils.SportImageMapper;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -38,11 +42,16 @@ import java.util.Map;
 public class CourtSearchActivity extends AppCompatActivity {
 
     private CourtRepository courtRepository;
-    private Spinner spinnerVenues, spinnerSports;
+    private Spinner spinnerVenues;
+    private ChipGroup chipSports;
     private RecyclerView rvCourts;
     private ProgressBar progressBar;
     private TextView tvEmpty;
     private EditText etSearch;
+    private View filterPanel;
+    private TextView tvFilterSummary;
+    private Button btnClearFilters;
+    private int filterListsLoaded;
 
     private final List<VenueItem> venueList = new ArrayList<>();
     private final Map<Integer, VenueItem> venueMap = new HashMap<>();
@@ -63,26 +72,40 @@ public class CourtSearchActivity extends AppCompatActivity {
         courtRepository = new CourtRepository(this);
 
         spinnerVenues = findViewById(R.id.spinnerVenues);
-        spinnerSports = findViewById(R.id.spinnerSports);
+        chipSports = findViewById(R.id.chipSports);
         rvCourts = findViewById(R.id.rvCourts);
         progressBar = findViewById(R.id.progressBar);
         tvEmpty = findViewById(R.id.tvEmpty);
         etSearch = findViewById(R.id.etSearch);
+        filterPanel = findViewById(R.id.filterPanel);
+        tvFilterSummary = findViewById(R.id.tvFilterSummary);
+        btnClearFilters = findViewById(R.id.btnClearFilters);
 
         TextView tvTitle = findViewById(R.id.tvTitle);
-        String targetSport = getIntent().getStringExtra("sport_name");
         if (tvTitle != null) {
-            tvTitle.setText(targetSport != null ? targetSport + " Courts" : "Courts Search");
+            tvTitle.setText("Find a court");
         }
+        TextView greeting = findViewById(R.id.tvGreeting);
+        String savedName = getSharedPreferences("user_profile_prefs", MODE_PRIVATE)
+                .getString("saved_full_name", "");
+        String displayName = savedName == null ? "" : savedName.trim();
+        if (greeting != null) greeting.setText(displayName.isEmpty() ? "Hello" : "Hello, " + displayName);
 
-        boolean isFromSportCard = getIntent().getBooleanExtra("from_sport_card", false);
-        if (isFromSportCard) {
-            int initialSportId = getIntent().getIntExtra("sport_id", -1);
-            if (initialSportId > 0) {
-                selectedSportId = initialSportId;
-            }
-        }
-        BottomNavUtils.setupBottomNav(this, isFromSportCard ? 0 : R.id.navSearch);
+        BottomNavUtils.setupBottomNav(this, R.id.navHome);
+
+        findViewById(R.id.btnFilters).setOnClickListener(v -> {
+            boolean open = filterPanel.getVisibility() != View.VISIBLE;
+            filterPanel.setVisibility(open ? View.VISIBLE : View.GONE);
+            ((Button) findViewById(R.id.btnFilters)).setText(open ? "Hide filters" : "Filters");
+        });
+        btnClearFilters.setOnClickListener(v -> {
+            spinnerVenues.setSelection(0);
+            selectedSportId = null;
+            syncSportChip(0);
+            filterCourts(etSearch != null ? etSearch.getText().toString() : "");
+            if (etSearch != null) etSearch.setText("");
+            updateFilterSummary();
+        });
 
         rvCourts.setLayoutManager(new LinearLayoutManager(this));
         courtAdapter = new CourtAdapter(courtList, venueMap, court -> {
@@ -105,6 +128,7 @@ public class CourtSearchActivity extends AppCompatActivity {
                 @Override
                 public void onTextChanged(CharSequence s, int start, int before, int count) {
                     filterCourts(s.toString());
+                    updateFilterSummary();
                 }
 
                 @Override
@@ -124,13 +148,6 @@ public class CourtSearchActivity extends AppCompatActivity {
                     ? court.get("venue_id").getAsInt() : -1;
             int sportId = court.has("sport_id") && !court.get("sport_id").isJsonNull()
                     ? court.get("sport_id").getAsInt() : -1;
-            if (selectedVenueId != null && venueId != selectedVenueId) {
-                continue;
-            }
-            if (selectedSportId != null && sportId != selectedSportId) {
-                continue;
-            }
-
             String name = court.has("name") && !court.get("name").isJsonNull()
                     ? court.get("name").getAsString().toLowerCase() : "";
             String desc = court.has("description") && !court.get("description").isJsonNull()
@@ -141,12 +158,31 @@ public class CourtSearchActivity extends AppCompatActivity {
                 venueInfo = (venue.name + " " + venue.address).toLowerCase();
             }
 
-            if (q.isEmpty() || name.contains(q) || desc.contains(q) || venueInfo.contains(q)) {
-                courtList.add(court);
+            String sportName = "";
+            for (SportItem item : sportList) {
+                if (item.id != null && item.id == sportId) { sportName = item.name.toLowerCase(); break; }
             }
+            if (CustomerUiUtils.matchesCourtFilters(q, name, desc, venueInfo, sportName,
+                    venueId, selectedVenueId, sportId, selectedSportId)) courtList.add(court);
         }
         courtAdapter.notifyDataSetChanged();
         tvEmpty.setVisibility(courtList.isEmpty() ? View.VISIBLE : View.GONE);
+    }
+
+    @Override
+    public void onBackPressed() {
+        BottomNavUtils.handleBack(this);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        TextView greeting = findViewById(R.id.tvGreeting);
+        if (greeting == null) return;
+        String name = getSharedPreferences("user_profile_prefs", MODE_PRIVATE)
+                .getString("saved_full_name", "");
+        name = name == null ? "" : name.trim();
+        greeting.setText(name.isEmpty() ? "Hello" : "Hello, " + name);
     }
 
     private void setupSpinners() {
@@ -159,6 +195,7 @@ public class CourtSearchActivity extends AppCompatActivity {
                     selectedVenueId = venueList.get(position).id;
                 }
                 filterCourts(etSearch != null ? etSearch.getText().toString() : "");
+                updateFilterSummary();
             }
 
             @Override
@@ -167,25 +204,10 @@ public class CourtSearchActivity extends AppCompatActivity {
             }
         });
 
-        spinnerSports.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                if (position <= 0 || position >= sportList.size()) {
-                    selectedSportId = null;
-                } else {
-                    selectedSportId = sportList.get(position).id;
-                }
-                filterCourts(etSearch != null ? etSearch.getText().toString() : "");
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-                selectedSportId = null;
-            }
-        });
     }
 
     private void loadFilters() {
+        filterListsLoaded = 0;
         venueList.clear();
         venueList.add(new VenueItem(null, "All Venues", ""));
         sportList.clear();
@@ -205,11 +227,13 @@ public class CourtSearchActivity extends AppCompatActivity {
                     venueMap.put(id, item);
                 }
                 updateVenueSpinner();
+                onFilterListLoaded();
             }
 
             @Override
             public void onError(String error) {
                 updateVenueSpinner();
+                onFilterListLoaded();
             }
         });
 
@@ -222,16 +246,21 @@ public class CourtSearchActivity extends AppCompatActivity {
                     String name = obj.has("name") ? obj.get("name").getAsString() : "Sport " + id;
                     sportList.add(new SportItem(id, name));
                 }
-                updateSportSpinner();
+                updateSportChips();
+                onFilterListLoaded();
             }
 
             @Override
             public void onError(String error) {
-                updateSportSpinner();
+                updateSportChips();
+                onFilterListLoaded();
             }
         });
+    }
 
-        applyInitialSportFilter();
+    private void onFilterListLoaded() {
+        filterListsLoaded += 1;
+        if (filterListsLoaded == 2) applyInitialSportFilter();
     }
 
     private void updateVenueSpinner() {
@@ -242,62 +271,80 @@ public class CourtSearchActivity extends AppCompatActivity {
         ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names);
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerVenues.setAdapter(adapter);
+        updateFilterSummary();
     }
 
-    private void updateSportSpinner() {
-        List<String> names = new ArrayList<>();
-        for (SportItem item : sportList) {
-            names.add(item.name);
-        }
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names);
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinnerSports.setAdapter(adapter);
-        applyInitialSportFilter();
-    }
-
-    private void applyInitialSportFilter() {
-        boolean isFromSportCard = getIntent().getBooleanExtra("from_sport_card", false);
-        if (!isFromSportCard) {
-            selectedSportId = null;
-            selectedVenueId = null;
-            searchCourts();
-            return;
-        }
-
-        String targetSport = getIntent().getStringExtra("sport_name");
-        int targetSportId = getIntent().getIntExtra("sport_id", -1);
-        if (sportList.isEmpty()) {
-            searchCourts();
-            return;
-        }
-
-        if (targetSportId > 0) {
-            for (int i = 0; i < sportList.size(); i++) {
-                SportItem item = sportList.get(i);
-                if (item.id != null && item.id == targetSportId) {
-                    selectedSportId = item.id;
-                    spinnerSports.setSelection(i);
-                    searchCourts();
-                    return;
-                }
-            }
-        }
-
-        if (targetSport == null) {
-            searchCourts();
-            return;
-        }
-
+    private void updateSportChips() {
+        if (chipSports == null) return;
+        chipSports.removeAllViews();
         for (int i = 0; i < sportList.size(); i++) {
-            SportItem item = sportList.get(i);
-            if (targetSport.equalsIgnoreCase(item.name)) {
-                selectedSportId = item.id;
-                spinnerSports.setSelection(i);
-                searchCourts();
+            SportItem sport = sportList.get(i);
+            if (i > 0 && !hasCourtsForSport(sport.id)) continue;
+            Chip chip = new Chip(this);
+            chip.setId(View.generateViewId());
+            chip.setTag(i);
+            chip.setChipBackgroundColorResource(R.color.sport_chip_background);
+            chip.setTextColor(getColorStateList(R.color.sport_chip_text));
+            chip.setChipCornerRadius(getResources().getDisplayMetrics().density * 16);
+            chip.setMinHeight((int) (40 * getResources().getDisplayMetrics().density));
+            chip.setEnsureMinTouchTargetSize(true);
+            String name = sport.name == null ? "Sport" : sport.name;
+            chip.setText(i == 0 ? "All" : name);
+            chip.setCheckable(true);
+            chip.setClickable(true);
+            final int position = i;
+            chip.setOnClickListener(v -> {
+                chipSports.check(chip.getId());
+                selectedSportId = position == 0 ? null : sport.id;
+                filterCourts(etSearch != null ? etSearch.getText().toString() : "");
+                updateFilterSummary();
+            });
+            chipSports.addView(chip);
+            if ((selectedSportId == null && i == 0)
+                    || (selectedSportId != null && selectedSportId.equals(sport.id))) chipSports.check(chip.getId());
+        }
+    }
+
+    private boolean hasCourtsForSport(Integer sportId) {
+        if (sportId == null) return true;
+        for (JsonObject court : allCourts) {
+            if (court.has("sport_id") && !court.get("sport_id").isJsonNull()
+                    && court.get("sport_id").getAsInt() == sportId) return true;
+        }
+        return false;
+    }
+
+    private void syncSportChip(int sportPosition) {
+        if (chipSports == null) return;
+        for (int i = 0; i < chipSports.getChildCount(); i++) {
+            View child = chipSports.getChildAt(i);
+            if (child instanceof Chip && child.getTag() instanceof Integer
+                    && ((Integer) child.getTag()) == sportPosition) {
+                chipSports.check(child.getId());
                 return;
             }
         }
+    }
 
+    private void updateFilterSummary() {
+        if (tvFilterSummary == null || spinnerVenues == null) return;
+        List<String> selected = new ArrayList<>();
+        if (spinnerVenues.getSelectedItemPosition() > 0 && spinnerVenues.getSelectedItem() != null)
+            selected.add(String.valueOf(spinnerVenues.getSelectedItem()));
+        if (selectedSportId != null) {
+            for (SportItem sport : sportList) if (selectedSportId.equals(sport.id)) { selected.add(sport.name); break; }
+        }
+        String query = etSearch == null ? "" : etSearch.getText().toString().trim();
+        if (!query.isEmpty()) selected.add("Search: " + query);
+        String text = selected.isEmpty() ? "All courts" : TextUtils.join(" · ", selected);
+        tvFilterSummary.setText(text);
+        btnClearFilters.setVisibility(selected.isEmpty() ? View.GONE : View.VISIBLE);
+    }
+
+    private void applyInitialSportFilter() {
+        selectedSportId = null;
+        selectedVenueId = null;
+        updateFilterSummary();
         searchCourts();
     }
 
@@ -319,6 +366,7 @@ public class CourtSearchActivity extends AppCompatActivity {
                 for (int i = 0; i < result.size(); i++) {
                     allCourts.add(result.get(i).getAsJsonObject());
                 }
+                updateSportChips();
                 filterCourts(etSearch != null ? etSearch.getText().toString() : "");
             }
 

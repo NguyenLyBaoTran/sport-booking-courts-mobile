@@ -3,6 +3,7 @@ package com.example.sportbooking;
 import org.junit.Test;
 
 import com.google.gson.JsonObject;
+import com.example.sportbooking.utils.CustomerUiUtils;
 
 import java.util.Arrays;
 
@@ -45,6 +46,37 @@ public class ExampleUnitTest {
     public void customerSlotTimeFormattingOmitsSeconds() {
         assertEquals("08:00", SelectDateTimeActivity.formatTime("08:00:00"));
         assertEquals("09:30", SelectDateTimeActivity.formatTime("09:30:59"));
+    }
+
+    @Test
+    public void paymentMethodLabelsUseActualProviderNames() {
+        assertEquals("Mock", CustomerUiUtils.paymentMethodLabel("MOCK"));
+        assertEquals("VNPay", CustomerUiUtils.paymentMethodLabel("vnpay"));
+        assertEquals("MoMo", CustomerUiUtils.paymentMethodLabel("MOMO"));
+        assertEquals("ZaloPay", CustomerUiUtils.paymentMethodLabel("ZALOPAY"));
+        assertEquals("Unknown", CustomerUiUtils.paymentMethodLabel(null));
+    }
+
+    @Test
+    public void receiptDurationUsesBookingTimesAndHandlesMissingValues() {
+        assertEquals("1 hour", CustomerUiUtils.durationLabel("09:00:00", "10:00:00"));
+        assertEquals("1 hr 30 min", CustomerUiUtils.durationLabel("09:00", "10:30"));
+        assertEquals("Unavailable", CustomerUiUtils.durationLabel(null, "10:30"));
+        assertEquals("09:00 - 10:00", CustomerUiUtils.timeSlotLabel("09:00:00", "10:00:00"));
+        assertFalse(CustomerUiUtils.isCompletedBooking("CONFIRMED"));
+        assertTrue(CustomerUiUtils.isCompletedBooking("completed"));
+        assertEquals("15/11/2026", CustomerUiUtils.formatBookingDate("2026-11-15"));
+        assertEquals("15/11/2026 09:30 UTC", CustomerUiUtils.formatUtcTimestamp("2026-11-15T09:30:00Z"));
+    }
+
+    @Test
+    public void homeCatalogueFiltersUseOnlySelectedVenueSportAndRealTextFields() {
+        assertTrue(CustomerUiUtils.matchesCourtFilters("badminton", "Court A", "Indoor",
+                "Central Arena District 1", "Badminton", 3, 3, 7, 7));
+        assertFalse(CustomerUiUtils.matchesCourtFilters("", "Court A", "Indoor",
+                "Central Arena", "Badminton", 3, 4, 7, null));
+        assertFalse(CustomerUiUtils.matchesCourtFilters("football", "Court A", "Indoor",
+                "Central Arena", "Badminton", 3, null, 7, null));
     }
 
     @Test

@@ -139,7 +139,7 @@ test("dashboard revenue is role-gated, uses independent loading/error states, an
   assert.match(card, /state\.status === "idle" \|\| state\.status === "loading"/);
   assert.match(card, /state\.status === "error"/);
   assert.match(card, /data-revenue-retry/);
-  assert.match(card, /authUser\.role === "ADMIN"\) body \+= '<div class="dashboard-revenue-chart">'/);
+  assert.doesNotMatch(card, /dashboard-revenue-chart|revenueChart\(/);
   assert.match(loader, /ManagementRevenueApi\.getReport\(filters\)/);
   assert.match(loader, /revenueState\.promise && revenueState\.filtersKey === filtersKey/);
   assert.match(appSource, /active === "dashboard" && authUser && authUser\.role === "OWNER"/);

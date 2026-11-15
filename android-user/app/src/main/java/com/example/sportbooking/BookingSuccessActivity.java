@@ -308,9 +308,7 @@ public class BookingSuccessActivity extends AppCompatActivity {
 
     private void finishToBookings() {
         stopPolling();
-        Intent intent = new Intent(this, BookingsActivity.class);
-        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        startActivity(intent);
+        com.example.sportbooking.utils.BottomNavUtils.openBookingsAfterBooking(this);
         finish();
     }
 

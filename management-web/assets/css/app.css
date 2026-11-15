@@ -510,6 +510,7 @@ button, input, select { font: inherit; }
 .revenue-preset-group .btn { min-height: 38px; }
 .revenue-period-label { align-self: center; color: var(--muted); font-size: 13px; font-weight: 600; }
 .dashboard-revenue-panel { margin-top: 18px; }
+.dashboard-revenue-panel + .content-grid { margin-top: 24px; }
 .dashboard-revenue-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 14px 18px 0; }
 .dashboard-revenue-controls label { display: grid; min-width: 150px; flex: 1 1 150px; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .dashboard-revenue-controls .form-control, .dashboard-revenue-controls .form-select { min-height: 38px; }
@@ -517,8 +518,6 @@ button, input, select { font: inherit; }
 .dashboard-revenue-total > div { display: grid; gap: 3px; }
 .dashboard-revenue-total > div span, .dashboard-revenue-period { color: var(--muted); font-size: 13px; }
 .dashboard-revenue-total strong { font-size: clamp(22px, 3vw, 30px); line-height: 1.2; }
-.dashboard-revenue-chart { padding: 0 18px 16px; }
-.dashboard-revenue-chart .revenue-chart-scroll { border-radius: 8px; }
 .revenue-stat-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,180px),1fr)); gap: 12px; padding: 18px; }
 .revenue-stat-grid .stat-card { min-width: 0; }
 .revenue-stat-grid .stat-value { overflow-wrap: anywhere; font-size: clamp(19px,2vw,24px); }
@@ -547,6 +546,7 @@ button, input, select { font: inherit; }
   .admin-checkin-filter-toolbar > [data-admin-filter-clear] { justify-self: stretch; }
 }
 @media (max-width: 600px) {
+  .dashboard-revenue-panel + .content-grid { margin-top: 18px; }
   .registry-toolbar { grid-template-columns: repeat(2,minmax(0,1fr)); padding: 14px 16px; }
   .registry-search { grid-column: 1 / -1; }
   .registry-toolbar > .btn { grid-column: 1 / -1; justify-self: stretch; }
@@ -569,7 +569,6 @@ button, input, select { font: inherit; }
   .dashboard-revenue-controls { padding-inline: 13px; }
   .dashboard-revenue-controls label { flex-basis: calc(50% - 6px); min-width: 0; }
   .dashboard-revenue-total { padding-inline: 13px; }
-  .dashboard-revenue-chart { padding-inline: 12px; }
   .revenue-stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; padding: 13px; }
   .revenue-stat-grid .stat-card { padding: 13px; }
   .revenue-chart-card, .revenue-history-card { margin-inline: 12px; }
