@@ -199,6 +199,7 @@ test("API booking detail uses only API fields and omits qr_token", () => {
 });
 
 test("Completion is CHECKED_IN-only, confirmed, non-optimistic, and refreshes list and detail", () => {
+  assert.match(appSource, /var complete = booking\.status === "CHECKED_IN"/);
   const start = appSource.indexOf("  function completeOwnerBooking(");
   const end = appSource.indexOf("  function bookingDetail(", start);
   const complete = appSource.slice(start, end);
@@ -220,13 +221,8 @@ test("API errors show safe user-facing messages for the contract statuses", () =
   assert.doesNotMatch(messages, /error\.detail|error\.message/);
 });
 
-test("Demo Mode retains mock rows and local-only completion behavior", () => {
-  const demoData = fs.readFileSync(path.join(__dirname, "../assets/js/booking-demo-data.js"), "utf8");
-  const start = appSource.indexOf("  function completeDemoBooking(");
-  const end = appSource.indexOf("  function venuePage(", start);
-  const complete = appSource.slice(start, end);
-  assert.match(demoData, /demo-qr-checked-in-3105/);
-  assert.match(appSource, /var filtered = filteredDemoBookings\(\)/);
-  assert.match(complete, /dataMode !== "demo"\) \{ toast\(/);
-  assert.match(complete, /Demo booking completed\. No API request was sent/);
+test("Production Owner bookings do not load bundled Demo fixtures", () => {
+  const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+  assert.doesNotMatch(html, /data\.js|court-demo-data|booking-demo-data/);
+  assert.match(appSource, /OwnerBookingsApi\.list/);
 });

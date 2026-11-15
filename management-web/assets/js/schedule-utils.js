@@ -128,12 +128,6 @@
     })).then(function (groups) { return [].concat.apply([], groups); });
   }
 
-  function refreshDemoSchedule(demoData, confirmed, initialSlots) {
-    if (!confirmed) return false;
-    demoData.slots = initialSlots;
-    return true;
-  }
-
   function emptyFilters() {
     return { search: "", date: "", courtId: "", venueId: "", status: "" };
   }
@@ -188,7 +182,6 @@
     calendarDays: calendarDays,
     matchesScheduleFilters: matchesScheduleFilters,
     fetchTimeSlotsForCourts: fetchTimeSlotsForCourts,
-    refreshDemoSchedule: refreshDemoSchedule,
     emptyFilters: emptyFilters,
     hasTimeSlotOverlap: hasTimeSlotOverlap,
     businessDateTime: businessDateTime,

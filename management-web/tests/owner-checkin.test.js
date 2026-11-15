@@ -72,14 +72,14 @@ test("check-in helper preserves API error statuses and does not expose request t
   }
 });
 
-test("scanner supports API and Demo modes without token display or mock fallback", () => {
+test("scanner uses only the authenticated booking check-in API", () => {
   assert.match(appSource, /new window\.Html5Qrcode\("qr-reader"\)/);
   assert.match(appSource, /data-scanner-start/);
   assert.match(appSource, /data-scanner-stop/);
   assert.match(appSource, /submitOwnerCheckin\(qrToken, true\)/);
   assert.match(appSource, /window\.OwnerCheckinApi\.checkIn\(qrToken\)/);
   assert.match(appSource, /data-owner-qr-submit/);
-  assert.match(appSource, /data-demo-qr-submit/);
+  assert.doesNotMatch(appSource, /data-demo-qr-submit|demo-qr-invalid|Demo Only test tokens/);
   assert.match(appSource, /Camera permission was denied/);
   assert.match(appSource, /No camera was found/);
   assert.match(appSource, /scannerScanGate\.tryBegin\(qrToken\)/);
@@ -92,7 +92,7 @@ test("scanner supports API and Demo modes without token display or mock fallback
   assert.match(appSource, /ownerCheckinPending \|\| \["loading", "scanning", "stopping"\]/);
   assert.match(appSource, /window\.addEventListener\("hashchange"/);
   assert.match(appSource, /renderedRoute === "qr-checkin" && nextRoute !== "qr-checkin"/);
-  assert.match(appSource, /dataMode === "demo"\) \{\s+checkDemoQr\(qrToken\)/);
+  assert.doesNotMatch(appSource, /checkDemoQr|Booking was checked in in Demo Mode/);
   assert.match(appSource, /Use a booking QR code or enter its code to check in/);
   assert.match(appSource, /Scan a booking QR code or enter its code to check in/);
   assert.match(appSource, /ownerBookingsState\.status = "idle"/);

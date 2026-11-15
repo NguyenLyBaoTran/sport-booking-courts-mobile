@@ -10,15 +10,12 @@ function loadAuthUtils() {
   return window.ManagementAuthUtils;
 }
 
-test("Demo and API modes control workspace visibility and do not cross-fallback", () => {
+test("Management authentication is API-only and never enables a Demo workspace", () => {
   const auth = loadAuthUtils();
   assert.equal(auth.normalizeMode("API"), "api");
-  assert.equal(auth.workspaceVisible("demo"), true);
+  assert.equal(auth.normalizeMode("demo"), "api");
+  assert.equal(auth.workspaceVisible("demo"), false);
   assert.equal(auth.workspaceVisible("api"), false);
-  const demo = auth.loginPlan("demo", "OWNER", "not an email", "anything");
-  assert.equal(demo.valid, true);
-  assert.equal(demo.role, "OWNER");
-  assert.equal(demo.sendsRequest, false);
   const api = auth.loginPlan("api", "ADMIN", "owner@example.test", "password");
   assert.equal(api.valid, true);
   assert.equal(api.mode, "api");
@@ -26,12 +23,11 @@ test("Demo and API modes control workspace visibility and do not cross-fallback"
   assert.equal(api.role, undefined);
 });
 
-test("API login validates credentials while Demo accepts arbitrary credentials", () => {
+test("Login always validates real API credentials", () => {
   const auth = loadAuthUtils();
   assert.match(auth.loginPlan("api", "OWNER", "bad-email", "x").message, /valid email/i);
   assert.match(auth.loginPlan("api", "OWNER", "owner@example.test", "").message, /password/i);
-  assert.equal(auth.loginPlan("demo", "unknown", "", "").valid, false);
-  assert.equal(auth.loginPlan("demo", "ADMIN", "", "").valid, true);
+  assert.equal(auth.loginPlan("demo", "ADMIN", "", "").valid, false);
 });
 
 test("only OWNER and ADMIN receive management workspace routes", () => {
@@ -44,6 +40,7 @@ test("only OWNER and ADMIN receive management workspace routes", () => {
 
 test("login utilities load before app code and changed assets use a cache version", () => {
   const html = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+  assert.doesNotMatch(html, /data\.js|court-demo-data|booking-demo-data/);
   assert.ok(html.indexOf("assets/js/auth-utils.js?v=") < html.indexOf("assets/js/app.js?v="));
   assert.match(html, /assets\/css\/app\.css\?v=/);
 });

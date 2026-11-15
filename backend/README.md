@@ -116,17 +116,53 @@ khởi tạo Court/Booking/Payment schemas, áp dụng Court reservation migrati
 các cột đó chưa có, chạy `backend/database/seed.sql`, rồi kiểm tra các bảng và
 fixture demo. Nếu không nhập đúng `SETUP`, script hủy và không ghi dữ liệu.
 
-Seed SQL định nghĩa fixture mẫu gồm **6 tài khoản** (1 ADMIN, 2 OWNER, 3 USER),
-**3 sports**, **4 venues**, **8 courts** và **24 time slots** active trong tương
-lai (mỗi court có slot 09:00–10:00 trong ba ngày). Script chỉ thêm các bản ghi còn
-thiếu phù hợp, không xóa hoặc cập nhật dữ liệu hiện có; xung đột fixture sẽ khiến
-preflight/verification báo lỗi. Credential demo được định nghĩa trong seed script;
-không sao chép password/hash vào README hoặc commit credential thật.
+Seed SQL provides six base accounts (1 ADMIN, 2 OWNER, 3 USER), 3 sports, 4 venues, 8 courts, and 24 time slots. It inserts missing rows, renames legacy `.demo@example.com` accounts in place, and applies the standard `password123` hash only when it differs from the stored seed hash. User IDs and related records remain unchanged. Preflight stops before writing if a legacy and standardized email belong to different user IDs or a fixture conflicts.
 
 Seed không tạo booking, payment, QR check-in hay giao dịch hoàn tất. Các luồng đó
 phải được tạo qua API tương ứng. Setup và seed dành cho local development/demo,
 không phải quy trình triển khai production. `backend/scripts/create_databases.sql`
 chỉ tạo database rỗng; không dùng nó thay cho quy trình setup tích hợp.
+
+### Bổ sung catalogue Task 4 trên database development đã có
+
+`backend/database/seed_task4_catalogue.sql` bổ sung 2 Owner, 9 Customer, 2 venue,
+12 court và nhiều khung giờ liên tiếp trong 6 ngày tương lai. Kết hợp với
+`seed.sql`, the expected totals are 1 Admin, 4 Owners, 12 Customers, 4 sports, 6 venues, and 20 courts.
+The seed inserts missing catalogue rows and standardizes email/password hashes for its own accounts in place; already-standard password hashes are preserved, and it never deletes users or related records.
+If a legacy and standardized email both exist under different user IDs, preflight stops rather than merging them. Do not run `setup_local.py` on a populated database just to add fixtures; that script also initializes schemas and checks migrations.
+
+Chỉ chạy khi đã xác nhận MySQL local là database development, hai schema
+`sports_user_db` và `sports_court_db` đã được tạo/migrate, và đã xem phần
+preflight trong từng seed. Từ repository root:
+
+```powershell
+mysql --default-character-set=utf8mb4 -u root -p < backend/database/seed.sql
+mysql --default-character-set=utf8mb4 -u root -p < backend/database/seed_task4_catalogue.sql
+```
+
+All 17 seed accounts use `password123`. Required Customer logins are `vy.524h0040@example.com` and `tran.524h0130@example.com`; both have role `USER`. The User Service model has no Student ID field. The seed updates only its own listed accounts and preserves the password hash when it already matches the standard seed hash; if preflight stops, resolve the email collision before retrying.
+
+
+Bookings và payments không được chèn SQL. Sau khi chạy API Gateway cùng các
+service, có thể tạo tối đa 40 booking demo bằng API thật với script loopback-only:
+
+```powershell
+$env:TASK4_SEED_CONFIRM = "CREATE_DEMO_BOOKINGS"
+python backend/scripts/seed_demo_bookings.py
+Remove-Item Env:TASK4_SEED_CONFIRM
+```
+
+Script xác thực trước toàn bộ 12 Customer, đọc slot của các venue demo, lấy quote,
+tạo booking rồi gọi Payment Service với idempotency key ổn định. 10% lượt payment
+dùng kết quả mô phỏng `FAILED`; các lượt còn lại dùng `SUCCESS`. Script chỉ chấp
+nhận Gateway ở loopback, không kết nối database và bỏ qua slot đã có reservation.
+Nếu tài khoản tồn tại với mật khẩu khác, nó dừng trước khi tạo booking. Booking
+đã có được tái sử dụng; không chạy lại lệnh với Gateway khác.
+
+Repository hiện không có Review Service, review model, bảng hoặc API nên seed
+review không được hỗ trợ. Các booking demo tạo qua Payment API sẽ có trạng thái
+thực do lifecycle trả về; seed không giả lập check-in/completion bằng cách ghi
+trực tiếp vào database.
 
 ## 7. Cấu hình microservice
 

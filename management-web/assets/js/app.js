@@ -1,11 +1,11 @@
 (function () {
   "use strict";
-  var data = window.BookingMockData;
   var authUtils = window.ManagementAuthUtils;
   var scheduleUtils = window.ScheduleUtils;
   var dataMode = "api";
-  var demoCourtData = window.CourtDemoData.create();
-  var demoBookings = window.BookingDemoData.create();
+  var data = { ownerBookings: [], adminBookings: [], people: [], checkins: [], venues: [] };
+  var demoCourtData = { sports: [], venues: [], courts: [], slots: [] };
+  var demoBookings = [];
   var bookingSearch = "";
   var bookingDate = "";
   var bookingStatus = "";
@@ -59,7 +59,6 @@
   var revenueState = { status: "idle", data: null, error: "", requestId: 0, promise: null, filtersKey: "" };
   var revenueExportState = { status: "idle", requestId: 0 };
   var authUser = null;
-  var demoRole = "";
   var authRestorePromise = null;
   var authMessage = "";
   var loginEmailValue = "";
@@ -120,18 +119,15 @@
   function currentRoute() {
     return (location.hash.replace(/^#\/?/, "") || "login").toLowerCase();
   }
-  try { window.sessionStorage.removeItem("managementDemoRole"); } catch (error) { /* storage may be unavailable */ }
   function currentRole() {
-    return (authUser && authUser.role) || demoRole || "";
+    return (authUser && authUser.role) || "";
   }
   function homeRouteForRole(role) {
     return authUtils.homeRouteForRole(role);
   }
   function clearSession() {
     window.CourtApi.clearAccessToken();
-    try { window.sessionStorage.removeItem("managementDemoRole"); } catch (error) { /* storage may be unavailable */ }
     authUser = null;
-    demoRole = "";
     authRestorePromise = null;
     revenueState.requestId += 1;
     revenueState = { status: "idle", data: null, error: "", requestId: revenueState.requestId, promise: null, filtersKey: "" };
@@ -448,18 +444,6 @@
     return "";
   }
   function refreshSchedule() {
-    if (dataMode === "demo") {
-      showActionConfirmation("Reset Demo Schedule", "Reset the demo schedule to its original data? Your demo schedule changes will be lost.", "Reset Schedule", function () {
-        scheduleUtils.refreshDemoSchedule(demoCourtData, true, window.CourtDemoData.create().slots);
-        scheduleFilters = scheduleUtils.emptyFilters();
-        calendarViews["schedule-filter"] = null;
-        calendarOpenIds["schedule-filter"] = false;
-        if (crudFormState && crudFormState.resource === "slots") crudFormState = null;
-        render();
-        toast("Demo schedule restored. Filters were cleared so all sample slots are visible.");
-      });
-      return;
-    }
     if (scheduleRefreshPromise) return scheduleRefreshPromise;
     var currentSlots = scheduleState.data;
     if (courtResources.courts.status === "error") {
@@ -938,7 +922,6 @@
         var route = authUtils.homeRouteForRole(role);
         if (!route) throw new Error("This Management Web is available to OWNER and ADMIN accounts only.");
         authUser = user;
-        demoRole = "";
         dataMode = "api";
         authMessage = "";
         loginEmailValue = "";
@@ -946,7 +929,6 @@
       }).catch(function (error) {
         window.CourtApi.clearAccessToken();
         authUser = null;
-        demoRole = "";
         if (error.status === 401) authMessage = "Email or password is incorrect, or the account is inactive.";
         else if (error.status === 0) authMessage = "Could not connect. Check your connection and try again.";
         else if (error.status === 502 || error.status === 503) authMessage = "Sign-in is temporarily unavailable. Please try again.";
@@ -1580,34 +1562,16 @@
       var adminRows = data.checkins;
       return heading(active) + demoNotice("Sample check-ins are shown for preview only.") + panel("Recent check-ins", '<div class="toolbar admin-filter-toolbar" data-filter-toolbar><input class="form-control" type="search" data-table-search data-admin-search placeholder="Search check-in, booking or customer" aria-label="Search check-ins"><select class="form-select" data-status-filter aria-label="Filter check-in status"><option value="">All statuses</option><option>Verified</option><option>Manual</option></select><button class="btn btn-outline-secondary" type="button" data-filter-reset>Reset filters</button></div>' + table(["Check-in ID", "Booking", "Customer", "Venue / court", "Check-in time", "Status"], adminRows) + '<div class="table-foot" data-filter-count>Showing ' + adminRows.length + ' records</div>', "Demo records only");
     }
-    var demo = dataMode === "demo";
     var statusLabel = { idle: "IDLE", loading: "STARTING", scanning: "SCANNING", stopping: "STOPPING", success: "SUCCESS", error: "ERROR" }[scannerState] || "IDLE";
     var cameraFrameClass = ["idle", "success", "error"].indexOf(scannerState) >= 0 && !scannerInstance ? "qr-camera-frame--idle" : "qr-camera-frame--active";
     var result = scanResult ? '<div class="alert ' + (scanResult.ok ? "alert-success" : "alert-danger") + '" role="status"><strong>' + esc(scanResult.title) + '</strong><p class="mb-1 mt-2">' + esc(scanResult.message) + '</p>' + scanResultBookingMarkup() + '</div>' : '<p class="text-secondary small" data-scan-result>No QR result yet.</p>';
     var scannerBusy = scannerStarting || ["loading", "scanning", "stopping"].indexOf(scannerState) >= 0;
     var controls = '<div class="qr-camera-controls"><button class="btn btn-success" data-scanner-start ' + (scannerBusy || ownerCheckinPending ? "disabled" : "") + '>Start Camera</button><button class="btn btn-outline-secondary" data-scanner-stop ' + (scannerState === "stopping" || (!scannerInstance && !qrScanner && !scannerStarting) ? "disabled" : "") + '>Stop Camera</button></div>';
     var cameraPanel = '<div class="scanner-frame qr-camera-frame ' + cameraFrameClass + '"><div id="qr-reader" aria-label="Camera preview"></div>' + (scannerState === "idle" ? '<div class="qr-camera-placeholder"><i class="bi bi-qr-code-scan"></i><strong>Camera preview</strong><small>Start the camera when you are ready to scan.</small></div>' : "") + '</div><div class="qr-scanner-footer"><div class="qr-scanner-toolbar"><div class="qr-scanner-status qr-scanner-status--' + scannerState + '" role="status" data-scanner-status>' + statusLabel + '</div>' + controls + '</div><div class="qr-scanner-result" data-scanner-result-host>' + result + '</div></div>';
-    var notice = demo ? demoNotice("Demo Only: scan one of the QR tokens from this page or enter it manually below. No real booking token is shown or accepted.") : '<div class="alert alert-info py-2 small" role="status">Scan a booking QR code or enter its code to check in.</div>';
-    var manual = demo ? '<div class="panel-body"><label class="form-label" for="demo-qr-token">Demo QR token input</label><div class="input-group"><input class="form-control" id="demo-qr-token" autocomplete="off" placeholder="Enter a Demo Only QR token"><button class="btn btn-outline-secondary" data-demo-qr-submit>Check token</button></div><small class="text-secondary">Manual input is for Demo Mode testing only.</small></div>' : '<div class="panel-body"><form class="qr-manual-token-form" data-owner-qr-form novalidate><label class="form-label" for="owner-qr-token">Enter QR token</label><div class="input-group"><input class="form-control" id="owner-qr-token" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="128" aria-describedby="owner-qr-token-help" placeholder="Enter QR token"><button class="btn btn-outline-primary" type="submit" data-owner-qr-submit>Check in</button></div><small class="text-secondary" id="owner-qr-token-help">Your code stays private and is not shown in the result.</small></form></div>';
-    var examples = demo ? '<div class="panel-body"><p class="small text-secondary mb-2">Demo Only test tokens</p><div class="qr-demo-token-list">' + demoBookings.map(function (booking) { return '<div class="qr-demo-token"><span><small>' + esc(booking.status) + '</small><br><code>' + esc(booking.qr_token) + '</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="' + esc(booking.qr_token) + '">Copy</button></div>'; }).join("") + '<div class="qr-demo-token"><span><small>INVALID</small><br><code>demo-qr-invalid</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="demo-qr-invalid">Copy</button></div></div></div>' : '<div class="panel-body text-secondary">Use a booking QR code or enter its code to check in.</div>';
-    return heading(active) + notice + '<div class="scanner-layout mb-3">' + panel("QR Check-in", cameraPanel, "Camera access starts only after you press Start Camera") + panel("Check-in result", manual + examples, demo ? "Demo Only" : "Booking check-in") + '</div>';
-  }
-  function checkDemoQr(token) {
-    if (dataMode !== "demo") {
-      setScanResult(false, "Not available", "Live check-in is not available here. No request was sent.");
-      return;
-    }
-    var booking = demoBookings.find(function (item) { return item.qr_token === token; });
-    if (!booking) { setScanResult(false, "Invalid QR", "This token does not match a Demo booking."); return; }
-    if (booking.owner_id !== "demo-owner") { setScanResult(false, "Access Denied", "This Demo booking belongs to another Owner.", booking); return; }
-    if (booking.status === "CHECKED_IN") { setScanResult(false, "Already Checked In", "This booking has already been checked in.", booking); return; }
-    if (booking.status === "COMPLETED") { setScanResult(false, "Booking Already Completed", "Completed bookings cannot be checked in.", booking); return; }
-    if (booking.status === "CANCELLED") { setScanResult(false, "Booking Cancelled", "Cancelled bookings cannot be checked in.", booking); return; }
-    if (booking.status === "EXPIRED") { setScanResult(false, "Booking Expired", "Expired bookings cannot be checked in.", booking); return; }
-    if (booking.status !== "CONFIRMED") { setScanResult(false, "Booking Not Ready", "Only CONFIRMED bookings can be checked in.", booking); return; }
-    booking.status = "CHECKED_IN";
-    booking.checkin_status = "CHECKED_IN";
-    setScanResult(true, "Check-in Successful", "Booking was checked in in Demo Mode.", booking);
+    var notice = '<div class="alert alert-info py-2 small" role="status">Scan a booking QR code or enter its code to check in.</div>';
+    var manual = '<div class="panel-body"><form class="qr-manual-token-form" data-owner-qr-form novalidate><label class="form-label" for="owner-qr-token">Enter QR token</label><div class="input-group"><input class="form-control" id="owner-qr-token" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="128" aria-describedby="owner-qr-token-help" placeholder="Enter QR token"><button class="btn btn-outline-primary" type="submit" data-owner-qr-submit>Check in</button></div><small class="text-secondary" id="owner-qr-token-help">Your code stays private and is not shown in the result.</small></form></div>';
+    var examples = '<div class="panel-body text-secondary">Use a booking QR code or enter its code to check in.</div>';
+    return heading(active) + notice + '<div class="scanner-layout mb-3">' + panel("QR Check-in", cameraPanel, "Camera access starts only after you press Start Camera") + panel("Check-in result", manual + examples, "Booking check-in") + '</div>';
   }
   function setScanResult(ok, title, message, booking) {
     scanResult = { ok: ok, title: title, message: message, booking: booking || null };
@@ -1616,10 +1580,6 @@
   }
   function scanResultBookingMarkup() {
     if (!scanResult || !scanResult.booking) return "";
-    if (dataMode === "demo") {
-      var demoBooking = scanResult.booking;
-      return '<div class="small">' + esc(demoBooking.id + " | " + demoBooking.court + " | " + demoBooking.date + " " + demoBooking.start_time + " - " + demoBooking.end_time) + '</div>';
-    }
     var apiBooking = scanResult.booking;
     var apiSchedule = [apiBooking.slot_date, apiBooking.start_time && apiBooking.end_time ? apiBooking.start_time + " - " + apiBooking.end_time : ""].filter(Boolean).join(" / ");
     return '<div class="small">Booking #' + esc(apiBooking.id) + ' · ' + esc(apiBooking.status)
@@ -1641,11 +1601,6 @@
     return "Could not check in this booking. Try again.";
   }
   function submitOwnerCheckin(qrToken, fromScanner) {
-    if (dataMode === "demo") {
-      checkDemoQr(qrToken);
-      if (scanResult && scanResult.ok && (qrScanner || scannerInstance)) return stopQrScanner();
-      return Promise.resolve();
-    }
     if (ownerCheckinPending) return Promise.resolve();
     if (fromScanner && (scannerState !== "scanning" || scannerStopPromise || !qrScanner)) return Promise.resolve();
     if (!String(qrToken || "").trim()) {
@@ -1927,6 +1882,17 @@
     }).join("");
     return '<div class="revenue-chart-scroll"><svg class="revenue-chart" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Revenue by ' + (revenueFilters.group_by === "month" ? "month" : "day") + '"><text class="revenue-axis-title" x="0" y="16">Revenue (VND)</text>' + grid + bars + '</svg></div>';
   }
+  function paymentMethodLabel(provider) {
+    var value = typeof provider === "string" ? provider.trim() : "";
+    if (!value) return "Unknown";
+    var normalized = value.toUpperCase();
+    if (normalized === "VNPAY") return "VNPay";
+    if (normalized === "MOMO") return "MoMo";
+    if (normalized === "MOCK") return "Mock";
+    return value.toLowerCase().split(/[_\s]+/).map(function (part) {
+      return part ? part.charAt(0).toUpperCase() + part.slice(1) : "";
+    }).join(" ");
+  }
   function exportRevenueCsv() {
     if (revenueExportState.status === "loading") return Promise.resolve();
     var requestId = ++revenueExportState.requestId;
@@ -1989,13 +1955,10 @@
         var icon = ["bi-currency-exchange", "bi-check-circle", "bi-hourglass-split", "bi-x-circle", "bi-receipt"][index];
         return '<article class="stat-card"><div class="stat-top"><span>' + metric[0] + '</span><span class="stat-icon"><i class="bi ' + icon + '"></i></span></div><div class="stat-value">' + esc(metric[1]) + '</div></article>';
       }).join("") + '</div>';
-      var datedNote = summary.undated_successful_payments
-        ? '<p class="revenue-undated-note" role="note">' + summary.undated_successful_payments + ' legacy PAID payment(s), amounting to ' + esc(formatRevenueAmount(Number(summary.undated_successful_amount))) + ', have no recorded success date. They are included in all-time revenue, but are omitted from date-filtered totals and the chart.</p>'
-        : "";
       var rows = report.transactions.items.map(function (item) {
         var paymentDate = item.payment_date ? String(item.payment_date).replace("T", " ").replace(/Z$/, " UTC") : "Date unavailable";
         var statusStyle = item.status === "PAID" ? "" : (item.status === "PENDING" ? "warning" : "danger");
-        return '<tr><td>' + esc(item.payment_id) + '</td><td>' + esc(item.booking_id) + '</td><td class="revenue-date-cell">' + esc(paymentDate) + '</td><td>' + esc(formatRevenueAmount(Number(item.amount))) + '</td><td><span class="badge-soft ' + statusStyle + '">' + esc(item.status) + '</span></td><td>' + esc(item.booking_status || "Unavailable") + '</td><td>' + esc(item.provider || "Unavailable") + '</td></tr>';
+        return '<tr><td>' + esc(item.payment_id) + '</td><td>' + esc(item.booking_id) + '</td><td class="revenue-date-cell">' + esc(paymentDate) + '</td><td>' + esc(formatRevenueAmount(Number(item.amount))) + '</td><td><span class="badge-soft ' + statusStyle + '">' + esc(item.status) + '</span></td><td>' + esc(item.booking_status || "Unavailable") + '</td><td>' + esc(paymentMethodLabel(item.provider)) + '</td></tr>';
       }).join("");
       var page = report.transactions.page;
       var pageCount = Math.max(1, Math.ceil(report.transactions.total / report.transactions.page_size));
@@ -2003,7 +1966,7 @@
         ? '<div class="table-wrap"><table class="table revenue-table"><thead><tr><th>Payment</th><th>Booking</th><th>Payment date</th><th>Amount</th><th>Payment status</th><th>Booking status</th><th>Method</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
           '<div class="table-foot"><span>Page ' + page + ' of ' + pageCount + ' · ' + report.transactions.total + ' transactions</span><div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-revenue-page="prev" ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><button type="button" class="btn btn-sm btn-outline-secondary" data-revenue-page="next" ' + (page >= pageCount ? 'disabled' : '') + '>Next</button></div></div>'
         : '<div class="panel-body text-secondary" role="status">No transactions are available for this period.</div>';
-      body = cards + datedNote + '<div class="panel-card revenue-chart-card"><div class="panel-head"><div><h2>Revenue trend</h2><p>' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + ' · ' + (revenueFilters.group_by === "month" ? "Monthly" : "Daily") + '</p></div></div><div class="panel-body">' + revenueChart(report.revenue_series) + '</div></div>' +
+      body = cards + '<div class="panel-card revenue-chart-card"><div class="panel-head"><div><h2>Revenue trend</h2><p>' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + ' · ' + (revenueFilters.group_by === "month" ? "Monthly" : "Daily") + '</p></div></div><div class="panel-body">' + revenueChart(report.revenue_series) + '</div></div>' +
         '<div class="panel-card revenue-history-card"><div class="panel-head"><div><h2>Payment transactions</h2><p>PAID amounts count as revenue; pending and failed attempts do not.</p></div></div>' + history + '</div>';
     }
     var refresh = '<button class="btn btn-outline-secondary" type="button" data-revenue-refresh ' + (revenueState.status === "loading" ? "disabled" : "") + '><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>';
@@ -2558,20 +2521,11 @@
     if (scannerStart) scannerStart.addEventListener("click", startQrScanner);
     var scannerStop = document.querySelector("[data-scanner-stop]");
     if (scannerStop) scannerStop.addEventListener("click", function () { stopQrScanner(); });
-    var demoQrSubmit = document.querySelector("[data-demo-qr-submit]");
-    if (demoQrSubmit) demoQrSubmit.addEventListener("click", function () { checkDemoQr((document.getElementById("demo-qr-token").value || "").trim()); });
     var ownerQrForm = document.querySelector("[data-owner-qr-form]");
     if (ownerQrForm) ownerQrForm.addEventListener("submit", function (event) {
       event.preventDefault();
       var input = document.getElementById("owner-qr-token");
       submitOwnerCheckin(input ? input.value : "");
-    });
-    document.querySelectorAll("[data-copy-qr]").forEach(function (el) {
-      el.addEventListener("click", function () {
-        var token = el.dataset.copyQr;
-        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(token).then(function () { toast("Demo QR token copied."); }).catch(function () { toast("Copy was blocked; select the token text to copy it."); });
-        else toast("Select the Demo token text and copy it manually.");
-      });
     });
     document.querySelectorAll("[data-schedule-search], [data-schedule-court], [data-schedule-venue], [data-schedule-status]").forEach(function (el) {
       var applyFilters = function () {
@@ -2613,27 +2567,20 @@
     });
     var scheduleRetry = document.querySelector("[data-schedule-retry]");
     if (scheduleRetry) scheduleRetry.addEventListener("click", refreshSchedule);
-    var verify = document.getElementById("verify-booking");
-    if (verify) verify.addEventListener("click", function () {
-      var code = document.getElementById("booking-token").value.trim().toUpperCase();
-      if (code === "BK-2047") document.getElementById("verify-result").classList.remove("d-none");
-      else toast(code ? "No matching sample booking. Try BK-2047." : "Enter a booking code to continue.");
-    });
   }
   function render() {
     var active = currentRoute();
     if (active === "login") {
       if (authUser) { location.hash = "#" + homeRouteForRole(authUser.role); return; }
-      if (demoRole) { location.hash = "#" + homeRouteForRole(demoRole); return; }
       if (window.CourtApi.hasAccessToken()) { restoreAuthSession(); document.getElementById("app").innerHTML = '<main class="login-page"><section class="login-form-side"><div class="login-card">Checking your session...</div></section></main>'; return; }
       renderLogin(); return;
     }
-    if (!demoRole && !authUser && window.CourtApi.hasAccessToken()) {
+    if (!authUser && window.CourtApi.hasAccessToken()) {
       restoreAuthSession();
       document.getElementById("app").innerHTML = '<main class="login-page"><section class="login-form-side"><div class="login-card">Checking your session...</div></section></main>';
       return;
     }
-    if (!demoRole && !authUser) { location.hash = "#/login"; renderLogin(); return; }
+    if (!authUser) { location.hash = "#/login"; renderLogin(); return; }
     var role = currentRole();
     var requestedAdmin = active.indexOf("admin-") === 0 || active === "people" || active === "checkins";
     if (role === "OWNER" && requestedAdmin) { location.hash = "#/dashboard"; return; }
@@ -2671,9 +2618,7 @@
       var role = String(user && user.role || "").toUpperCase();
       if (role !== "OWNER" && role !== "ADMIN") throw new Error("This Management Web is available to OWNER and ADMIN accounts.");
       authUser = user;
-      demoRole = "";
       dataMode = "api";
-      try { window.sessionStorage.removeItem("managementDemoRole"); } catch (error) { /* storage may be unavailable */ }
       if (currentRoute() === "login") location.hash = "#" + homeRouteForRole(role);
       else render();
     }).catch(function (error) {

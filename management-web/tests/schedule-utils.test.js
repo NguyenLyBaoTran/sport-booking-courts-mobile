@@ -168,23 +168,6 @@ test("future-start validation uses frozen Vietnam business time and permits unch
   assert.equal(utils.validateFutureStart({ slot_date: "2026-10-24", start_time: "08:30:00" }, old, now), "Start time must be in the future (Vietnam time).");
 });
 
-test("Demo Schedule refresh cancel preserves data; confirm resets only slots", () => {
-  const utils = loadUtils();
-  const slots = [{ id: 90, court_id: 1 }];
-  const venues = [{ id: 1, name: "custom venue" }];
-  const bookings = [{ id: "B-1" }];
-  const demoData = { slots, venues, bookings };
-  const starterSlots = [{ id: 1, court_id: 1 }];
-  assert.equal(utils.refreshDemoSchedule(demoData, false, starterSlots), false);
-  assert.equal(demoData.slots, slots);
-  assert.equal(demoData.venues, venues);
-  assert.equal(demoData.bookings, bookings);
-  assert.equal(utils.refreshDemoSchedule(demoData, true, starterSlots), true);
-  assert.equal(demoData.slots, starterSlots);
-  assert.equal(demoData.venues, venues);
-  assert.equal(demoData.bookings, bookings);
-});
-
 test("API Schedule refresh fetches only Time Slot collections and handles empty courts", async () => {
   const utils = loadUtils();
   const requests = [];
@@ -237,12 +220,10 @@ test("Owner Bookings date filter uses calendar selection and reset clears its va
   assert.match(appSource, /booking\.date === bookingDate/);
 });
 
-test("Schedule refresh confirms Demo reset and uses GET collection loading in API Mode", () => {
+test("Schedule refresh uses GET collection loading in API Mode", () => {
   const start = appSource.indexOf("  function refreshSchedule() {");
   const end = appSource.indexOf("  function renderKeepingFocus(", start);
   const refreshCode = appSource.slice(start, end);
-  assert.match(refreshCode, /Reset the demo schedule to its original data\? Your demo schedule changes will be lost\./);
-  assert.match(refreshCode, /refreshDemoSchedule\(demoCourtData, true/);
   assert.match(refreshCode, /fetchTimeSlotsForCourts\(courts, fetchCollection\)/);
   assert.doesNotMatch(refreshCode, /CourtApi\.(post|put|delete)\(/);
 });

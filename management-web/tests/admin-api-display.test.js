@@ -32,7 +32,7 @@ test("Details modals use roomy two-column fields with stacked labels and values"
 
 test("Admin API Mode uses paginated read-only booking and check-in endpoints without Demo fallback", () => {
   const bookings = section("  function bookingPage(active, admin)", "  function filteredDemoBookings()");
-  const checkins = section("  function checkinPage(active, admin)", "  function checkDemoQr(");
+  const checkins = section("  function checkinPage(active, admin)", "  function setScanResult(");
 
   assert.match(source, /kind === "bookings" \? window\.AdminManagementApi\.listBookings/);
   assert.match(bookings, /data-admin-booking-detail/);
@@ -46,7 +46,7 @@ test("Admin API Mode uses paginated read-only booking and check-in endpoints wit
 
 test("Admin booking and check-in toolbars expose only supported, clearly named filters", () => {
   const bookings = section("  function bookingPage(active, admin)", "  function filteredDemoBookings()");
-  const checkins = section("  function checkinPage(active, admin)", "  function checkDemoQr(");
+  const checkins = section("  function checkinPage(active, admin)", "  function setScanResult(");
 
   assert.match(bookings, /data-admin-booking-search-by/);
   assert.match(bookings, />Customer ID</);
@@ -158,11 +158,11 @@ test("Owner and Admin navigation share a read-only Settings page without a dupli
   assert.match(styles, /\.main-column \{ min-width: 0;/);
 });
 
-test("Production login has no Demo entry and rejects direct Demo session restoration", () => {
+test("Production login uses API authentication without a Demo session path", () => {
   const login = section("  function renderLogin()", "  function renderShell(");
   assert.match(source, /var dataMode = "api"/);
-  assert.match(source, /var demoRole = ""/);
-  assert.match(source, /sessionStorage\.removeItem\("managementDemoRole"\)/);
+  assert.doesNotMatch(source, /demoRole|managementDemoRole/);
+  assert.doesNotMatch(source, /BookingMockData|CourtDemoData|BookingDemoData/);
   assert.doesNotMatch(login, /Demo preview|data-login-mode|Optional in Demo Mode/);
   assert.doesNotMatch(source, /court-mode-bar|modeToolbar\(\)|court-data-mode/);
   assert.match(source, /\["admin-revenue", "Revenue"/);

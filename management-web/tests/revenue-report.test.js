@@ -108,10 +108,22 @@ test("Owner and Admin Revenue pages share backend metrics and chart data without
   assert.match(appSource, /getAllTransactions\(exportFilters\)/);
   assert.match(appSource, /dashboardRevenueCard\(active\)/);
   assert.match(appSource, /active === "dashboard" && authUser && authUser\.role === "OWNER"\) \|\| \(active === "admin-dashboard" && authUser && authUser\.role === "ADMIN"/);
-  assert.match(appSource, /legacy PAID payment\(s\)/);
+  assert.doesNotMatch(appSource, /legacy PAID payment\(s\)/);
+  assert.doesNotMatch(appSource, /revenue-undated-note/);
   assert.doesNotMatch(appSource.slice(appSource.indexOf("function revenuePage(active)"), appSource.indexOf("function peoplePage()")), /Sample data|mock data|Download report/);
   assert.ok(html.indexOf("assets/js/revenue-utils.js") < html.indexOf("assets/js/app.js"));
   assert.ok(html.indexOf("assets/js/revenue-api.js") < html.indexOf("assets/js/app.js"));
+});
+
+test("Revenue method labels reflect the API provider and use Unknown when missing", () => {
+  const start = appSource.indexOf("  function paymentMethodLabel(provider) {");
+  const end = appSource.indexOf("  function exportRevenueCsv()", start);
+  const label = vm.runInNewContext("(" + appSource.slice(start, end).trim() + ")");
+  assert.equal(label("vnpay"), "VNPay");
+  assert.equal(label("MOMO"), "MoMo");
+  assert.equal(label("MOCK"), "Mock");
+  assert.equal(label("BANK_TRANSFER"), "Bank Transfer");
+  assert.equal(label(undefined), "Unknown");
 });
 
 test("dashboard revenue is role-gated, uses independent loading/error states, and can retry", () => {

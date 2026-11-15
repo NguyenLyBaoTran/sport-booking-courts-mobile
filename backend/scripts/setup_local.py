@@ -258,22 +258,22 @@ def verify_results(server_url: URL) -> None:
             demo_accounts = connection.execute(
                 text("SELECT email, role, is_active FROM sports_user_db.users WHERE email IN (:a,:o1,:o2,:u1,:u2,:u3)"),
                 {
-                    "a": "admin.demo@example.com",
-                    "o1": "owner1.demo@example.com",
-                    "o2": "owner2.demo@example.com",
-                    "u1": "customer1.demo@example.com",
-                    "u2": "customer2.demo@example.com",
-                    "u3": "customer3.demo@example.com",
+                    "a": "admin@example.com",
+                    "o1": "owner1@example.com",
+                    "o2": "owner2@example.com",
+                    "u1": "customer1@example.com",
+                    "u2": "customer2@example.com",
+                    "u3": "customer3@example.com",
                 },
             ).all()
             account_roles = {email: (role, bool(active)) for email, role, active in demo_accounts}
             expected_accounts = {
-                "admin.demo@example.com": "ADMIN",
-                "owner1.demo@example.com": "OWNER",
-                "owner2.demo@example.com": "OWNER",
-                "customer1.demo@example.com": "USER",
-                "customer2.demo@example.com": "USER",
-                "customer3.demo@example.com": "USER",
+                "admin@example.com": "ADMIN",
+                "owner1@example.com": "OWNER",
+                "owner2@example.com": "OWNER",
+                "customer1@example.com": "USER",
+                "customer2@example.com": "USER",
+                "customer3@example.com": "USER",
             }
             accounts_valid = len(account_roles) == 6 and all(
                 account_roles.get(email) == (role, True)
@@ -286,7 +286,7 @@ def verify_results(server_url: URL) -> None:
                 text("SELECT COUNT(*) FROM sports_court_db.venues WHERE name IN ('Demo Badminton Center A','Demo Football Center B','Demo Tennis Center C','Demo Sports Center D') AND is_active=1")
             ).scalar_one()
             owned_venues = connection.execute(
-                text("SELECT COUNT(*) FROM sports_court_db.venues v JOIN sports_user_db.users u ON u.id=v.owner_id WHERE ((v.name IN ('Demo Badminton Center A','Demo Football Center B') AND u.email='owner1.demo@example.com') OR (v.name IN ('Demo Tennis Center C','Demo Sports Center D') AND u.email='owner2.demo@example.com')) AND v.is_active=1")
+                text("SELECT COUNT(*) FROM sports_court_db.venues v JOIN sports_user_db.users u ON u.id=v.owner_id WHERE ((v.name IN ('Demo Badminton Center A','Demo Football Center B') AND u.email='owner1@example.com') OR (v.name IN ('Demo Tennis Center C','Demo Sports Center D') AND u.email='owner2@example.com')) AND v.is_active=1")
             ).scalar_one()
             courts = connection.execute(
                 text("SELECT COUNT(*) FROM sports_court_db.courts WHERE name IN ('Badminton Court A1','Badminton Court A2','Football Court B1','Football Court B2','Tennis Court C1','Tennis Court C2','Badminton Court D1','Tennis Court D2') AND is_active=1")

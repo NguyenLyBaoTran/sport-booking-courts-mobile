@@ -114,4 +114,5 @@ test-results/
 *.sql
 !backend/migrations/*.sql
 !backend/database/seed.sql
+!backend/database/seed_task4_catalogue.sql
 !backend/scripts/create_databases.sql

@@ -88,24 +88,35 @@ The Android API base URL is currently set in `android-user/app/src/main/java/com
 
 ## 7. Demo Accounts
 
-The local seed provides these development-only accounts:
+The local seed provides these development-only accounts. All use the same password: `password123`.
 
-| Role | Email |
-| --- | --- |
-| Admin | `admin.demo@example.com` |
-| Owner | `owner1.demo@example.com` |
-| Owner | `owner2.demo@example.com` |
-| Customer | `customer1.demo@example.com` |
-| Customer | `customer2.demo@example.com` |
-| Customer | `customer3.demo@example.com` |
+| Role | Email | Password |
+| --- | --- | --- |
+| Admin | `admin@example.com` | `password123` |
+| Owner | `owner1@example.com` | `password123` |
+| Owner | `owner2@example.com` | `password123` |
+| Owner | `owner3@example.com` | `password123` |
+| Owner | `owner4@example.com` | `password123` |
+| Customer | `customer1@example.com` | `password123` |
+| Customer | `customer2@example.com` | `password123` |
+| Customer | `customer3@example.com` | `password123` |
+| Customer | `customer4@example.com` | `password123` |
+| Customer | `customer5@example.com` | `password123` |
+| Customer | `customer6@example.com` | `password123` |
+| Customer | `customer7@example.com` | `password123` |
+| Customer | `customer8@example.com` | `password123` |
+| Customer | `customer9@example.com` | `password123` |
+| Customer | `customer10@example.com` | `password123` |
+| Customer | `vy.524h0040@example.com` | `password123` |
+| Customer | `tran.524h0130@example.com` | `password123` |
 
-The seed password for these accounts is `password123`. Use these accounts only with the local development databases; change or remove demo accounts before any shared deployment.
+Use these accounts only with the local development databases; change or remove seed accounts before any shared deployment.
+The extended 17-account list requires the additive Task 4 catalogue seed after the base setup; see [Backend seed instructions](backend/README.md).
 
 ## 8. Demo Flow
 
-1. Choose **Demo preview** at Login to explore fictional Owner/Admin screens without backend access. Demo changes stay in browser memory and do not touch MySQL.
-2. For API Mode, run setup and all five backend processes, then sign in with a local demo Admin or Owner account. Admin manages the shared Sports, Venue, Court, and Time Slot catalogue; Owners see and manage their own catalogue.
-3. The database seed includes users and court catalogue records, but no Booking or Payment rows. The Android Customer app does not yet provide booking. Do not expect a seeded booking or physical webcam QR flow from a fresh setup.
+1. Run the backend services and sign in with a local Admin or Owner account. Admin manages the shared Sports, Venue, Court, and Time Slot catalogue; Owners see and manage their own catalogue.
+2. SQL seeds create users and catalogue data only. To add optional bookings and payments, follow the loopback-only API seed instructions in the backend README; those records are created through the actual services.
 
 See [Owner Booking & QR API contract](docs/api/owner-booking-qr-contract.md), [Admin Management API contract and status](docs/api/admin-management-api-contract.md), and the [manual testing guide](docs/TESTING_GUIDE.md) for implementation details.
 
