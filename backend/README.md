@@ -241,6 +241,7 @@ Payment nhận `SUCCESS` hoặc `FAILED`; không xử lý tiền thật. `Idempo
 | POST | `/api/v1/owner/bookings/{id}/complete` | `CHECKED_IN` → `COMPLETED` |
 | POST | `/api/v1/payments/process` | Mock payment |
 | GET | `/api/v1/payments` và `/{id}` | Payment history của USER |
+| GET | `/api/v1/payments/report` | Owner-scoped hoặc system-wide payment/revenue report |
 | GET | `/api/v1/admin/bookings/summary` | Admin summary bookings |
 | GET | `/api/v1/admin/bookings`, `/{id}` | Admin xem booking |
 | GET | `/api/v1/admin/checkins` | Admin xem check-in history |
@@ -254,6 +255,10 @@ tích hợp thực tế.
 Chi tiết request/response và internal contracts: [API Contract](../docs/API_CONTRACT.md)
 và [Owner Booking & QR contract](../docs/api/owner-booking-qr-contract.md). Contract
 ghi rõ real cross-service E2E chưa được xác nhận.
+
+Payment report fields, Owner/Admin authorization, date semantics, and the additive
+`paid_at` migration are documented in
+[Payment Reporting API Contract](../docs/api/payment-reporting-contract.md).
 
 ## 10. Court Service
 

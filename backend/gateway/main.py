@@ -59,6 +59,7 @@ PUBLIC_PREFIXES = {
     "/api/v1/admin/bookings": "booking",
     "/api/v1/admin/checkins": "booking",
     "/api/v1/admin/catalogue": "court",
+    "/api/v1/management/catalogue": "court",
     "/api/v1/auth": "user",
     "/api/v1/users": "user",
     "/api/v1/sports": "court",

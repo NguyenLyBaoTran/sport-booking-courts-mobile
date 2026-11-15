@@ -4,7 +4,7 @@ import httpx
 from fastapi import HTTPException
 
 
-def _request(method: str, path: str) -> dict:
+def _request(method: str, path: str, payload: dict | None = None) -> dict:
     base_url = os.getenv("BOOKING_SERVICE_URL", "http://127.0.0.1:8003").rstrip("/")
     token = os.getenv("INTERNAL_SERVICE_TOKEN", "").strip()
     if not token:
@@ -14,6 +14,7 @@ def _request(method: str, path: str) -> dict:
             method,
             f"{base_url}{path}",
             headers={"X-Internal-Token": token},
+            json=payload,
             timeout=5.0,
         )
     except httpx.TimeoutException:
@@ -39,3 +40,11 @@ def confirm_booking(booking_id: int) -> dict:
 
 def fail_booking(booking_id: int) -> dict:
     return _request("POST", f"/api/v1/internal/bookings/{booking_id}/fail")
+
+
+def get_payment_report_context(booking_ids: list[int]) -> dict:
+    return _request(
+        "POST",
+        "/api/v1/internal/bookings/payment-report-context",
+        {"booking_ids": booking_ids},
+    )

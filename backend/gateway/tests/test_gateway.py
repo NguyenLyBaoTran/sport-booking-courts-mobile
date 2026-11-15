@@ -316,6 +316,7 @@ class GatewayTests(unittest.TestCase):
             ("POST", "/api/v1/internal/slots/12/hold?booking_id=44"),
             ("GET", "/api/v1/internal/slots/12/quote"),
             ("POST", "/api/v1/internal/bookings/check-in"),
+            ("POST", "/api/v1/internal/bookings/payment-report-context"),
         ):
             with self.subTest(path=path):
                 FakeUpstreamClient.captured_request = None
@@ -339,6 +340,41 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(
             FakeUpstreamClient.captured_request["headers"]["authorization"],
             "Bearer admin-token",
+        )
+
+    def test_payment_report_routes_to_payment_service_and_forwards_bearer(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.get(
+                "/api/v1/payments/report?group_by=month&page=2",
+                headers={"Authorization": "Bearer owner-token"},
+            )
+        self.assertEqual(response.status_code, 200)
+        assert FakeUpstreamClient.captured_request is not None
+        self.assertEqual(
+            FakeUpstreamClient.captured_request["url"],
+            "http://127.0.0.1:8004/api/v1/payments/report?group_by=month&page=2",
+        )
+        self.assertEqual(
+            FakeUpstreamClient.captured_request["headers"]["authorization"],
+            "Bearer owner-token",
+        )
+
+    def test_management_catalogue_routes_to_court_and_forwards_owner_authorization(self):
+        with patch.object(main.httpx, "AsyncClient", FakeUpstreamClient):
+            response = self.client.get(
+                "/api/v1/management/catalogue/venues?owner_id=999",
+                headers={"Authorization": "Bearer owner-token"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        assert FakeUpstreamClient.captured_request is not None
+        self.assertEqual(
+            FakeUpstreamClient.captured_request["url"],
+            "http://127.0.0.1:8002/api/v1/management/catalogue/venues?owner_id=999",
+        )
+        self.assertEqual(
+            FakeUpstreamClient.captured_request["headers"]["authorization"],
+            "Bearer owner-token",
         )
 
     def test_admin_prefixes_route_only_to_their_owning_services(self):

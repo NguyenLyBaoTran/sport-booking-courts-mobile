@@ -3,7 +3,7 @@
   var data = window.BookingMockData;
   var authUtils = window.ManagementAuthUtils;
   var scheduleUtils = window.ScheduleUtils;
-  var dataMode = readDemoRole() ? "demo" : "api";
+  var dataMode = "api";
   var demoCourtData = window.CourtDemoData.create();
   var demoBookings = window.BookingDemoData.create();
   var bookingSearch = "";
@@ -13,6 +13,9 @@
   var ownerBookingVenueIds = [];
   var ownerBookingsState = { status: "idle", data: [], error: "" };
   var ownerBookingsRequestId = 0;
+  var ownerDashboardBookingsState = { status: "idle", data: null, error: "" };
+  var ownerDashboardBookingsPromise = null;
+  var ownerDashboardBookingsRequestId = 0;
   var ownerBookingCompletionPending = false;
   var venueSearch = "";
   var courtSearch = "";
@@ -39,8 +42,12 @@
   var scheduleState = { status: "idle", data: [], error: "" };
   var scheduleRefreshPromise = null;
   var courtLoadPromise = null;
-  var adminCatalogueSummary = { status: "idle", data: null, error: "" };
-  var adminCatalogueSummaryPromise = null;
+  var adminDashboardSummaries = {
+    catalogue: { status: "idle", data: null, error: "" },
+    users: { status: "idle", data: null, error: "" },
+    bookings: { status: "idle", data: null, error: "" }
+  };
+  var adminDashboardSummaryPromises = { catalogue: null, users: null, bookings: null };
   var adminUsersState = { status: "idle", data: null, error: "", requestId: 0 };
   var adminBookingsState = { status: "idle", data: null, error: "", requestId: 0 };
   var adminCheckinsState = { status: "idle", data: null, error: "", requestId: 0 };
@@ -48,12 +55,13 @@
   var adminBookingsFilters = { page: 1, page_size: 25, booking_id: "", user_id: "", status: "", date_from: "", date_to: "" };
   var adminBookingsSearchBy = "booking_id";
   var adminCheckinsFilters = { page: 1, page_size: 25, booking_id: "", date_from: "", date_to: "" };
+  var revenueFilters = window.ManagementRevenueUtils.initialFilters();
+  var revenueState = { status: "idle", data: null, error: "", requestId: 0, promise: null, filtersKey: "" };
+  var revenueExportState = { status: "idle", requestId: 0 };
   var authUser = null;
-  var demoRole = readDemoRole();
+  var demoRole = "";
   var authRestorePromise = null;
   var authMessage = "";
-  var loginMode = "api";
-  var loginWorkspace = "OWNER";
   var loginEmailValue = "";
   var scheduleFilters = { search: "", date: "", courtId: "", venueId: "", status: "" };
   var calendarViews = {};
@@ -74,23 +82,25 @@
     ["admin-schedule", "Time Slots", "bi-calendar3"],
     ["admin-bookings", "Bookings", "bi-journal-check"],
     ["checkins", "Check-ins", "bi-qr-code"],
+    ["admin-revenue", "Revenue", "bi-graph-up-arrow"],
     ["admin-profile", "Settings", "bi-gear"]
   ];
   var info = {
-    dashboard: ["Owner dashboard", "Welcome back", "Your venues, courts, and daily operations."],
-    venues: ["Venue management", "Venue & Court", "Manage your sports venues, courts, and availability."],
-    schedule: ["Court operations", "Facility Schedule", "Review your court availability for this week."],
-    "owner-bookings": ["Owner operations", "Bookings Management", "Manage court reservations across your venues."],
+    dashboard: ["Owner dashboard", "Welcome back", ""],
+    venues: ["Venue management", "Venue & Court", ""],
+    schedule: ["Court operations", "Facility Schedule", ""],
+    "owner-bookings": ["Owner operations", "Bookings Management", ""],
     "qr-checkin": ["Front desk", "QR Check-in", "Verify a booking before play begins."],
-    revenue: ["Business overview", "Revenue & Payouts", "Review revenue information for your venues."],
-    "owner-profile": ["Preferences", "Settings", "Account information and appearance."],
-    "admin-dashboard": ["System overview", "Admin Dashboard", "Review the shared sports and venue catalogue."],
-    people: ["Directory", "Users & Court Owners", "Account directory."],
-    "admin-venues": ["Platform registry", "Venue & Court", "Review the sports, venue, and court catalogue."],
-    "admin-schedule": ["Platform operations", "Time Slot Management", "Manage time slots across all venues."],
-    "admin-bookings": ["Platform activity", "Global Bookings", "Review booking activity."],
-    checkins: ["Platform activity", "Check-in Management", "Review recent booking check-ins."],
-    "admin-profile": ["Preferences", "Settings", "Account information and appearance."]
+    revenue: ["Business overview", "Revenue & Payouts", ""],
+    "admin-revenue": ["System reporting", "Revenue & Payments", ""],
+    "owner-profile": ["Preferences", "Settings", ""],
+    "admin-dashboard": ["System overview", "Admin Dashboard", ""],
+    people: ["Directory", "Users & Court Owners", ""],
+    "admin-venues": ["Platform registry", "Venue & Court", ""],
+    "admin-schedule": ["Platform operations", "Time Slot Management", ""],
+    "admin-bookings": ["Platform activity", "Global Bookings", ""],
+    checkins: ["Platform activity", "Check-in Management", ""],
+    "admin-profile": ["Preferences", "Settings", ""]
   };
   var statSets = {
     dashboard: [["bi-calendar-check", "Today’s bookings"], ["bi-people", "Active customers"], ["bi-building", "My venues"], ["bi-currency-exchange", "Revenue this month"]],
@@ -110,12 +120,7 @@
   function currentRoute() {
     return (location.hash.replace(/^#\/?/, "") || "login").toLowerCase();
   }
-  function readDemoRole() {
-    try {
-      var role = window.sessionStorage.getItem("managementDemoRole");
-      return role === "OWNER" || role === "ADMIN" ? role : "";
-    } catch (error) { return ""; }
-  }
+  try { window.sessionStorage.removeItem("managementDemoRole"); } catch (error) { /* storage may be unavailable */ }
   function currentRole() {
     return (authUser && authUser.role) || demoRole || "";
   }
@@ -128,6 +133,13 @@
     authUser = null;
     demoRole = "";
     authRestorePromise = null;
+    revenueState.requestId += 1;
+    revenueState = { status: "idle", data: null, error: "", requestId: revenueState.requestId, promise: null, filtersKey: "" };
+    revenueFilters = ManagementRevenueUtils.initialFilters();
+    revenueExportState = { status: "idle", requestId: revenueExportState.requestId };
+    ownerDashboardBookingsRequestId += 1;
+    ownerDashboardBookingsPromise = null;
+    ownerDashboardBookingsState = { status: "idle", data: null, error: "" };
     courtResources = {
       sports: { status: "idle", data: [], error: "" },
       venues: { status: "idle", data: [], error: "" },
@@ -179,8 +191,7 @@
       });
     }
     function loadOwnedResources() {
-      var ownerId = encodeURIComponent(authUser.id);
-      return Promise.all([fetchResource("sports", "/api/v1/sports"), fetchResource("venues", "/api/v1/venues?owner_id=" + ownerId)]).then(function (results) {
+      return Promise.all([fetchResource("sports", "/api/v1/sports"), fetchResource("venues", "/api/v1/management/catalogue/venues")]).then(function (results) {
         var venues = results[1];
         if (venues === null) {
           courtResources.courts = { status: "error", data: [], error: "Could not load the current Owner's venues." };
@@ -192,14 +203,14 @@
           courtResources.slots = { status: "loaded", data: [], error: "" };
           return;
         }
-        return Promise.all(venues.map(function (venue) { return fetchCollection("/api/v1/courts?venue_id=" + encodeURIComponent(venue.id)); })).then(function (courtGroups) {
+        return Promise.all(venues.map(function (venue) { return fetchCollection("/api/v1/management/catalogue/courts?venue_id=" + encodeURIComponent(venue.id)); })).then(function (courtGroups) {
           var courts = [].concat.apply([], courtGroups);
           courtResources.courts = { status: "loaded", data: courts, error: "" };
           if (!courts.length) {
             courtResources.slots = { status: "loaded", data: [], error: "" };
             return;
           }
-          return Promise.all(courts.map(function (court) { return fetchCollection("/api/v1/time-slots?court_id=" + encodeURIComponent(court.id)); })).then(function (slotGroups) {
+          return Promise.all(courts.map(function (court) { return fetchCollection("/api/v1/management/catalogue/time-slots?court_id=" + encodeURIComponent(court.id)); })).then(function (slotGroups) {
             courtResources.slots = { status: "loaded", data: [].concat.apply([], slotGroups), error: "" };
           });
         }).catch(function (error) {
@@ -209,7 +220,7 @@
       });
     }
     function loadAllResources() {
-      var requests = { sports: "/api/v1/sports", venues: "/api/v1/venues", courts: "/api/v1/courts", slots: "/api/v1/time-slots" };
+      var requests = { sports: "/api/v1/sports", venues: "/api/v1/management/catalogue/venues", courts: "/api/v1/management/catalogue/courts", slots: "/api/v1/management/catalogue/time-slots" };
       return Promise.all(Object.keys(requests).map(function (key) { return fetchResource(key, requests[key]); }));
     }
     render();
@@ -225,25 +236,168 @@
     });
     return courtLoadPromise;
   }
-  function loadAdminCatalogueSummary(force) {
-    if (dataMode !== "api" || !authUser || authUser.role !== "ADMIN") return Promise.resolve();
-    if (adminCatalogueSummaryPromise) return adminCatalogueSummaryPromise;
-    if (!force && adminCatalogueSummary.status !== "idle") return Promise.resolve();
-    adminCatalogueSummary = { status: "loading", data: adminCatalogueSummary.data, error: "" };
-    adminCatalogueSummaryPromise = window.CourtApi.get("/api/v1/admin/catalogue/summary").then(function (summary) {
-      ["sports", "venues", "courts", "time_slots"].forEach(function (key) {
-        if (!summary || !summary[key] || typeof summary[key].total !== "number" || typeof summary[key].active !== "number") {
-          throw new Error("The catalogue summary response is invalid.");
-        }
+  function isSummaryCount(value) {
+    return Number.isInteger(value) && value >= 0;
+  }
+  function validateDashboardSummary(kind, summary) {
+    var counts;
+    if (kind === "catalogue") {
+      return !!summary && ["sports", "venues", "courts", "time_slots"].every(function (key) {
+        counts = summary[key];
+        return !!counts && isSummaryCount(counts.total) && isSummaryCount(counts.active);
       });
-      adminCatalogueSummary = { status: "loaded", data: summary, error: "" };
+    }
+    if (kind === "users") {
+      return !!summary && ["users", "owners"].every(function (key) {
+        counts = summary[key];
+        return !!counts && isSummaryCount(counts.total) && isSummaryCount(counts.active) && isSummaryCount(counts.inactive);
+      });
+    }
+    return kind === "bookings" && !!summary && !!summary.bookings &&
+      ["total", "checked_in", "completed"].every(function (key) {
+        return isSummaryCount(summary.bookings[key]);
+      });
+  }
+  function dashboardSummaryError(error) {
+    var status = error && error.status;
+    if (status === 401) return "Your session expired. Sign in again.";
+    if (status === 403) return "Admin permission is required to view this summary.";
+    if (status === 404) return "This summary endpoint is not available in the connected service.";
+    if (status === 0) return "Could not connect to the API Gateway. Check that the services are running.";
+    if (status >= 500) return "The summary service returned a server error. Try again.";
+    return error && error.message ? error.message : "Could not load this summary. Try again.";
+  }
+  function loadAdminDashboardSummary(kind, force) {
+    if (dataMode !== "api" || !authUser || authUser.role !== "ADMIN" || !adminDashboardSummaries[kind]) return Promise.resolve();
+    if (adminDashboardSummaryPromises[kind]) return adminDashboardSummaryPromises[kind];
+    var state = adminDashboardSummaries[kind];
+    if (!force && state.status !== "idle") return Promise.resolve();
+    state.status = "loading";
+    state.data = null;
+    state.error = "";
+    adminDashboardSummaryPromises[kind] = window.AdminManagementApi.getDashboardSummary(kind).then(function (summary) {
+      if (!validateDashboardSummary(kind, summary)) throw new Error("The " + kind + " summary response is invalid.");
+      state.status = "loaded";
+      state.data = summary;
     }).catch(function (error) {
-      adminCatalogueSummary = { status: "error", data: null, error: error.message || "Could not load catalogue summary." };
+      state.status = "error";
+      state.data = null;
+      state.error = dashboardSummaryError(error);
     }).finally(function () {
-      adminCatalogueSummaryPromise = null;
+      adminDashboardSummaryPromises[kind] = null;
       if (currentRoute() === "admin-dashboard" && dataMode === "api") render();
     });
-    return adminCatalogueSummaryPromise;
+    return adminDashboardSummaryPromises[kind];
+  }
+  function loadAdminDashboardSummaries(force) {
+    return Promise.all(["catalogue", "users", "bookings"].map(function (kind) {
+      return loadAdminDashboardSummary(kind, force);
+    }));
+  }
+  function retryAdminDashboardSummary(kind) {
+    return loadAdminDashboardSummary(kind, true);
+  }
+  function dashboardSummaryCards(items) {
+    return '<div class="admin-dashboard-stat-grid">' + items.map(function (item) {
+      return '<article class="stat-card"><div class="stat-top"><span>' + esc(item.label) +
+        '</span><span class="stat-icon"><i class="bi ' + esc(item.icon) + '"></i></span></div><div class="stat-value">' +
+        esc(item.value) + '</div><div class="stat-note">' + esc(item.note || "") + '</div></article>';
+    }).join("") + "</div>";
+  }
+  function dashboardSummaryGroup(kind, title, state, cards, emptyText) {
+    var body;
+    if (state.status === "idle" || state.status === "loading") {
+      body = '<div class="panel-body text-secondary" role="status">Loading ' + esc(title.toLowerCase()) + ' summary...</div>';
+    } else if (state.status === "error") {
+      body = '<div class="panel-body"><div class="alert alert-warning mb-0" role="alert">' + esc(state.error) +
+        ' <button class="btn btn-sm btn-outline-secondary ms-2" type="button" data-admin-summary-retry="' + esc(kind) + '">Retry</button></div></div>';
+    } else {
+      var values = cards(state.data);
+      body = dashboardSummaryCards(values);
+      if (values.every(function (item) { return item.value === 0; })) {
+        body += '<div class="admin-summary-empty text-secondary" role="status">' + esc(emptyText) + '</div>';
+      }
+    }
+    return panel(title, body);
+  }
+  function ownerDashboardBookingSummaryGroup() {
+    var state = ownerDashboardBookingsState;
+    var body;
+    if (state.status === "idle" || state.status === "loading") {
+      body = '<div class="panel-body text-secondary" role="status">Loading booking statistics...</div>';
+    } else if (state.status === "error") {
+      body = '<div class="panel-body"><div class="alert alert-warning mb-0" role="alert">' + esc(ownerBookingErrorMessage(state.error)) +
+        ' <button class="btn btn-sm btn-outline-secondary ms-2" type="button" data-owner-booking-summary-retry>Retry</button></div></div>';
+    } else {
+      var counts = state.data;
+      var cards = dashboardSummaryCards([
+        { icon: "bi-journal-check", label: "Total bookings", value: counts.total },
+        { icon: "bi-hourglass-split", label: "Pending", value: counts.pending },
+        { icon: "bi-calendar-check", label: "Confirmed", value: counts.confirmed },
+        { icon: "bi-check2-circle", label: "Checked in", value: counts.checked_in },
+        { icon: "bi-calendar2-check", label: "Completed", value: counts.completed }
+      ]);
+      body = cards + (counts.total === 0 ? '<div class="admin-summary-empty text-secondary" role="status">No bookings have been recorded for your venues yet.</div>' : "");
+    }
+    return panel("Booking statistics", body);
+  }
+  function ownerDashboardBookingCounts(bookings) {
+    var counts = { total: bookings.length, pending: 0, confirmed: 0, checked_in: 0, completed: 0 };
+    var knownStatuses = ["PENDING", "CONFIRMED", "CHECKED_IN", "COMPLETED", "CANCELLED", "FAILED", "EXPIRED"];
+    bookings.forEach(function (booking) {
+      if (!booking || knownStatuses.indexOf(booking.status) < 0) throw new Error("The booking list contains an unsupported status.");
+      if (booking.status === "PENDING") counts.pending += 1;
+      if (booking.status === "CONFIRMED") counts.confirmed += 1;
+      if (booking.status === "CHECKED_IN") counts.checked_in += 1;
+      if (booking.status === "COMPLETED") counts.completed += 1;
+    });
+    return counts;
+  }
+  function loadOwnerDashboardBookingSummary(force) {
+    if (dataMode !== "api" || !authUser || authUser.role !== "OWNER") return Promise.resolve();
+    if (ownerDashboardBookingsPromise) return ownerDashboardBookingsPromise;
+    if (!force && ownerDashboardBookingsState.status !== "idle") return Promise.resolve();
+    var requestId = ++ownerDashboardBookingsRequestId;
+    ownerDashboardBookingsState = { status: "loading", data: null, error: "" };
+    ownerDashboardBookingsPromise = Promise.resolve().then(function () {
+      return window.OwnerBookingsApi.list({});
+    }).then(function (bookings) {
+      if (!Array.isArray(bookings)) throw new Error("The booking list could not be read.");
+      if (requestId === ownerDashboardBookingsRequestId) {
+        ownerDashboardBookingsState = { status: "loaded", data: ownerDashboardBookingCounts(bookings), error: "" };
+      }
+    }).catch(function (error) {
+      if (requestId === ownerDashboardBookingsRequestId) ownerDashboardBookingsState = { status: "error", data: null, error: error };
+    }).finally(function () {
+      if (requestId === ownerDashboardBookingsRequestId) {
+        ownerDashboardBookingsPromise = null;
+        if (currentRoute() === "dashboard" && authUser && authUser.role === "OWNER" && dataMode === "api") render();
+      }
+    });
+    render();
+    return ownerDashboardBookingsPromise;
+  }
+  function retryOwnerDashboardBookingSummary() {
+    return loadOwnerDashboardBookingSummary(true);
+  }
+  function dashboardRevenueCard(active) {
+    if (dataMode !== "api" || !authUser || (authUser.role !== "OWNER" && authUser.role !== "ADMIN")) return "";
+    var state = revenueState;
+    var options = revenuePresetOptions(revenueFilters.preset);
+    var controls = '<div class="dashboard-revenue-controls"><label><span>Period</span><select class="form-select" data-dashboard-revenue-preset>' + options + '</select></label>' +
+      (revenueFilters.preset === "specific-date" ? '<label><span>Date</span><input class="form-control" type="date" data-revenue-specific-date value="' + esc(revenueFilters.specific_date) + '"></label>' : "") +
+      '<label><span>Chart</span><select class="form-select" data-revenue-group><option value="day" ' + (revenueFilters.group_by === "day" ? "selected" : "") + '>Daily</option><option value="month" ' + (revenueFilters.group_by === "month" ? "selected" : "") + '>Monthly</option></select></label></div>';
+    var body = controls;
+    if (state.status === "idle" || state.status === "loading") {
+      body += '<div class="panel-body text-secondary" role="status">Loading revenue…</div>';
+    } else if (state.status === "error") {
+      body += '<div class="panel-body"><div class="alert alert-warning mb-0" role="alert">' + esc(revenueErrorMessage(state.error)) + ' <button class="btn btn-sm btn-outline-secondary ms-2" type="button" data-revenue-retry>Retry</button></div></div>';
+    } else {
+      body += '<div class="dashboard-revenue-total"><div><span>Total revenue</span><strong>' + esc(formatRevenueAmount(Number(state.data.summary.total_revenue))) + '</strong></div><span class="dashboard-revenue-period">' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + '</span></div>' +
+        '<div class="dashboard-revenue-chart">' + revenueChart(state.data.revenue_series) + '</div>';
+    }
+    var action = '<a class="btn btn-sm btn-outline-secondary" href="' + (authUser.role === "ADMIN" ? "#/admin-revenue" : "#/revenue") + '">Detailed report</a>';
+    return panel("Revenue", body, authUser.role === "ADMIN" ? "System-wide" : "Your venues", action, "dashboard-revenue-panel");
   }
   function adminApiErrorMessage(error, context) {
     var status = error && error.status;
@@ -511,7 +665,7 @@
       return '<div class="alert alert-info py-2 small" role="status"><strong>Demo Mode:</strong> Changes affect only the in-memory sample data. Reload the page to restore the starter data.</div>';
     }
     if (authUser && authUser.role === "OWNER") return '<div class="alert alert-info py-2 small" role="status">You can manage your venues, courts, and time slots. Sports are managed centrally.</div>';
-    if (authUser && authUser.role === "ADMIN") return '<div class="alert alert-info py-2 small" role="status">Manage the shared sports, venue, court, and time slot catalogue.</div>';
+    if (authUser && authUser.role === "ADMIN") return "";
     return '<div class="alert alert-warning py-2 small" role="status">This catalogue is currently read-only.</div>';
   }
   function demoNotice(message) {
@@ -747,54 +901,30 @@
   }
   function renderLogin() {
     document.title = "Sign in | Sports Court Booking";
-    var isApiMode = !authUtils.workspaceVisible(loginMode);
     document.getElementById("app").innerHTML =
       '<main class="login-page"><section class="login-art">' +
       '<div class="login-brand brand p-0"><span class="brand-mark"><i class="bi bi-trophy"></i></span><span>Courtbook<small>Sports Court Booking</small></span></div>' +
-      '<div class="login-message"><p class="eyebrow">Management workspace</p><h1>Run your courts.<br>Keep the game moving.</h1><p>Manage venues, schedules, reservations, and check-ins.</p></div>' +
-      '<div class="login-art-foot">Sports Court Booking ? Management</div></section>' +
+      '<div class="login-message"><p class="eyebrow">Management workspace</p><h1>Sports Court<br>Management</h1></div>' +
+      '<div class="login-art-foot">Sports Court Booking Management</div></section>' +
       '<section class="login-form-side"><form class="login-card" id="login-form" novalidate><p class="eyebrow">Welcome back</p><h2>Sign in to your account</h2><p>Access your management workspace.</p>' +
-      '<div class="login-mode-switch" role="group" aria-label="Sign-in option"><button type="button" class="' + (!isApiMode ? "active" : "") + '" data-login-mode="demo" aria-pressed="' + (!isApiMode) + '">Demo preview</button><button type="button" class="' + (isApiMode ? "active" : "") + '" data-login-mode="api" aria-pressed="' + isApiMode + '">Sign in</button></div>' +
-      (!isApiMode ? '<div class="login-mode-note" role="status">Preview with sample data. No account is needed.</div><label class="form-label" for="login-workspace">Workspace</label><select class="form-select" id="login-workspace"><option value="OWNER" ' + (loginWorkspace === "OWNER" ? "selected" : "") + '>Court Owner</option><option value="ADMIN" ' + (loginWorkspace === "ADMIN" ? "selected" : "") + '>Admin</option></select>' : '<div class="login-mode-note" role="status">Sign in with your account. Your role opens the matching workspace.</div>') +
-      '<label class="form-label" for="login-email">Email address</label><input class="form-control" id="login-email" type="email" autocomplete="username" value="' + esc(loginEmailValue) + '" placeholder="name@example.com" ' + (isApiMode ? "required" : "") + '>' +
-      '<label class="form-label" for="login-password">Password</label><input class="form-control" id="login-password" type="password" autocomplete="current-password" ' + (isApiMode ? "required" : "") + ' placeholder="' + (isApiMode ? "Enter your password" : "Optional in Demo Mode") + '">' +
-      '<button class="btn btn-success w-100" type="submit" data-login-submit>' + (isApiMode ? 'Sign in' : 'Open workspace') + ' <i class="bi bi-arrow-right ms-1"></i></button>' +
-      (authMessage ? '<div class="alert alert-danger mt-3" role="alert">' + esc(authMessage) + '</div>' : '') +
-      '<div class="login-footnote">' + (isApiMode ? 'Your sign-in stays in the live workspace.' : 'Sample data stays separate from your account.') + '</div></form></section></main>';
+      '<label class="form-label" for="login-email">Email address</label><input class="form-control" id="login-email" type="email" autocomplete="username" value="' + esc(loginEmailValue) + '" placeholder="name@example.com" required>' +
+      '<label class="form-label" for="login-password">Password</label><input class="form-control" id="login-password" type="password" autocomplete="current-password" required placeholder="Enter your password">' +
+      '<button class="btn btn-success w-100" type="submit" data-login-submit>Sign in <i class="bi bi-arrow-right ms-1"></i></button>' +
+      (authMessage ? '<div class="alert alert-danger mt-3" role="alert">' + esc(authMessage) + '</div>' : '');
 
-    document.querySelectorAll("[data-login-mode]").forEach(function (button) {
-      button.addEventListener("click", function () {
-        loginEmailValue = document.getElementById("login-email").value.trim();
-        loginMode = authUtils.normalizeMode(button.dataset.loginMode);
-        authMessage = "";
-        renderLogin();
-      });
-    });
     var emailInput = document.getElementById("login-email");
     emailInput.addEventListener("input", function () { loginEmailValue = emailInput.value; });
-    var workspaceInput = document.getElementById("login-workspace");
-    if (workspaceInput) workspaceInput.addEventListener("change", function () { loginWorkspace = workspaceInput.value; });
     document.getElementById("login-form").addEventListener("submit", function (event) {
       event.preventDefault();
       var email = emailInput.value.trim();
       var password = document.getElementById("login-password").value;
-      var plan = authUtils.loginPlan(loginMode, loginWorkspace, email, password);
+      var plan = authUtils.loginPlan("api", "", email, password);
       if (!plan.valid) {
         authMessage = plan.message;
         renderLogin();
         return;
       }
       authMessage = "";
-      if (plan.mode === "demo") {
-        clearSession();
-        demoRole = plan.role;
-        try { window.sessionStorage.setItem("managementDemoRole", demoRole); } catch (error) { /* storage may be unavailable */ }
-        dataMode = "demo";
-        loginEmailValue = "";
-        location.hash = "#" + homeRouteForRole(demoRole);
-        return;
-      }
-
       clearSession();
       dataMode = "api";
       var button = document.querySelector("[data-login-submit]");
@@ -827,8 +957,7 @@
   }
   function renderShell(content, admin, active) {
     var nav = admin ? adminNav : ownerNav;
-    var name = authUser ? (authUser.full_name || authUser.email || (admin ? "Administrator" : "Court Owner")) : (demoRole === "ADMIN" ? "Demo Administrator" : "Demo Owner");
-    var email = authUser && authUser.email ? authUser.email : (demoRole ? "Demo account" : "");
+    var name = authUser.full_name || authUser.email || (admin ? "Administrator" : "Court Owner");
     var initials = name.split(/\s+/).map(function (part) { return part.charAt(0); }).join("").slice(0, 2).toUpperCase();
     document.title = info[active][1] + " | Courtbook";
     document.getElementById("app").innerHTML =
@@ -838,7 +967,7 @@
       '<a class="side-link side-logout" href="#/login" data-logout><i class="bi bi-box-arrow-left"></i><span>Sign out</span></a></aside><button class="mobile-backdrop" id="mobile-backdrop" aria-label="Close navigation"></button>' +
       '<div class="main-column"><header class="topbar"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="Open navigation"><i class="bi bi-list"></i></button>' +
       '<div class="top-user"><span class="avatar">' + esc(initials) + '</span><div><strong>' + esc(name) + "</strong><small>" +
-      esc(authUser ? (authUser.role + " account") : (admin ? "Demo Administrator" : "Demo Owner account")) + '</small></div></header><main class="page-content">' + content +
+      esc(authUser.role + " account") + '</small></div></header><main class="page-content">' + content +
       '<footer class="page-footer">Sports Court Booking · Management workspace</footer></main></div></div>';
     document.getElementById("menu-toggle").addEventListener("click", function () { toggleMenu(true); });
     document.getElementById("mobile-backdrop").addEventListener("click", function () { toggleMenu(false); });
@@ -848,7 +977,6 @@
       function finishLogout() {
         clearSession();
         dataMode = "api";
-        loginMode = "api";
         authMessage = "";
         location.hash = "#/login";
       }
@@ -868,7 +996,7 @@
     var item = info[active];
     var title = active === "dashboard" && authUser && authUser.full_name ? "Welcome back, " + authUser.full_name : item[1];
     var headingClass = active === "owner-bookings" ? " page-heading--bookings" : "";
-    return '<div class="page-heading' + headingClass + '"><div><p class="eyebrow">' + item[0] + "</p><h1>" + esc(title) + "</h1><p>" + item[2] + "</p></div>" + (action || "") + "</div>";
+    return '<div class="page-heading' + headingClass + '"><div><p class="eyebrow">' + item[0] + "</p><h1>" + esc(title) + "</h1>" + (item[2] ? "<p>" + esc(item[2]) + "</p>" : "") + "</div>" + (action || "") + "</div>";
   }
   function actionButton(label, icon, message, outline) {
     return '<button class="btn ' + (outline ? "btn-outline-secondary" : "btn-success") + '" data-toast="' + message + '"><i class="bi ' + icon + ' me-1"></i><span class="desktop-button-text">' + label + "</span></button>";
@@ -927,35 +1055,48 @@
     var courts = resources.courts;
     var slots = resources.slots;
     if (active === "admin-dashboard") {
-      var activeSlots = slots.status === "loaded" ? slots.data.filter(function (slot) { return slot.is_active; }).length : "?";
-      var accountStats = dataMode === "demo" ? demoAccountStats() : [];
-      var bookingStats = dataMode === "demo" ? demoBookingStats() : [];
-      var dashboardValues = dataMode === "demo"
-        ? [accountStats[0], accountStats[2], bookingStats[0], bookingStats[1]]
-        : ["—", adminCatalogueSummary.data ? adminCatalogueSummary.data.venues.total : "—", adminCatalogueSummary.data ? adminCatalogueSummary.data.courts.total : "—", "—"];
-      var dashboardNotes = dataMode === "demo" ? false : [
-        "Not available yet",
-        adminCatalogueSummary.status === "loaded" ? "Court catalogue" : (adminCatalogueSummary.status === "loading" ? "Loading" : "Not available"),
-        adminCatalogueSummary.status === "loaded" ? "Court catalogue" : (adminCatalogueSummary.status === "loading" ? "Loading" : "Not available"),
-        "Not available yet"
-      ];
-      var catalogueSummaryBody;
-      if (dataMode === "demo") {
-        catalogueSummaryBody = '<div class="panel-body"><p class="mb-2">Sports: ' + sports.data.length + '</p><p class="mb-2">Venues: ' + venues.data.length + '</p><p class="mb-2">Courts: ' + courts.data.length + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>';
-      } else if (adminCatalogueSummary.status === "loading" || adminCatalogueSummary.status === "idle") {
-        catalogueSummaryBody = '<div class="panel-body text-secondary" role="status">Loading catalogue summary...</div>';
-      } else if (adminCatalogueSummary.status === "error") {
-        catalogueSummaryBody = '<div class="panel-body"><div class="alert alert-warning mb-0" role="status">Catalogue totals are unavailable. ' + esc(adminCatalogueSummary.error) + '</div></div>';
-      } else {
-        var summary = adminCatalogueSummary.data;
-        catalogueSummaryBody = '<div class="panel-body"><p class="mb-2">Sports: ' + summary.sports.total + ' (' + summary.sports.active + ' active)</p><p class="mb-2">Venues: ' + summary.venues.total + ' (' + summary.venues.active + ' active)</p><p class="mb-2">Courts: ' + summary.courts.total + ' (' + summary.courts.active + ' active)</p><p class="mb-0">Time slots: ' + summary.time_slots.total + ' (' + summary.time_slots.active + ' active)</p></div>';
+      if (dataMode === "api") {
+        var catalogueState = adminDashboardSummaries.catalogue;
+        var usersState = adminDashboardSummaries.users;
+        var bookingsState = adminDashboardSummaries.bookings;
+        return heading(active, '<button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
+          '<div class="admin-dashboard-groups">' +
+          dashboardSummaryGroup("catalogue", "Catalogue", catalogueState, function (summary) {
+            return [
+              { icon: "bi-trophy", label: "Sports", value: summary.sports.total, note: summary.sports.active + " active" },
+              { icon: "bi-buildings", label: "Venues", value: summary.venues.total, note: summary.venues.active + " active" },
+              { icon: "bi-grid-3x3", label: "Courts", value: summary.courts.total, note: summary.courts.active + " active" },
+              { icon: "bi-clock-history", label: "Active time slots", value: summary.time_slots.active, note: summary.time_slots.total + " total" }
+            ];
+          }, "No catalogue records are available yet.") +
+          dashboardSummaryGroup("users", "Users", usersState, function (summary) {
+            return [
+              { icon: "bi-people", label: "Total accounts", value: summary.users.total, note: "All account roles" },
+              { icon: "bi-person-check", label: "Active accounts", value: summary.users.active },
+              { icon: "bi-person-x", label: "Inactive accounts", value: summary.users.inactive },
+              { icon: "bi-building-check", label: "Court owners", value: summary.owners.total, note: summary.owners.active + " active · " + summary.owners.inactive + " inactive" }
+            ];
+          }, "No user or owner accounts are available yet.") +
+          dashboardSummaryGroup("bookings", "Bookings", bookingsState, function (summary) {
+            return [
+              { icon: "bi-journal-check", label: "Total bookings", value: summary.bookings.total },
+              { icon: "bi-check2-circle", label: "Checked in", value: summary.bookings.checked_in },
+              { icon: "bi-calendar2-check", label: "Completed", value: summary.bookings.completed }
+            ];
+          }, "No bookings are available yet.") +
+          '</div>' + dashboardRevenueCard(active) + '<div class="mt-3 d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="#/admin-venues">Open venue registry</a><a class="btn btn-outline-secondary btn-sm" href="#/admin-bookings">Open bookings</a></div>';
       }
+      var activeSlots = slots.status === "loaded" ? slots.data.filter(function (slot) { return slot.is_active; }).length : "?";
+      var accountStats = demoAccountStats();
+      var bookingStats = demoBookingStats();
+      var dashboardValues = [accountStats[0], accountStats[2], bookingStats[0], bookingStats[1]];
+      var catalogueSummaryBody = '<div class="panel-body"><p class="mb-2">Sports: ' + sports.data.length + '</p><p class="mb-2">Venues: ' + venues.data.length + '</p><p class="mb-2">Courts: ' + courts.data.length + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>';
       return heading(active, '<button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
-        (dataMode === "demo" ? demoNotice("Dashboard figures are sample data. The catalogue below reflects the selected data source.") : '<p class="text-secondary small">Account and booking summaries are not available yet.</p>') +
-        stats(dataMode === "demo" ? "admin-dashboard-demo" : "admin-dashboard", dashboardValues, false, dashboardNotes) +
-        (dataMode === "demo" ? '<p class="text-secondary small">Sample totals: ' + accountStats[1] + ' users, ' + accountStats[3] + ' owners pending review, ' + bookingStats[2] + ' checked-in bookings, ' + bookingStats[3] + ' pending bookings.</p>' : "") +
+        demoNotice("Dashboard figures are sample data. The catalogue below reflects the selected data source.") +
+        stats("admin-dashboard-demo", dashboardValues, false) +
+        '<p class="text-secondary small">Sample totals: ' + accountStats[1] + ' users, ' + accountStats[3] + ' owners pending review, ' + bookingStats[2] + ' checked-in bookings, ' + bookingStats[3] + ' pending bookings.</p>' +
         (anyAdminDataError(resources) ? resourceError("catalogue information", "One or more lists could not be loaded.") : "") +
-        '<div class="content-grid">' + panel("Court catalogue", catalogueSummaryBody, dataMode === "demo" ? "Demo catalogue" : "Current catalogue") +
+        '<div class="content-grid">' + panel("Court catalogue", catalogueSummaryBody, "Demo catalogue") +
         '</div><div class="mt-3 d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="#/admin-venues">Open venue registry</a><a class="btn btn-outline-secondary btn-sm" href="#/admin-bookings">Open bookings</a></div>';
     }
     var activeSlots = slots.status === "loaded" ? slots.data.filter(function (slot) { return slot.is_active; }).length : "?";
@@ -980,11 +1121,12 @@
     var gatewayError = anyError && Object.keys(resources).some(function (key) { return resources[key].status === "error" && /failed to fetch|networkerror|connection refused|load failed/i.test(resources[key].error); });
     return heading(active, '<button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
       stats("court-overview", values, true) +
-      '<p class="text-secondary small">' + (dataMode === "demo" ? "Sample counts are for preview only. " : "Counts reflect the catalogue shown here. ") + 'Active slots are schedule entries, not booking availability.</p>' +
       (anyError ? (gatewayError ? resourceError("catalogue information", "Could not load the latest information." ) : resourceError("catalogue information", "One or more lists could not be loaded.")) : "") +
+      dashboardRevenueCard(active) +
       '<div class="content-grid">' + panel("Venue catalogue", venueBody, dataMode === "demo" ? "Demo data" : "Your venues") +
-      panel("Court data", '<div class="panel-body"><p class="mb-2">Sports: ' + (sports.status === "loaded" ? sports.data.length : "?") + '</p><p class="mb-2">Venues: ' + (venues.status === "loaded" ? venues.data.length : "?") + '</p><p class="mb-2">Courts: ' + (courts.status === "loaded" ? courts.data.length : "?") + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>', "Sports, venues, courts, and schedules") +
-      '</div><div class="mt-3 d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="#/venues">Open venues and courts</a><a class="btn btn-outline-secondary btn-sm" href="#/schedule">Open schedule</a></div>';
+      panel("Catalogue", '<div class="panel-body"><p class="mb-2">Sports: ' + (sports.status === "loaded" ? sports.data.length : "?") + '</p><p class="mb-2">Venues: ' + (venues.status === "loaded" ? venues.data.length : "?") + '</p><p class="mb-2">Courts: ' + (courts.status === "loaded" ? courts.data.length : "?") + '</p><p class="mb-0">Active time slots: ' + activeSlots + '</p></div>') +
+      '</div>' + (dataMode === "api" ? '<div class="mt-3">' + ownerDashboardBookingSummaryGroup() + '</div>' : "") +
+      '<div class="mt-3 d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="#/venues">Open venues and courts</a><a class="btn btn-outline-secondary btn-sm" href="#/schedule">Open schedule</a></div>';
   }
   function anyAdminDataError(resources) {
     return Object.keys(resources).some(function (key) { return resources[key].status === "error"; });
@@ -996,9 +1138,12 @@
         var content = adminListState(adminBookingsState);
         if (adminBookingsState.status === "loaded" && adminBookingsState.data.items.length) {
           var rows = adminBookingsState.data.items.map(function (booking) {
-            return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.user_id) + '</td><td>' + esc(booking.owner_id) + '</td><td>' + esc(booking.venue_id) + '</td><td>' + esc(booking.court_id) + '</td><td>' + apiDate(booking.slot_date) + '</td><td>' + statusBadge(booking.status) + '</td><td>' + esc(booking.total_amount) + '</td><td class="table-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-booking-detail="' + esc(booking.id) + '">Details</button></td></tr>';
+            var venue = booking.venue_id === null ? "Venue unavailable" : "Venue #" + booking.venue_id;
+            var court = booking.court_id === null ? "Court unavailable" : "Court #" + booking.court_id;
+      var timeRange = apiTime(booking.start_time) + " - " + apiTime(booking.end_time);
+            return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.user_id) + '</td><td>' + esc(booking.owner_id) + '</td><td><span class="booking-location-cell" title="' + esc(venue) + '">' + esc(venue) + '</span></td><td><span class="booking-location-cell" title="' + esc(court) + '">' + esc(court) + '</span></td><td>' + apiDate(booking.slot_date) + '</td><td><span class="booking-time-cell" title="' + esc(timeRange) + '">' + esc(timeRange) + '</span></td><td>' + statusBadge(booking.status) + '</td><td>' + esc(booking.total_amount) + '</td><td class="table-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-booking-detail="' + esc(booking.id) + '">Details</button></td></tr>';
           }).join("");
-          content = '<div class="table-wrap"><table class="table"><thead><tr><th>Booking</th><th>User</th><th>Owner</th><th>Venue</th><th>Court</th><th>Date</th><th>Status</th><th>Amount</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' + adminPagination("bookings", adminBookingsState.data);
+          content = '<div class="table-wrap booking-list-table-wrap"><table class="table booking-list-table admin-booking-list-table"><thead><tr><th>Booking</th><th>User</th><th>Owner</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Status</th><th>Amount</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' + adminPagination("bookings", adminBookingsState.data);
         }
         return heading(active) + panel("Bookings", filters + content, "System-wide booking records · read-only");
       }
@@ -1028,7 +1173,7 @@
           apiContent = '<div class="panel-body text-secondary" role="status">' + (filtersActive ? "No bookings match these filters." : "No bookings are available for your venues.") + '</div>';
         } else apiContent = '<div class="table-wrap booking-list-table-wrap"><table class="table booking-list-table"><thead><tr><th>Booking ID</th><th>User ID</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Total amount</th><th>Status</th><th>Actions</th></tr></thead><tbody id="owner-booking-rows" aria-live="polite">' + ownerBookingRowsMarkup(apiBookings) + '</tbody></table></div><div class="table-foot" data-booking-count>Showing ' + apiBookings.length + ' of ' + ownerBookingsState.data.length + ' bookings</div>';
       }
-      return heading(active, bookingRefreshAction) + bookingModeNotice() + panel("Owner bookings", apiToolbar + apiContent, "Manage court reservations", "", "calendar-panel-card");
+      return heading(active, bookingRefreshAction) + bookingModeNotice() + panel("Owner bookings", apiToolbar + apiContent, "", "", "calendar-panel-card");
     }
     var filtered = filteredDemoBookings();
     var body = '<div class="toolbar booking-filter-toolbar"><input class="form-control" type="search" data-booking-search value="' + esc(bookingSearch) + '" placeholder="Search booking ID or customer" aria-label="Search booking ID or customer">' +
@@ -1079,13 +1224,17 @@
     if (!bookings.length) return '<tr><td colspan="9" class="text-secondary">No bookings match this search.</td></tr>';
     return bookings.map(function (booking) {
       var complete = booking.status === "CHECKED_IN" ? '<button class="btn btn-sm btn-success" type="button" data-booking-complete="' + esc(booking.id) + '" ' + (ownerBookingCompletionPending ? "disabled" : "") + '>Complete Booking</button>' : "";
-      return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.user_id) + '</td><td>Venue #' + esc(booking.venue_id) + '</td><td>Court #' + esc(booking.court_id) + '</td><td>' + apiDate(booking.slot_date) + '</td><td>' + apiTime(booking.start_time) + ' - ' + apiTime(booking.end_time) + '</td><td>' + esc(formatBookingAmount(Number(booking.total_amount))) + '</td><td>' + statusBadge(booking.status) + '</td><td class="table-actions"><div class="table-action-group"><button class="btn btn-sm btn-outline-secondary" type="button" data-booking-detail="' + esc(booking.id) + '">Details</button>' + complete + '</div></td></tr>';
+      var venue = "Venue #" + booking.venue_id;
+      var court = "Court #" + booking.court_id;
+            var timeRange = apiTime(booking.start_time) + " - " + apiTime(booking.end_time);
+      return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.user_id) + '</td><td><span class="booking-location-cell" title="' + esc(venue) + '">' + esc(venue) + '</span></td><td><span class="booking-location-cell" title="' + esc(court) + '">' + esc(court) + '</span></td><td>' + apiDate(booking.slot_date) + '</td><td><span class="booking-time-cell" title="' + esc(timeRange) + '">' + timeRange + '</span></td><td>' + esc(formatBookingAmount(Number(booking.total_amount))) + '</td><td>' + statusBadge(booking.status) + '</td><td class="table-actions"><div class="table-action-group"><button class="btn btn-sm btn-outline-secondary" type="button" data-booking-detail="' + esc(booking.id) + '">Details</button>' + complete + '</div></td></tr>';
     }).join("");
   }
   function bookingRowsMarkup(bookings) {
     if (!bookings.length) return '<tr><td colspan="9" class="text-secondary">No bookings match these filters.</td></tr>';
     return bookings.map(function (booking) {
-      return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.customer.name) + '</td><td>' + esc(booking.venue) + '</td><td>' + esc(booking.court) + '</td><td>' + apiDate(booking.date) + '</td><td>' + esc(booking.start_time + " - " + booking.end_time) + '</td><td>' + esc(formatBookingAmount(booking.total_amount)) + '</td><td>' + statusBadge(booking.status) + '</td><td class="table-actions"><div class="table-action-group"><button class="btn btn-sm btn-outline-secondary" data-booking-detail="' + esc(booking.id) + '">Details</button>' +
+      var timeRange = booking.start_time + " - " + booking.end_time;
+      return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.customer.name) + '</td><td><span class="booking-location-cell" title="' + esc(booking.venue) + '">' + esc(booking.venue) + '</span></td><td><span class="booking-location-cell" title="' + esc(booking.court) + '">' + esc(booking.court) + '</span></td><td>' + apiDate(booking.date) + '</td><td><span class="booking-time-cell" title="' + esc(timeRange) + '">' + esc(timeRange) + '</span></td><td>' + esc(formatBookingAmount(booking.total_amount)) + '</td><td>' + statusBadge(booking.status) + '</td><td class="table-actions"><div class="table-action-group"><button class="btn btn-sm btn-outline-secondary" data-booking-detail="' + esc(booking.id) + '">Details</button>' +
         (booking.status === "CHECKED_IN" ? '<button class="btn btn-sm btn-success" data-booking-complete="' + esc(booking.id) + '">Complete Booking</button>' : "") + '</div></td></tr>';
     }).join("");
   }
@@ -1111,7 +1260,7 @@
   function bookingModeNotice() {
     return dataMode === "demo"
       ? '<div class="alert alert-warning py-2 small" role="status"><strong>Demo:</strong> Sample bookings are shown for preview.</div>'
-      : '<div class="alert alert-info py-2 small" role="status">Manage court reservations.</div>';
+      : "";
   }
   function ownerBookingErrorMessage(error) {
     var status = error && error.status;
@@ -1150,6 +1299,9 @@
     ownerBookingCompletionPending = true;
     if (button) { button.disabled = true; button.textContent = "Completing..."; }
     window.OwnerBookingsApi.complete(booking.id).then(function () {
+      ownerDashboardBookingsRequestId += 1;
+      ownerDashboardBookingsPromise = null;
+      ownerDashboardBookingsState = { status: "idle", data: null, error: "" };
       toast("Booking completed.");
       return refreshOwnerBookingAfterCompletion(booking.id);
     }).catch(function (error) {
@@ -1166,6 +1318,9 @@
   }
   function formatBookingAmount(value) {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value);
+  }
+  function formatRevenueAmount(value) {
+    return new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value);
   }
   function statusBadge(status) {
     var styles = { PENDING: "warning", CONFIRMED: "", CHECKED_IN: "", COMPLETED: "", CANCELLED: "danger", EXPIRED: "danger" };
@@ -1337,14 +1492,14 @@
       }).join("");
       content = '<div class="table-wrap"><table class="table"><thead><tr><th>Court</th><th>Venue</th><th>Sport</th><th>Price per hour</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + (courtRows || '<tr><td colspan="6" class="text-secondary">No courts are available in this data source.</td></tr>') + '</tbody></table></div>';
     }
-    var stateText = dataMode === "demo" ? "Demo data" : (authUser && authUser.role === "ADMIN" ? "Manage the shared catalogue" : "Sports information");
+    var stateText = dataMode === "demo" ? "Demo data" : "";
     var modeNotice = editable || (dataMode === "api" && authUser && authUser.role === "ADMIN")
       ? pendingWriteNotice()
       : (dataMode === "demo" ? demoNotice("Court catalogue is fictional in Demo Mode. Admin catalogue is read-only.") : "");
     var registryErrors = ["sports", "venues", "courts"].filter(function (key) { return resources[key].status === "error"; }).map(function (key) { return resourceError(key, resources[key].error); }).join("");
     return heading(active, '<button class="btn btn-outline-secondary" data-court-refresh><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>') +
       modeNotice + stats("court-registry", [sportCount, venueCount, courtCount, activeVenueCount], dataMode !== "demo") + registryErrors + tabMarkup +
-      '<section class="panel-card registry-panel" id="registry-panel" role="tabpanel" aria-labelledby="registry-tab-' + registryTab + '"><div class="panel-head"><div><h2>' + (registryTab === "sports" ? "Sports" : registryTab === "venues" ? "Venues" : "Courts") + '</h2><p>' + stateText + '</p></div></div>' + controls + form + '<div class="registry-content">' + content + '</div><div class="registry-empty alert alert-light" data-registry-empty hidden>No records match these filters.</div></section>';
+      '<section class="panel-card registry-panel" id="registry-panel" role="tabpanel" aria-labelledby="registry-tab-' + registryTab + '"><div class="panel-head"><div><h2>' + (registryTab === "sports" ? "Sports" : registryTab === "venues" ? "Venues" : "Courts") + '</h2>' + (stateText ? '<p>' + stateText + '</p>' : '') + '</div></div>' + controls + form + '<div class="registry-content">' + content + '</div><div class="registry-empty alert alert-light" data-registry-empty hidden>No records match these filters.</div></section>';
   }
   function schedulePage(adminView) {
     var resources = currentResources(true);
@@ -1433,7 +1588,7 @@
     var controls = '<div class="qr-camera-controls"><button class="btn btn-success" data-scanner-start ' + (scannerBusy || ownerCheckinPending ? "disabled" : "") + '>Start Camera</button><button class="btn btn-outline-secondary" data-scanner-stop ' + (scannerState === "stopping" || (!scannerInstance && !qrScanner && !scannerStarting) ? "disabled" : "") + '>Stop Camera</button></div>';
     var cameraPanel = '<div class="scanner-frame qr-camera-frame ' + cameraFrameClass + '"><div id="qr-reader" aria-label="Camera preview"></div>' + (scannerState === "idle" ? '<div class="qr-camera-placeholder"><i class="bi bi-qr-code-scan"></i><strong>Camera preview</strong><small>Start the camera when you are ready to scan.</small></div>' : "") + '</div><div class="qr-scanner-footer"><div class="qr-scanner-toolbar"><div class="qr-scanner-status qr-scanner-status--' + scannerState + '" role="status" data-scanner-status>' + statusLabel + '</div>' + controls + '</div><div class="qr-scanner-result" data-scanner-result-host>' + result + '</div></div>';
     var notice = demo ? demoNotice("Demo Only: scan one of the QR tokens from this page or enter it manually below. No real booking token is shown or accepted.") : '<div class="alert alert-info py-2 small" role="status">Scan a booking QR code or enter its code to check in.</div>';
-    var manual = demo ? '<div class="panel-body"><label class="form-label" for="demo-qr-token">Demo QR token input</label><div class="input-group"><input class="form-control" id="demo-qr-token" autocomplete="off" placeholder="Enter a Demo Only QR token"><button class="btn btn-outline-secondary" data-demo-qr-submit>Check token</button></div><small class="text-secondary">Manual input is for Demo Mode testing only.</small></div>' : '<div class="panel-body"><label class="form-label" for="owner-qr-token">QR token</label><div class="input-group"><input class="form-control" id="owner-qr-token" autocomplete="off" placeholder="Scan a booking QR or enter its token"><button class="btn btn-outline-primary" type="button" data-owner-qr-submit>Check in</button></div><small class="text-secondary">Your code stays private and is not shown in the result.</small></div>';
+    var manual = demo ? '<div class="panel-body"><label class="form-label" for="demo-qr-token">Demo QR token input</label><div class="input-group"><input class="form-control" id="demo-qr-token" autocomplete="off" placeholder="Enter a Demo Only QR token"><button class="btn btn-outline-secondary" data-demo-qr-submit>Check token</button></div><small class="text-secondary">Manual input is for Demo Mode testing only.</small></div>' : '<div class="panel-body"><form class="qr-manual-token-form" data-owner-qr-form novalidate><label class="form-label" for="owner-qr-token">Enter QR token</label><div class="input-group"><input class="form-control" id="owner-qr-token" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="128" aria-describedby="owner-qr-token-help" placeholder="Enter QR token"><button class="btn btn-outline-primary" type="submit" data-owner-qr-submit>Check in</button></div><small class="text-secondary" id="owner-qr-token-help">Your code stays private and is not shown in the result.</small></form></div>';
     var examples = demo ? '<div class="panel-body"><p class="small text-secondary mb-2">Demo Only test tokens</p><div class="qr-demo-token-list">' + demoBookings.map(function (booking) { return '<div class="qr-demo-token"><span><small>' + esc(booking.status) + '</small><br><code>' + esc(booking.qr_token) + '</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="' + esc(booking.qr_token) + '">Copy</button></div>'; }).join("") + '<div class="qr-demo-token"><span><small>INVALID</small><br><code>demo-qr-invalid</code></span><button class="btn btn-sm btn-outline-secondary" type="button" data-copy-qr="demo-qr-invalid">Copy</button></div></div></div>' : '<div class="panel-body text-secondary">Use a booking QR code or enter its code to check in.</div>';
     return heading(active) + notice + '<div class="scanner-layout mb-3">' + panel("QR Check-in", cameraPanel, "Camera access starts only after you press Start Camera") + panel("Check-in result", manual + examples, demo ? "Demo Only" : "Booking check-in") + '</div>';
   }
@@ -1498,6 +1653,8 @@
       return Promise.resolve();
     }
     ownerCheckinPending = true;
+    var input = document.getElementById("owner-qr-token");
+    if (input) input.disabled = true;
     var submit = document.querySelector("[data-owner-qr-submit]");
     if (submit) { submit.disabled = true; submit.textContent = "Checking..."; }
     var succeeded = false;
@@ -1515,13 +1672,19 @@
         end_time: result && result.end_time
       });
       ownerBookingsState.status = "idle";
+      ownerDashboardBookingsRequestId += 1;
+      ownerDashboardBookingsPromise = null;
+      ownerDashboardBookingsState = { status: "idle", data: null, error: "" };
     }).catch(function (error) {
       setScanResult(false, "Check-in failed", ownerCheckinErrorMessage(error));
     }).finally(function () {
       ownerCheckinPending = false;
       var input = document.getElementById("owner-qr-token");
       var button = document.querySelector("[data-owner-qr-submit]");
-      if (input) input.disabled = false;
+      if (input) {
+        input.disabled = false;
+        if (succeeded) input.value = "";
+      }
       if (button) { button.disabled = false; button.textContent = "Check in"; }
       updateScannerState();
     }).then(function () {
@@ -1649,24 +1812,202 @@
     }).finally(function () { scannerStopPromise = null; updateScannerState(); });
     return scannerStopPromise;
   }
-  function revenuePage() {
-    if (dataMode !== "demo") {
-      return heading("revenue") + panel("Revenue overview", '<div class="panel-body"><p class="mb-0 text-secondary">Revenue information is not available yet.</p></div>', "Revenue summary");
-    }
-    var values = [42, 61, 52, 72, 66, 84, 76, 95, 73, 87, 67, 100];
-    var months = ["Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct"];
-    var bars = values.map(function (height, i) {
-      return '<div class="bar-column"><div class="bar ' + (i === 11 ? "current" : "") + '" style="height:' + height + '%"></div><span>' + months[i] + "</span></div>";
+  function revenueErrorMessage(error) {
+    if (error && error.status === 401) return "Your session expired. Sign in again.";
+    if (error && error.status === 403) return "Your account does not have permission to view this report.";
+    if (error && error.status === 422) return "Check the date range and report filters.";
+    if (error && error.status === 0) return "Could not connect to the API Gateway. Check that the services are running.";
+    if (error && error.status >= 500) return "Revenue reporting is temporarily unavailable. Try again.";
+    return "Could not load the payment report. Try again.";
+  }
+  function revenuePresetLabel(preset) {
+    return ({ "this-week": "This week", "this-month": "This month", "last-5-days": "Last 5 days", "specific-date": "Specific date" })[preset] || "This week";
+  }
+  function revenuePresetOptions(selected) {
+    return ["this-week", "this-month", "last-5-days", "specific-date"].map(function (preset) {
+      return '<option value="' + preset + '" ' + (selected === preset ? "selected" : "") + '>' + revenuePresetLabel(preset) + '</option>';
     }).join("");
-    var chart = '<div class="panel-body"><p class="eyebrow mb-2">Gross revenue · This year</p><p class="revenue-total">₫12,450,000</p><p class="text-secondary mb-2" style="font-size:13px"><span class="trend-up"><i class="bi bi-arrow-up-right"></i> 12.8%</span> compared with last month</p><div class="bar-chart">' + bars + '</div><div class="chart-legend"><span>Monthly revenue summary</span><span>Sample data · VND</span></div></div>';
-    var items = [["Badminton", "₫6,820,000", "55%"], ["Football", "₫3,240,000", "26%"], ["Pickleball", "₫2,390,000", "19%"]];
-    var breakdown = '<div class="panel-body quick-list">' + items.map(function (item) {
-      return '<div class="quick-item"><span class="quick-icon"><i class="bi bi-trophy"></i></span><span class="flex-grow-1"><strong>' + item[0] + "</strong><small>" + item[2] + " of total revenue</small></span><strong>" + item[1] + "</strong></div>";
-    }).join("") + "</div>";
-    return heading("revenue", actionButton("Download report", "bi-download", "Sample revenue report downloaded.", true)) + demoNotice("Sample figures are shown for preview only.") +
-      stats("revenue", ["₫12.45M", "₫4.68M", "₫7.77M", "₫1.24M"]) + '<div class="content-grid">' +
-      panel("Revenue overview", chart, "Monthly performance") + panel("Revenue by sport", breakdown, "This month") +
-      '</div><p class="text-secondary mt-3" style="font-size:13px"><i class="bi bi-info-circle me-1"></i>Revenue figures are mock data for this interface preview.</p>';
+  }
+  function revenuePresetButtons(selected) {
+    return ["this-week", "this-month", "last-5-days", "specific-date"].map(function (preset) {
+      return '<button class="btn btn-sm ' + (selected === preset ? "btn-success" : "btn-outline-secondary") + '" type="button" data-revenue-preset="' + preset + '" aria-pressed="' + (selected === preset) + '">' + revenuePresetLabel(preset) + '</button>';
+    }).join("");
+  }
+  function reportFiltersForApi(page) {
+    return {
+      date_from: revenueFilters.date_from,
+      date_to: revenueFilters.date_to,
+      timezone: revenueFilters.timezone,
+      group_by: revenueFilters.group_by,
+      page: page || revenueFilters.page,
+      page_size: revenueFilters.page_size,
+      sort: revenueFilters.sort
+    };
+  }
+  function setRevenuePreset(preset, selectedDate) {
+    var specificDate = selectedDate || revenueFilters.specific_date;
+    if (preset === "specific-date" && !specificDate) specificDate = ManagementRevenueUtils.dateInTimeZone(new Date());
+    var range = ManagementRevenueUtils.rangeForPreset(preset, specificDate);
+    if (!range) {
+      toast("Choose a valid date for the report.");
+      return Promise.resolve();
+    }
+    Object.assign(revenueFilters, range, { specific_date: preset === "specific-date" ? specificDate : "", page: 1 });
+    return loadRevenueReport(true);
+  }
+  function setRevenueGroup(groupBy) {
+    revenueFilters.group_by = groupBy === "month" ? "month" : "day";
+    revenueFilters.page = 1;
+    return loadRevenueReport(true);
+  }
+  function validRevenueReport(report) {
+    var summary = report && report.summary;
+    var transactions = report && report.transactions;
+    return !!summary && ["total_revenue", "undated_successful_amount"].every(function (key) { return Number.isFinite(Number(summary[key])); }) &&
+      ["successful_payments", "pending_payments", "failed_payments", "total_transactions", "undated_successful_payments"].every(function (key) { return Number.isInteger(summary[key]) && summary[key] >= 0; }) &&
+      Array.isArray(report.revenue_series) && !!transactions && Array.isArray(transactions.items) &&
+      Number.isInteger(transactions.total) && Number.isInteger(transactions.page) && Number.isInteger(transactions.page_size);
+  }
+  function loadRevenueReport(force) {
+    if (!authUser || (authUser.role !== "OWNER" && authUser.role !== "ADMIN") || !window.ManagementRevenueApi) return Promise.resolve();
+    var filters = reportFiltersForApi();
+    var filtersKey = JSON.stringify(filters);
+    if (revenueState.promise && revenueState.filtersKey === filtersKey) return revenueState.promise;
+    if (!force && revenueState.status === "loaded" && revenueState.filtersKey === filtersKey) return Promise.resolve(revenueState.data);
+    var requestId = ++revenueState.requestId;
+    revenueState.status = "loading";
+    revenueState.error = "";
+    revenueState.filtersKey = filtersKey;
+    revenueState.promise = Promise.resolve().then(function () {
+      return window.ManagementRevenueApi.getReport(filters);
+    }).then(function (report) {
+      if (requestId !== revenueState.requestId) return;
+      if (!validRevenueReport(report)) throw new Error("Unexpected report response");
+      revenueState = { status: "loaded", data: report, error: "", requestId: requestId, promise: null, filtersKey: filtersKey };
+    }).catch(function (error) {
+      if (requestId !== revenueState.requestId) return;
+      revenueState = { status: "error", data: null, error: error, requestId: requestId, promise: null, filtersKey: filtersKey };
+    }).then(function () {
+      var active = currentRoute();
+      if (requestId === revenueState.requestId && (active === "revenue" || active === "admin-revenue" || active === "dashboard" || active === "admin-dashboard")) render();
+    });
+    render();
+    return revenueState.promise;
+  }
+  function revenueChart(points) {
+    if (!points.length) return '<div class="revenue-chart-empty" role="status">No dated successful payments in this period.</div>';
+    var width = Math.max(720, points.length * 54 + 150);
+    var height = 300;
+    var left = 132;
+    var right = 18;
+    var top = 20;
+    var bottom = 58;
+    var plotWidth = width - left - right;
+    var plotHeight = height - top - bottom;
+    var max = Math.max.apply(null, points.map(function (point) { return Number(point.revenue) || 0; })) || 1;
+    var ticks = [0, max / 2, max];
+    var grid = ticks.map(function (tick) {
+      var y = top + plotHeight - (tick / max) * plotHeight;
+      var label = new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", notation: "compact", maximumFractionDigits: 1 }).format(tick);
+      return '<line class="revenue-grid-line" x1="' + left + '" y1="' + y + '" x2="' + (width - right) + '" y2="' + y + '"></line><text class="revenue-axis-label" x="' + (left - 8) + '" y="' + (y + 4) + '" text-anchor="end">' + esc(label) + '</text>';
+    }).join("");
+    var step = plotWidth / points.length;
+    var barWidth = Math.min(32, step * 0.62);
+    var labelsEvery = Math.max(1, Math.ceil(points.length / 14));
+    var bars = points.map(function (point, index) {
+      var amount = Number(point.revenue) || 0;
+      var barHeight = amount ? Math.max(2, (amount / max) * plotHeight) : 0;
+      var x = left + index * step + (step - barWidth) / 2;
+      var y = top + plotHeight - barHeight;
+      var dateLabel = ManagementRevenueUtils.chartDate(point.bucket, revenueFilters.group_by);
+      var title = dateLabel + ": " + formatRevenueAmount(amount) + " · " + point.successful_payments + " successful payments";
+      var label = index % labelsEvery === 0 || index === points.length - 1 ? dateLabel : "";
+      return '<g><title>' + esc(title) + '</title><rect class="revenue-bar" x="' + x + '" y="' + y + '" width="' + barWidth + '" height="' + barHeight + '" rx="3"></rect>' +
+        (label ? '<text class="revenue-axis-label revenue-x-label" x="' + (x + barWidth / 2) + '" y="' + (height - 16) + '" text-anchor="middle">' + esc(label) + '</text>' : "") + '</g>';
+    }).join("");
+    return '<div class="revenue-chart-scroll"><svg class="revenue-chart" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Revenue by ' + (revenueFilters.group_by === "month" ? "month" : "day") + '"><text class="revenue-axis-title" x="0" y="16">Revenue (VND)</text>' + grid + bars + '</svg></div>';
+  }
+  function exportRevenueCsv() {
+    if (revenueExportState.status === "loading") return Promise.resolve();
+    var requestId = ++revenueExportState.requestId;
+    revenueExportState.status = "loading";
+    if (currentRoute() === "revenue" || currentRoute() === "admin-revenue") render();
+    var exportFilters = reportFiltersForApi(1);
+    var exportDateFrom = revenueFilters.date_from;
+    var exportDateTo = revenueFilters.date_to;
+    return window.ManagementRevenueApi.getAllTransactions(exportFilters).then(function (items) {
+      if (!Array.isArray(items)) throw new Error("The report returned an invalid export.");
+      if (!items.length) {
+        toast("There are no payment records to export for this period.");
+        return;
+      }
+      var csv = ManagementRevenueUtils.buildCsv(items);
+      var blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      var link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      var filename = "revenue_" + exportDateFrom;
+      if (exportDateTo !== exportDateFrom) filename += "_to_" + exportDateTo;
+      link.download = filename + ".csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(link.href); }, 0);
+      toast("Revenue CSV exported.");
+    }).catch(function () {
+      toast("Could not export the complete report. Try again.");
+    }).finally(function () {
+      if (requestId !== revenueExportState.requestId) return;
+      revenueExportState.status = "idle";
+      if (currentRoute() === "revenue" || currentRoute() === "admin-revenue") render();
+    });
+  }
+  function revenuePage(active) {
+    var owner = authUser && authUser.role === "OWNER";
+    var title = owner ? "revenue" : "admin-revenue";
+    var toolbar = '<div class="revenue-filter-toolbar"><div class="revenue-preset-group" role="group" aria-label="Revenue date range">' + revenuePresetButtons(revenueFilters.preset) + '</div>' +
+      (revenueFilters.preset === "specific-date" ? '<label class="revenue-specific-date"><span>Choose date</span><input class="form-control" type="date" data-revenue-specific-date value="' + esc(revenueFilters.specific_date) + '"></label>' : "") +
+      '<label><span>Chart grouping</span><select class="form-select" data-revenue-group><option value="day" ' + (revenueFilters.group_by === "day" ? "selected" : "") + '>Daily</option><option value="month" ' + (revenueFilters.group_by === "month" ? "selected" : "") + '>Monthly</option></select></label>' +
+      '<label><span>Payment order</span><select class="form-select" data-revenue-sort><option value="desc" ' + (revenueFilters.sort === "desc" ? "selected" : "") + '>Newest first</option><option value="asc" ' + (revenueFilters.sort === "asc" ? "selected" : "") + '>Oldest first</option></select></label>' +
+      '<button class="btn btn-success" type="button" data-revenue-export ' + (revenueExportState.status === "loading" || revenueState.status === "loading" ? "disabled" : "") + '>' + (revenueExportState.status === "loading" ? "Preparing CSV..." : "Export CSV") + '</button>' +
+      '<span class="revenue-period-label" aria-live="polite">' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + '</span></div>';
+    var body;
+    if (revenueState.status === "idle" || revenueState.status === "loading") {
+      body = '<div class="panel-body" role="status">Loading payment report...</div>';
+    } else if (revenueState.status === "error") {
+      body = '<div class="panel-body"><div class="alert alert-danger mb-0" role="alert">' + esc(revenueErrorMessage(revenueState.error)) + ' <button class="btn btn-sm btn-outline-danger ms-2" type="button" data-revenue-retry>Retry</button></div></div>';
+    } else {
+      var report = revenueState.data;
+      var summary = report.summary;
+      var metrics = [
+        ["Total revenue", formatRevenueAmount(Number(summary.total_revenue))],
+        ["Successful payments", summary.successful_payments],
+        ["Pending payments", summary.pending_payments],
+        ["Failed payments", summary.failed_payments]
+      ];
+      if (!owner) metrics.push(["Total transactions", summary.total_transactions]);
+      var cards = '<div class="revenue-stat-grid">' + metrics.map(function (metric, index) {
+        var icon = ["bi-currency-exchange", "bi-check-circle", "bi-hourglass-split", "bi-x-circle", "bi-receipt"][index];
+        return '<article class="stat-card"><div class="stat-top"><span>' + metric[0] + '</span><span class="stat-icon"><i class="bi ' + icon + '"></i></span></div><div class="stat-value">' + esc(metric[1]) + '</div></article>';
+      }).join("") + '</div>';
+      var datedNote = summary.undated_successful_payments
+        ? '<p class="revenue-undated-note" role="note">' + summary.undated_successful_payments + ' legacy PAID payment(s), amounting to ' + esc(formatRevenueAmount(Number(summary.undated_successful_amount))) + ', have no recorded success date. They are included in all-time revenue, but are omitted from date-filtered totals and the chart.</p>'
+        : "";
+      var rows = report.transactions.items.map(function (item) {
+        var paymentDate = item.payment_date ? String(item.payment_date).replace("T", " ").replace(/Z$/, " UTC") : "Date unavailable";
+        var statusStyle = item.status === "PAID" ? "" : (item.status === "PENDING" ? "warning" : "danger");
+        return '<tr><td>' + esc(item.payment_id) + '</td><td>' + esc(item.booking_id) + '</td><td class="revenue-date-cell">' + esc(paymentDate) + '</td><td>' + esc(formatRevenueAmount(Number(item.amount))) + '</td><td><span class="badge-soft ' + statusStyle + '">' + esc(item.status) + '</span></td><td>' + esc(item.booking_status || "Unavailable") + '</td><td>' + esc(item.provider || "Unavailable") + '</td></tr>';
+      }).join("");
+      var page = report.transactions.page;
+      var pageCount = Math.max(1, Math.ceil(report.transactions.total / report.transactions.page_size));
+      var history = report.transactions.total
+        ? '<div class="table-wrap"><table class="table revenue-table"><thead><tr><th>Payment</th><th>Booking</th><th>Payment date</th><th>Amount</th><th>Payment status</th><th>Booking status</th><th>Method</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+          '<div class="table-foot"><span>Page ' + page + ' of ' + pageCount + ' · ' + report.transactions.total + ' transactions</span><div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-revenue-page="prev" ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><button type="button" class="btn btn-sm btn-outline-secondary" data-revenue-page="next" ' + (page >= pageCount ? 'disabled' : '') + '>Next</button></div></div>'
+        : '<div class="panel-body text-secondary" role="status">No transactions are available for this period.</div>';
+      body = cards + datedNote + '<div class="panel-card revenue-chart-card"><div class="panel-head"><div><h2>Revenue trend</h2><p>' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + ' · ' + (revenueFilters.group_by === "month" ? "Monthly" : "Daily") + '</p></div></div><div class="panel-body">' + revenueChart(report.revenue_series) + '</div></div>' +
+        '<div class="panel-card revenue-history-card"><div class="panel-head"><div><h2>Payment transactions</h2><p>PAID amounts count as revenue; pending and failed attempts do not.</p></div></div>' + history + '</div>';
+    }
+    var refresh = '<button class="btn btn-outline-secondary" type="button" data-revenue-refresh ' + (revenueState.status === "loading" ? "disabled" : "") + '><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>';
+    return heading(title, refresh) + '<section class="panel-card revenue-page-card"><div class="panel-head"><div><h2>' + (owner ? "Owner revenue" : "System revenue") + '</h2></div></div>' + toolbar + body + '</section>';
   }
   function peoplePage() {
     if (dataMode !== "demo") {
@@ -1680,7 +2021,7 @@
         }).join("");
         usersContent = '<div class="table-wrap"><table class="table"><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead><tbody>' + userRows + '</tbody></table></div>' + adminPagination("users", adminUsersState.data);
       }
-      return heading("people") + panel("Users & Owners", apiToolbar + usersContent, "Account directory · API data");
+      return heading("people") + panel("Users & Owners", apiToolbar + usersContent);
     }
     var rows = data.people.map(function (row) {
       var accountId = row[0] || "";
@@ -1714,7 +2055,7 @@
     if (active === "admin-bookings") return bookingPage(active, true);
     if (active === "qr-checkin") return checkinPage(active, false);
     if (active === "checkins") return checkinPage(active, true);
-    if (active === "revenue") return revenuePage();
+    if (active === "revenue" || active === "admin-revenue") return revenuePage(active);
     if (active === "people") return peoplePage();
     if (active === "owner-profile") return profilePage(active, false);
     if (active === "admin-profile") return profilePage(active, true);
@@ -1930,6 +2271,39 @@
     showManagedModal(modal, host);
   }
   function wireActions() {
+    document.querySelectorAll("[data-revenue-preset]").forEach(function (button) {
+      button.addEventListener("click", function () { setRevenuePreset(button.dataset.revenuePreset); });
+    });
+    var dashboardRevenuePreset = document.querySelector("[data-dashboard-revenue-preset]");
+    if (dashboardRevenuePreset) dashboardRevenuePreset.addEventListener("change", function () { setRevenuePreset(dashboardRevenuePreset.value); });
+    document.querySelectorAll("[data-revenue-specific-date]").forEach(function (input) {
+      input.addEventListener("change", function () {
+        if (input.value) setRevenuePreset("specific-date", input.value);
+      });
+    });
+    document.querySelectorAll("[data-revenue-group]").forEach(function (select) {
+      select.addEventListener("change", function () { setRevenueGroup(select.value); });
+    });
+    var revenueSort = document.querySelector("[data-revenue-sort]");
+    if (revenueSort) revenueSort.addEventListener("change", function () {
+      revenueFilters.sort = revenueSort.value === "asc" ? "asc" : "desc";
+      revenueFilters.page = 1;
+      loadRevenueReport(true);
+    });
+    var revenueExport = document.querySelector("[data-revenue-export]");
+    if (revenueExport) revenueExport.addEventListener("click", exportRevenueCsv);
+    var revenueRetry = document.querySelector("[data-revenue-retry]");
+    if (revenueRetry) revenueRetry.addEventListener("click", function () { loadRevenueReport(true); });
+    var revenueRefresh = document.querySelector("[data-revenue-refresh]");
+    if (revenueRefresh) revenueRefresh.addEventListener("click", function () { loadRevenueReport(true); });
+    document.querySelectorAll("[data-revenue-page]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        if (!revenueState.data) return;
+        var totalPages = Math.max(1, Math.ceil(revenueState.data.transactions.total / revenueState.data.transactions.page_size));
+        revenueFilters.page = Math.max(1, Math.min(totalPages, revenueFilters.page + (button.dataset.revenuePage === "next" ? 1 : -1)));
+        loadRevenueReport(true);
+      });
+    });
     document.querySelectorAll("[data-theme-choice]").forEach(function (button) {
       button.addEventListener("click", function () {
         var selectedTheme = window.ManagementTheme.set(button.dataset.themeChoice);
@@ -1992,9 +2366,20 @@
           render();
           toast("Demo catalogue refreshed from current in-memory data. No changes were reset.");
         } else {
-          if (currentRoute() === "admin-dashboard") loadAdminCatalogueSummary(true);
-          else loadCourtResources(true);
+          if (currentRoute() === "admin-dashboard") loadAdminDashboardSummaries(true);
+          else {
+            loadCourtResources(true);
+            if (currentRoute() === "dashboard" && authUser && authUser.role === "OWNER") loadOwnerDashboardBookingSummary(true);
+          }
         }
+      });
+    });
+    document.querySelectorAll("[data-owner-booking-summary-retry]").forEach(function (el) {
+      el.addEventListener("click", function () { retryOwnerDashboardBookingSummary(); });
+    });
+    document.querySelectorAll("[data-admin-summary-retry]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        retryAdminDashboardSummary(el.dataset.adminSummaryRetry);
       });
     });
     document.querySelectorAll("[data-resource-detail]").forEach(function (el) {
@@ -2175,8 +2560,12 @@
     if (scannerStop) scannerStop.addEventListener("click", function () { stopQrScanner(); });
     var demoQrSubmit = document.querySelector("[data-demo-qr-submit]");
     if (demoQrSubmit) demoQrSubmit.addEventListener("click", function () { checkDemoQr((document.getElementById("demo-qr-token").value || "").trim()); });
-    var ownerQrSubmit = document.querySelector("[data-owner-qr-submit]");
-    if (ownerQrSubmit) ownerQrSubmit.addEventListener("click", function () { submitOwnerCheckin((document.getElementById("owner-qr-token").value || "").trim()); });
+    var ownerQrForm = document.querySelector("[data-owner-qr-form]");
+    if (ownerQrForm) ownerQrForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var input = document.getElementById("owner-qr-token");
+      submitOwnerCheckin(input ? input.value : "");
+    });
     document.querySelectorAll("[data-copy-qr]").forEach(function (el) {
       el.addEventListener("click", function () {
         var token = el.dataset.copyQr;
@@ -2267,11 +2656,14 @@
     if (dataMode === "api" && courtScreens.indexOf(active) >= 0 && Object.keys(courtResources).every(function (key) { return courtResources[key].status === "idle"; })) {
       loadCourtResources(false);
     }
-    if (active === "admin-dashboard" && dataMode === "api" && adminCatalogueSummary.status === "idle") loadAdminCatalogueSummary(false);
+    if (active === "admin-dashboard" && dataMode === "api") loadAdminDashboardSummaries(false);
+    if (active === "dashboard" && dataMode === "api" && authUser && authUser.role === "OWNER") loadOwnerDashboardBookingSummary(false);
+    if ((active === "dashboard" && authUser && authUser.role === "OWNER") || (active === "admin-dashboard" && authUser && authUser.role === "ADMIN")) loadRevenueReport(false);
     if (active === "owner-bookings" && dataMode === "api" && ownerBookingsState.status === "idle") loadOwnerBookings();
     if (active === "people" && dataMode === "api" && adminUsersState.status === "idle") loadAdminPage("users", adminUsersFilters);
     if (active === "admin-bookings" && dataMode === "api" && adminBookingsState.status === "idle") loadAdminPage("bookings", adminBookingsFilters);
     if (active === "checkins" && dataMode === "api" && adminCheckinsState.status === "idle") loadAdminPage("checkins", adminCheckinsFilters);
+    if ((active === "revenue" || active === "admin-revenue") && dataMode === "api" && revenueState.status === "idle") loadRevenueReport(false);
   }
   function restoreAuthSession() {
     if (authRestorePromise) return authRestorePromise;

@@ -23,6 +23,8 @@ from app.schemas import (
     OwnerBookingCompletionResponse,
     OwnerBookingResponse,
     PaymentContext,
+    PaymentReportBookingLookupRequest,
+    PaymentReportBookingLookupResponse,
     AdminBookingResponse,
     AdminBookingListResponse,
     BookingSummaryResponse,
@@ -569,6 +571,38 @@ def payment_context(
         total_amount=booking.total_amount,
         expires_at=booking.expires_at,
         qr_token=booking.qr_token if booking.status == "CONFIRMED" else None,
+    )
+
+
+@router.post(
+    "/internal/bookings/payment-report-context",
+    response_model=PaymentReportBookingLookupResponse,
+    tags=["internal"],
+)
+def payment_report_context(
+    payload: PaymentReportBookingLookupRequest,
+    x_internal_token: Optional[str] = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    require_internal_token(x_internal_token)
+    if any(booking_id <= 0 for booking_id in payload.booking_ids):
+        raise HTTPException(status_code=422, detail="booking_ids must be positive")
+    if len(set(payload.booking_ids)) != len(payload.booking_ids):
+        raise HTTPException(status_code=422, detail="booking_ids must be unique")
+    bookings = list(
+        db.scalars(select(Booking).where(Booking.id.in_(payload.booking_ids)))
+    )
+    return PaymentReportBookingLookupResponse(
+        bookings=[
+            {
+                "booking_id": booking.id,
+                "owner_id": booking.owner_id,
+                "venue_id": booking.venue_id,
+                "court_id": booking.court_id,
+                "status": booking.status,
+            }
+            for booking in bookings
+        ]
     )
 
 

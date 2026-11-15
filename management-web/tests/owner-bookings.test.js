@@ -63,6 +63,44 @@ test("Owner booking list omits empty filters and does not assume pagination", as
   assert.equal(requestedUrl, "http://gateway.test/api/v1/owner/bookings");
 });
 
+test("Owner dashboard counts booking states from the complete Owner-scoped API list", () => {
+  const start = appSource.indexOf("  function ownerDashboardBookingCounts(bookings) {");
+  const end = appSource.indexOf("  function loadOwnerDashboardBookingSummary(", start);
+  const countFunction = appSource.slice(start, end).trim();
+  const countBookings = vm.runInNewContext("(" + countFunction + ")");
+  const counts = countBookings([
+    { status: "PENDING" }, { status: "CONFIRMED" }, { status: "CONFIRMED" },
+    { status: "CHECKED_IN" }, { status: "COMPLETED" }, { status: "CANCELLED" },
+    { status: "FAILED" }, { status: "EXPIRED" }
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(counts)), {
+    total: 8, pending: 1, confirmed: 2, checked_in: 1, completed: 1
+  });
+  assert.throws(() => countBookings([{ status: "UNKNOWN" }]), /unsupported status/);
+  const loader = appSource.slice(start, appSource.indexOf("  function retryOwnerDashboardBookingSummary(", start));
+  assert.match(loader, /authUser\.role !== "OWNER"/);
+  assert.match(loader, /OwnerBookingsApi\.list\(\{\}\)/);
+  assert.match(loader, /ownerDashboardBookingsState = \{ status: "error"/);
+  assert.match(appSource, /function retryOwnerDashboardBookingSummary\(\)/);
+  assert.match(appSource, /data-owner-booking-summary-retry/);
+  assert.match(appSource, /active === "dashboard" && dataMode === "api" && authUser && authUser\.role === "OWNER"/);
+});
+
+test("Owner booking Venue and Court cells stay on one line with title fallback and horizontal scrolling", () => {
+  assert.match(appSource, /class="booking-location-cell" title="' \+ esc\(booking\.venue\)/);
+  assert.match(appSource, /class="booking-location-cell" title="' \+ esc\(booking\.court\)/);
+  const css = fs.readFileSync(path.join(__dirname, "../assets/css/app.css"), "utf8");
+  assert.match(css, /\.booking-location-cell \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis/);
+  assert.match(css, /booking-list-table td:nth-child\(3\).*white-space: nowrap/s);
+  assert.match(css, /\.table-wrap \{ overflow-x: auto; \}/);
+  assert.match(css, /\.booking-list-table \{ width: 100%; min-width: 900px; \}/);
+  assert.match(appSource, /class="booking-time-cell" title="' \+ esc\(timeRange\)/);
+  assert.match(css, /\.booking-time-cell \{[^}]*white-space: nowrap/);
+  assert.match(appSource, /class="table booking-list-table admin-booking-list-table"/);
+  assert.match(appSource, /<th>Date<\/th><th>Time<\/th><th>Status<\/th>/);
+  assert.match(css, /\.admin-booking-list-table \{ min-width: 1120px; \}/);
+});
+
 test("Owner booking detail uses the approved detail endpoint", async () => {
   let requestedUrl;
   const { bookings } = createClient(async (url) => {

@@ -88,6 +88,24 @@ class PaymentContext(BaseModel):
     qr_token: Optional[str] = None
 
 
+class PaymentReportBookingLookupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    booking_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class PaymentReportBookingLookupItem(BaseModel):
+    booking_id: int
+    owner_id: Optional[int]
+    venue_id: Optional[int]
+    court_id: Optional[int]
+    status: str
+
+
+class PaymentReportBookingLookupResponse(BaseModel):
+    bookings: list[PaymentReportBookingLookupItem]
+
+
 class BookingCheckIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -108,6 +108,8 @@ def test_successful_mock_payment_confirms_booking_and_is_idempotent(
     assert first.json()["qr_token"] == "opaque-qr"
     assert second.json()["id"] == first.json()["id"]
     assert second.json()["qr_token"] == first.json()["qr_token"]
+    assert first.json()["paid_at"] is not None
+    assert second.json()["paid_at"] == first.json()["paid_at"]
     assert confirmations == [5]
 
 
@@ -312,3 +314,246 @@ def test_payment_history_is_limited_to_current_customer(
 
     assert len(own.json()) == 1
     assert other.json() == []
+
+
+def test_owner_cannot_use_customer_payment_process_or_history(client: TestClient) -> None:
+    headers = {"Authorization": f"Bearer {_token(role='OWNER')}"}
+    history = client.get("/api/v1/payments", headers=headers)
+    process = client.post("/api/v1/payments/process", json={"booking_id": 5}, headers=headers)
+    assert history.status_code == 403
+    assert process.status_code == 403
+
+
+def _seed_report_payments(client: TestClient) -> None:
+    with client.app.state.test_session() as db:
+        db.add_all([
+            Payment(
+                booking_id=101, successful_booking_id=101, user_id=1,
+                provider="MOCK", status="PAID", amount=Decimal("100.00"),
+                idempotency_key="report-paid-a", transaction_code="TX-101",
+                created_at=datetime(2026, 3, 10, 8, tzinfo=timezone.utc),
+                paid_at=datetime(2026, 3, 10, 8, 5, tzinfo=timezone.utc),
+            ),
+            Payment(
+                booking_id=201, successful_booking_id=201, user_id=2,
+                provider="MOCK", status="PAID", amount=Decimal("900.00"),
+                idempotency_key="report-paid-b", transaction_code="TX-201",
+                created_at=datetime(2026, 3, 10, 9, tzinfo=timezone.utc),
+                paid_at=datetime(2026, 3, 10, 9, 5, tzinfo=timezone.utc),
+            ),
+            Payment(
+                booking_id=102, user_id=1, provider="MOCK", status="PENDING",
+                amount=Decimal("70.00"), idempotency_key="report-pending",
+                created_at=datetime(2026, 3, 10, 10, tzinfo=timezone.utc),
+            ),
+            Payment(
+                booking_id=103, user_id=1, provider="MOCK", status="FAILED",
+                amount=Decimal("80.00"), idempotency_key="report-failed",
+                created_at=datetime(2026, 3, 10, 11, tzinfo=timezone.utc),
+            ),
+            Payment(
+                booking_id=104, successful_booking_id=104, user_id=1,
+                provider="MOCK", status="PAID", amount=Decimal("25.00"),
+                idempotency_key="report-legacy-paid", transaction_code="TX-104",
+                created_at=datetime(2025, 1, 1, tzinfo=timezone.utc), paid_at=None,
+            ),
+        ])
+        db.commit()
+
+
+def _report_context(booking_ids: list[int]) -> dict:
+    ownership = {
+        101: {"owner_id": 10, "venue_id": 5, "court_id": 50, "status": "CANCELLED"},
+        102: {"owner_id": 10, "venue_id": 5, "court_id": 50, "status": "PENDING"},
+        103: {"owner_id": 10, "venue_id": 5, "court_id": 50, "status": "FAILED"},
+        104: {"owner_id": 10, "venue_id": 5, "court_id": 50, "status": "CANCELLED"},
+        201: {"owner_id": 20, "venue_id": 6, "court_id": 60, "status": "CONFIRMED"},
+    }
+    return {"bookings": [
+        {"booking_id": booking_id, **ownership[booking_id]}
+        for booking_id in booking_ids if booking_id in ownership
+    ]}
+
+
+def test_owner_report_is_scoped_and_counts_paid_cancelled_and_legacy_rows(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_report_payments(client)
+    batches: list[list[int]] = []
+
+    def lookup(booking_ids: list[int]) -> dict:
+        batches.append(booking_ids)
+        return _report_context(booking_ids)
+
+    monkeypatch.setattr("app.routes.integrations.get_payment_report_context", lookup)
+    response = client.get(
+        "/api/v1/payments/report?owner_id=20&group_by=month&page_size=10",
+        headers={"Authorization": f"Bearer {_token(user_id=10, role='OWNER')}"},
+    )
+
+    assert response.status_code == 200, response.text
+    report = response.json()
+    assert report["summary"] == {
+        "total_revenue": "125.00",
+        "successful_payments": 2,
+        "pending_payments": 1,
+        "failed_payments": 1,
+        "total_transactions": 4,
+        "undated_successful_payments": 1,
+        "undated_successful_amount": "25.00",
+    }
+    assert report["revenue_series"] == [{
+        "bucket": "2026-03", "revenue": "100.00", "successful_payments": 1,
+    }]
+    assert report["transactions"]["total"] == 4
+    assert len(report["transactions"]["items"]) == 4
+    assert all(item["booking_id"] != 201 for item in report["transactions"]["items"])
+    cancelled_paid = next(item for item in report["transactions"]["items"] if item["booking_id"] == 101)
+    assert cancelled_paid["booking_status"] == "CANCELLED"
+    assert cancelled_paid["status"] == "PAID"
+    assert len(batches) == 1
+
+
+def test_date_filter_uses_paid_at_for_revenue_and_never_created_at_for_legacy_paid(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_report_payments(client)
+    monkeypatch.setattr("app.routes.integrations.get_payment_report_context", _report_context)
+    response = client.get(
+        "/api/v1/payments/report?date_from=2026-03-10&date_to=2026-03-10&group_by=day",
+        headers={"Authorization": f"Bearer {_token(user_id=10, role='OWNER')}"},
+    )
+
+    assert response.status_code == 200, response.text
+    report = response.json()
+    assert report["summary"]["total_revenue"] == "100.00"
+    assert report["summary"]["successful_payments"] == 1
+    assert report["summary"]["pending_payments"] == 1
+    assert report["summary"]["failed_payments"] == 1
+    assert report["summary"]["undated_successful_payments"] == 1
+    assert report["revenue_series"] == [{
+        "bucket": "2026-03-10", "revenue": "100.00", "successful_payments": 1,
+    }]
+    assert all(item["booking_id"] != 104 for item in report["transactions"]["items"])
+
+
+def test_report_timezone_filters_whole_vietnam_calendar_day_and_returns_provider(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_report_payments(client)
+    with client.app.state.test_session() as db:
+        db.add_all([
+            Payment(
+                booking_id=106, successful_booking_id=106, user_id=1,
+                provider="BANK_TRANSFER", status="PAID", amount=Decimal("10.00"),
+                idempotency_key="report-vn-start", transaction_code="TX-106",
+                created_at=datetime(2026, 3, 9, 16, 50, tzinfo=timezone.utc),
+                paid_at=datetime(2026, 3, 9, 17, 0, tzinfo=timezone.utc),
+            ),
+            Payment(
+                booking_id=107, successful_booking_id=107, user_id=1,
+                provider="WALLET", status="PAID", amount=Decimal("20.00"),
+                idempotency_key="report-vn-end", transaction_code="TX-107",
+                created_at=datetime(2026, 3, 10, 16, 40, tzinfo=timezone.utc),
+                paid_at=datetime(2026, 3, 10, 16, 59, 59, tzinfo=timezone.utc),
+            ),
+            Payment(
+                booking_id=108, successful_booking_id=108, user_id=1,
+                provider="WALLET", status="PAID", amount=Decimal("30.00"),
+                idempotency_key="report-vn-next-day", transaction_code="TX-108",
+                created_at=datetime(2026, 3, 10, 16, 50, tzinfo=timezone.utc),
+                paid_at=datetime(2026, 3, 10, 17, 0, tzinfo=timezone.utc),
+            ),
+        ])
+        db.commit()
+    ownership = _report_context
+    def context_with_new_bookings(booking_ids: list[int]) -> dict:
+        response = ownership(booking_ids)
+        response["bookings"].extend(
+            {"booking_id": booking_id, "owner_id": 10, "venue_id": 5, "court_id": 50, "status": "CONFIRMED"}
+            for booking_id in booking_ids if booking_id in {106, 107, 108}
+        )
+        return response
+    monkeypatch.setattr("app.routes.integrations.get_payment_report_context", context_with_new_bookings)
+
+    response = client.get(
+        "/api/v1/payments/report?date_from=2026-03-10&date_to=2026-03-10&timezone=Asia%2FHo_Chi_Minh",
+        headers={"Authorization": f"Bearer {_token(user_id=10, role='OWNER')}"},
+    )
+
+    assert response.status_code == 200, response.text
+    report = response.json()
+    assert report["timezone"] == "Asia/Ho_Chi_Minh"
+    assert report["summary"]["total_revenue"] == "130.00"
+    assert report["revenue_series"] == [{
+        "bucket": "2026-03-10", "revenue": "130.00", "successful_payments": 3,
+    }]
+    providers = {item["booking_id"]: item["provider"] for item in report["transactions"]["items"]}
+    assert providers[106] == "BANK_TRANSFER"
+    assert providers[107] == "WALLET"
+    assert 108 not in providers
+
+
+def test_report_rejects_unknown_timezone_and_defaults_to_utc(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_report_payments(client)
+    monkeypatch.setattr("app.routes.integrations.get_payment_report_context", _report_context)
+    headers = {"Authorization": f"Bearer {_token(role='ADMIN')}"}
+
+    invalid = client.get("/api/v1/payments/report?timezone=Not%2FAZone", headers=headers)
+    default = client.get("/api/v1/payments/report", headers=headers)
+
+    assert invalid.status_code == 422
+    assert default.status_code == 200
+    assert default.json()["timezone"] == "UTC"
+
+
+def test_admin_report_sees_system_data_and_user_role_is_forbidden(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_report_payments(client)
+    lookup_calls: list[list[int]] = []
+    monkeypatch.setattr(
+        "app.routes.integrations.get_payment_report_context",
+        lambda ids: lookup_calls.append(ids) or _report_context(ids),
+    )
+    user = client.get(
+        "/api/v1/payments/report",
+        headers={"Authorization": f"Bearer {_token(role='USER')}"},
+    )
+    admin = client.get(
+        "/api/v1/payments/report?page=1&page_size=10&sort=asc",
+        headers={"Authorization": f"Bearer {_token(role='ADMIN')}"},
+    )
+
+    assert user.status_code == 403
+    assert admin.status_code == 200
+    assert admin.json()["summary"]["total_revenue"] == "1025.00"
+    assert admin.json()["summary"]["successful_payments"] == 3
+    assert admin.json()["summary"]["pending_payments"] == 1
+    assert admin.json()["summary"]["failed_payments"] == 1
+    assert admin.json()["summary"]["total_transactions"] == 5
+    assert len(admin.json()["transactions"]["items"]) == 5
+    assert lookup_calls == []
+
+
+def test_report_rejects_invalid_date_order_and_supports_pagination(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_report_payments(client)
+    monkeypatch.setattr("app.routes.integrations.get_payment_report_context", _report_context)
+    headers = {"Authorization": f"Bearer {_token(role='ADMIN')}"}
+    invalid = client.get(
+        "/api/v1/payments/report?date_from=2026-03-11&date_to=2026-03-10",
+        headers=headers,
+    )
+    page = client.get(
+        "/api/v1/payments/report?page=2&page_size=2&sort=asc",
+        headers=headers,
+    )
+    assert invalid.status_code == 422
+    assert page.status_code == 200
+    assert page.json()["transactions"]["total"] == 5
+    assert page.json()["transactions"]["page"] == 2
+    assert len(page.json()["transactions"]["items"]) == 2

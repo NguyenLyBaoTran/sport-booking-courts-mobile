@@ -15,7 +15,7 @@ test("Admin Time Slots is a protected route with a dedicated navigation entry", 
 });
 
 test("Admin Time Slots uses live Court Service collections and CRUD endpoints", () => {
-  assert.match(appSource, /slots: "\/api\/v1\/time-slots"/);
+  assert.match(appSource, /slots: "\/api\/v1\/management\/catalogue\/time-slots"/);
   assert.match(appSource, /window\.CourtApi\.post\(path, parsed\.values\)/);
   assert.match(appSource, /window\.CourtApi\.put\(path, parsed\.values\)/);
   assert.match(appSource, /window\.CourtApi\.delete\("\/api\/v1\/" \+ resourceForApi\(resource\)/);
@@ -27,10 +27,19 @@ test("Admin Time Slots uses live Court Service collections and CRUD endpoints", 
   assert.match(contract, /`DELETE \/api\/v1\/time-slots\/{slot_id}`/);
 });
 
+test("Management catalogue reads use principal-scoped routes without sending owner identity", () => {
+  assert.match(appSource, /fetchResource\("venues", "\/api\/v1\/management\/catalogue\/venues"\)/);
+  assert.match(appSource, /\/api\/v1\/management\/catalogue\/courts\?venue_id=/);
+  assert.match(appSource, /\/api\/v1\/management\/catalogue\/time-slots\?court_id=/);
+  assert.doesNotMatch(appSource, /\/api\/v1\/venues\?owner_id=/);
+  assert.doesNotMatch(appSource, /owner_id=" \+ ownerId/);
+});
+
 test("Admin can write slots while OWNER ownership rules and reservation conflicts stay server-enforced", () => {
   assert.match(appSource, /authUser\.role === "ADMIN" && \["sports", "venues", "courts", "slots"\]/);
   assert.match(appSource, /authUser\.role === "OWNER" && resource !== "sports"/);
-  assert.match(appSource, /owner_id=" \+ ownerId/);
+  assert.match(appSource, /\/api\/v1\/management\/catalogue\/venues/);
+  assert.doesNotMatch(appSource, /owner_id=" \+ ownerId/);
   assert.match(contract, /OWNER of related Court's Venue or ADMIN/);
   assert.match(contract, /Slots with an active hold or booking cannot be edited or deactivated/);
   assert.match(appSource, /error\.status === 409/);

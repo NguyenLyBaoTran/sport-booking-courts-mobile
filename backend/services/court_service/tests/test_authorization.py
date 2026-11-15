@@ -172,6 +172,118 @@ class CourtAuthorizationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()[0]["name"], "Tennis")
 
+        with self.Session() as db:
+            slot = TimeSlot(
+                court_id=self.court_a_id,
+                slot_date=date(2026, 11, 5),
+                start_time=time(8),
+                end_time=time(9),
+            )
+            db.add(slot)
+            db.commit()
+
+        self.assertEqual(self.client.get("/api/v1/venues").status_code, 200)
+        self.assertEqual(self.client.get("/api/v1/courts?venue_id=" + str(self.venue_a_id)).status_code, 200)
+        public_slots = self.client.get(
+            f"/api/v1/time-slots?court_id={self.court_a_id}&slot_date=2026-11-05"
+        )
+        self.assertEqual(public_slots.status_code, 200)
+        self.assertEqual(len(public_slots.json()), 1)
+
+    def test_management_catalogue_is_owner_scoped_and_ignores_spoofed_owner_filter(self):
+        base = "/api/v1/management/catalogue"
+        self.assertEqual(self.client.get(base + "/venues").status_code, 401)
+        self.assertEqual(
+            self.client.get(base + "/venues", headers=self._headers(role="USER")).status_code,
+            403,
+        )
+
+        owner_a = self._headers(role="OWNER", user_id=10)
+        owner_b = self._headers(role="OWNER", user_id=20)
+        with self.Session() as db:
+            owner_a_slot = TimeSlot(
+                court_id=self.court_a_id,
+                slot_date=date(2026, 11, 5),
+                start_time=time(8),
+                end_time=time(9),
+            )
+            db.add(owner_a_slot)
+            db.commit()
+            owner_a_slot_id = owner_a_slot.id
+
+        owner_a_venues = self.client.get(base + "/venues?owner_id=20", headers=owner_a)
+        owner_b_venues = self.client.get(base + "/venues?owner_id=10", headers=owner_b)
+        self.assertEqual([item["id"] for item in owner_a_venues.json()], [self.venue_a_id])
+        self.assertEqual([item["id"] for item in owner_b_venues.json()], [self.venue_b_id])
+
+        owner_a_courts = self.client.get(base + "/courts", headers=owner_a)
+        owner_b_courts = self.client.get(base + "/courts", headers=owner_b)
+        self.assertEqual(
+            {item["id"] for item in owner_a_courts.json()},
+            {self.court_a_id, self.court_a2_id},
+        )
+        self.assertEqual([item["id"] for item in owner_b_courts.json()], [self.court_b_id])
+        self.assertEqual(
+            self.client.get(base + f"/courts?venue_id={self.venue_b_id}", headers=owner_a).json(),
+            [],
+        )
+        self.assertEqual(
+            [item["id"] for item in self.client.get(base + "/time-slots", headers=owner_a).json()],
+            [owner_a_slot_id],
+        )
+        self.assertEqual(
+            [item["id"] for item in self.client.get(base + "/time-slots", headers=owner_b).json()],
+            [self.slot_b_id],
+        )
+        # An Owner token cannot turn the public Customer endpoint into a full schedule read.
+        self.assertEqual(
+            self.client.get(
+                f"/api/v1/time-slots?court_id={self.court_b_id}", headers=owner_a
+            ).json(),
+            [],
+        )
+
+        for path in (
+            f"/venues/{self.venue_b_id}",
+            f"/courts/{self.court_b_id}",
+            f"/time-slots/{self.slot_b_id}",
+        ):
+            with self.subTest(owner="A", path=path):
+                self.assertEqual(self.client.get(base + path, headers=owner_a).status_code, 404)
+
+        self.assertEqual(
+            self.client.get(base + f"/time-slots/{owner_a_slot_id}", headers=owner_b).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(base + f"/venues/{self.venue_a_id}", headers=owner_b).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(base + f"/courts/{self.court_a_id}", headers=owner_b).status_code,
+            404,
+        )
+
+    def test_admin_management_catalogue_can_read_across_owner_boundaries(self):
+        base = "/api/v1/management/catalogue"
+        admin = self._headers(role="ADMIN", user_id=3)
+        self.assertEqual(
+            {item["id"] for item in self.client.get(base + "/venues", headers=admin).json()},
+            {self.venue_a_id, self.venue_b_id},
+        )
+        self.assertEqual(
+            {item["id"] for item in self.client.get(base + "/courts", headers=admin).json()},
+            {self.court_a_id, self.court_a2_id, self.court_b_id},
+        )
+        self.assertEqual(
+            self.client.get(base + f"/venues/{self.venue_b_id}", headers=admin).status_code,
+            200,
+        )
+        self.assertEqual(
+            [item["id"] for item in self.client.get("/api/v1/time-slots", headers=admin).json()],
+            [self.slot_b_id],
+        )
+
     def test_missing_or_invalid_tokens_are_401(self):
         endpoint = f"/api/v1/venues/{self.venue_a_id}"
         self.assertEqual(self.client.delete(endpoint).status_code, 401)
@@ -716,10 +828,10 @@ class CourtAuthorizationTests(unittest.TestCase):
         user = self.client.get(f"/api/v1/time-slots?slot_date={future.isoformat()}", headers=self._headers(role="USER"))
         self.assertEqual(user.status_code, 200, user.text)
         self.assertEqual({row["id"] for row in user.json()}, {slot.id for slot in slots[:3]})
-        # Owners retain all schedule records for management, including reservations.
+        # The public route stays customer-scoped even when called with an Owner token.
         owner = self.client.get(f"/api/v1/time-slots?slot_date={future.isoformat()}", headers=self._headers())
         self.assertEqual(owner.status_code, 200, owner.text)
-        self.assertEqual({row["id"] for row in owner.json()}, public_ids - {slots[3].id})
+        self.assertEqual({row["id"] for row in owner.json()}, {slot.id for slot in slots[:3]})
         admin = self.client.get(f"/api/v1/time-slots?slot_date={future.isoformat()}", headers=self._headers(role="ADMIN", user_id=3))
         self.assertEqual(admin.status_code, 200, admin.text)
         self.assertEqual({row["id"] for row in admin.json()}, public_ids - {slots[3].id})

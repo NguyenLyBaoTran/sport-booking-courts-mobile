@@ -26,6 +26,17 @@ test("Admin user list serializes supported filters and pagination", async () => 
   assert.equal(calls[0].url, "/api/v1/admin/users?page=2&page_size=25&q=Owner&role=OWNER&is_active=false");
 });
 
+test("Admin dashboard summaries use the three existing summary endpoints", async () => {
+  const { api, calls } = loadApi();
+  for (const kind of ["catalogue", "users", "bookings"]) await api.getDashboardSummary(kind);
+  assert.deepEqual(calls.map((call) => call.url), [
+    "/api/v1/admin/catalogue/summary",
+    "/api/v1/admin/users/summary",
+    "/api/v1/admin/bookings/summary"
+  ]);
+  await assert.rejects(api.getDashboardSummary("payments"), /Unknown Admin dashboard summary/);
+});
+
 test("Admin booking and check-in lists use distinct read-only endpoints", async () => {
   const { api, calls } = loadApi();
   await api.listBookings({ page: 1, page_size: 25, status: "CHECKED_IN", date_from: "2026-10-01" });

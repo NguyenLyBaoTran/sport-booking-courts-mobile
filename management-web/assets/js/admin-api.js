@@ -21,7 +21,18 @@
     });
   }
 
+  var dashboardSummaryPaths = {
+    catalogue: "/api/v1/admin/catalogue/summary",
+    users: "/api/v1/admin/users/summary",
+    bookings: "/api/v1/admin/bookings/summary"
+  };
+
   window.AdminManagementApi = {
+    getDashboardSummary: function (kind) {
+      var path = dashboardSummaryPaths[kind];
+      if (!path) return Promise.reject(new Error("Unknown Admin dashboard summary."));
+      return window.CourtApi.get(path);
+    },
     listUsers: function (filters) { return list("/api/v1/admin/users", filters); },
     getUser: function (id) { return window.CourtApi.get("/api/v1/admin/users/" + encodeURIComponent(id)); },
     setUserActive: function (id, isActive) {

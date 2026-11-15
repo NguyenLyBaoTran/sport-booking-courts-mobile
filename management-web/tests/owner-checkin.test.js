@@ -104,6 +104,25 @@ test("scanner supports API and Demo modes without token display or mock fallback
   assert.doesNotMatch(appSource, /console\.(log|debug|info)\([^\n]*qrToken/i);
 });
 
+test("manual QR entry is labelled, keyboard-submittable, private, and locked during requests", () => {
+  assert.match(appSource, /data-owner-qr-form novalidate/);
+  assert.match(appSource, /for="owner-qr-token">Enter QR token/);
+  assert.match(appSource, /placeholder="Enter QR token"/);
+  assert.match(appSource, /maxlength="128"/);
+  assert.match(appSource, /querySelector\("\[data-owner-qr-form\]"\);[\s\S]{0,120}addEventListener\("submit"/);
+  const submit = appSource.slice(appSource.indexOf("  function submitOwnerCheckin("), appSource.indexOf("  function updateScannerResult()"));
+  assert.match(submit, /if \(ownerCheckinPending\) return Promise\.resolve\(\)/);
+  assert.match(submit, /if \(input\) input\.disabled = true/);
+  assert.match(submit, /if \(input\) \{\s+input\.disabled = false;/);
+  assert.match(submit, /if \(succeeded\) input\.value = ""/);
+  assert.match(submit, /submit\.textContent = "Checking\.\.\."/);
+  assert.match(submit, /button\.textContent = "Check in"/);
+  assert.match(submit, /setScanResult\(false, "Check-in failed", ownerCheckinErrorMessage\(error\)\)/);
+  assert.match(submit, /setScanResult\(true, "CHECK-IN SUCCESSFUL"/);
+  assert.match(submit, /window\.OwnerCheckinApi\.checkIn\(qrToken\)/);
+  assert.doesNotMatch(submit, /console\.(log|debug|info)\([^\n]*qrToken/i);
+});
+
 test("Owner registry, bookings, and scanner controls have responsive layout rules", () => {
   assert.match(cssSource, /\.registry-toolbar--venues \{ grid-template-columns: minmax\(230px,1fr\) minmax\(145px,170px\) minmax\(145px,170px\) auto; \}/);
   assert.match(cssSource, /\.booking-filter-toolbar > \[data-booking-clear\] \{ justify-self: end; min-width: 112px/);

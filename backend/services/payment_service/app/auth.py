@@ -35,6 +35,9 @@ def current_principal(
         ) from None
     if principal.role not in {"USER", "OWNER", "ADMIN"}:
         raise HTTPException(status_code=401, detail="Invalid bearer token")
+    return principal
+
+
+def require_customer(principal: Principal) -> None:
     if principal.role != "USER":
         raise HTTPException(status_code=403, detail="Customer account required")
-    return principal

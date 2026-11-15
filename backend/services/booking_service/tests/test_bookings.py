@@ -877,11 +877,18 @@ def test_owner_booking_list_scope_filters_and_projection(client: TestClient) -> 
         "/api/v1/owner/bookings?venue_id=12&date=2026-10-29&status=CONFIRMED",
         headers={"Authorization": f"Bearer {_token(22, 'OWNER')}"},
     )
+    dashboard_response = client.get(
+        "/api/v1/owner/bookings",
+        headers={"Authorization": f"Bearer {_token(22, 'OWNER')}"},
+    )
 
     assert response.status_code == 200
     assert len(response.json()) == 1
     assert response.json()[0]["id"] == own_id
     assert "qr_token" not in response.json()[0]
+    assert dashboard_response.status_code == 200
+    assert [booking["id"] for booking in dashboard_response.json()] == [own_id]
+    assert "qr_token" not in dashboard_response.json()[0]
 
 
 def test_owner_booking_detail_role_and_scope(client: TestClient) -> None:
@@ -1215,6 +1222,52 @@ def test_payment_context_reports_current_status_and_only_confirmed_qr(client: Te
     assert confirmed_context.json()["qr_token"] == "c" * 32
     assert cancelled_context.json()["status"] == "CANCELLED"
     assert cancelled_context.json()["qr_token"] is None
+
+
+def test_internal_payment_report_context_is_batch_read_only_and_protected(client: TestClient) -> None:
+    with app.state.test_session() as db:
+        bookings = [
+            Booking(
+                user_id=1, time_slot_id=slot_id, court_id=slot_id + 10,
+                venue_id=slot_id + 20, owner_id=slot_id + 30,
+                slot_date=date(2026, 12, 1), start_time=time(8), end_time=time(9),
+                status="CONFIRMED", total_amount=Decimal("100.00"),
+            )
+            for slot_id in (701, 702)
+        ]
+        db.add_all(bookings)
+        db.commit()
+        booking_ids = [booking.id for booking in bookings]
+
+    path = "/api/v1/internal/bookings/payment-report-context"
+    denied = client.post(path, json={"booking_ids": booking_ids})
+    assert denied.status_code == 403
+
+    response = client.post(
+        path,
+        json={"booking_ids": booking_ids},
+        headers={"X-Internal-Token": "test-internal-token"},
+    )
+    assert response.status_code == 200
+    assert {row["booking_id"] for row in response.json()["bookings"]} == set(booking_ids)
+    assert all(row["status"] == "CONFIRMED" for row in response.json()["bookings"])
+    assert all("user_id" not in row for row in response.json()["bookings"])
+
+
+def test_internal_payment_report_context_rejects_duplicate_booking_ids(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/internal/bookings/payment-report-context",
+        json={"booking_ids": [1, 1]},
+        headers={"X-Internal-Token": "test-internal-token"},
+    )
+    assert response.status_code == 422
+
+    invalid = client.post(
+        "/api/v1/internal/bookings/payment-report-context",
+        json={"booking_ids": [0]},
+        headers={"X-Internal-Token": "test-internal-token"},
+    )
+    assert invalid.status_code == 422
 
 
 def test_multi_slot_booking_creates_one_pending_booking_and_associations(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

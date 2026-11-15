@@ -24,6 +24,7 @@ class Payment(Base):
     transaction_code: Mapped[str | None] = mapped_column(String(100), unique=True)
     qr_token: Mapped[str | None] = mapped_column(String(128))
     idempotency_key: Mapped[str] = mapped_column(String(100), nullable=False)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

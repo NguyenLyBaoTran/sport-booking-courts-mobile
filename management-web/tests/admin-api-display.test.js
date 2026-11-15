@@ -72,37 +72,50 @@ test("Admin API errors distinguish missing list endpoints, missing records, serv
   assert.doesNotMatch(source, /The record was not found, or this Admin API is not deployed/);
 });
 
-test("API Mode Admin dashboard marks unavailable summaries without sample totals", () => {
+test("API Mode Admin dashboard renders all three backend summary groups without Demo values", () => {
   const dashboard = section("  function dashboard(active)", "  function anyAdminDataError(resources)");
-
-  assert.match(dashboard, /\["—", adminCatalogueSummary\.data \? adminCatalogueSummary\.data\.venues\.total/);
-  assert.match(dashboard, /Account and booking summaries are not available yet/);
-  assert.match(dashboard, /dataMode === "demo" \? '<p class="text-secondary small">Sample totals/);
-  assert.match(dashboard, /Loading catalogue summary/);
-  assert.match(dashboard, /summary\.time_slots\.total/);
-  assert.match(dashboard, /var accountStats = dataMode === "demo" \? demoAccountStats\(\) : \[\]/);
-  assert.match(dashboard, /var bookingStats = dataMode === "demo" \? demoBookingStats\(\) : \[\]/);
+  assert.match(dashboard, /dashboardSummaryGroup\("catalogue"/);
+  assert.match(dashboard, /dashboardSummaryGroup\("users"/);
+  assert.match(dashboard, /dashboardSummaryGroup\("bookings"/);
+  for (const field of ["sports.total", "venues.total", "courts.total", "time_slots.active", "users.total", "users.active", "users.inactive", "owners.total", "bookings.total", "bookings.checked_in", "bookings.completed"]) {
+    assert.ok(dashboard.includes("summary." + field), "missing summary field " + field);
+  }
+  const apiBranch = dashboard.slice(dashboard.indexOf('      if (dataMode === "api")'), dashboard.indexOf('      var activeSlots'));
+  assert.doesNotMatch(apiBranch, /demoAccountStats|demoBookingStats|Sample totals|adminCatalogueSummary/);
 });
 
-test("Admin catalogue summary is loaded from the Admin-only aggregate endpoint", () => {
-  const loader = section("  function loadAdminCatalogueSummary(force)", "  function refreshSchedule()");
-
+test("Admin summary loading is ADMIN-only, validates contracts and isolates group failures", () => {
+  const loader = section("  function isSummaryCount(value)", "  function adminApiErrorMessage(error, context)");
   assert.match(loader, /authUser\.role !== "ADMIN"/);
-  assert.match(loader, /\/api\/v1\/admin\/catalogue\/summary/);
-  assert.match(loader, /adminCatalogueSummary = \{ status: "loaded", data: summary/);
-  assert.match(loader, /The catalogue summary response is invalid/);
+  assert.match(loader, /validateDashboardSummary\(kind, summary\)/);
+  assert.match(loader, /adminDashboardSummaryPromises\[kind\]/);
+  assert.match(loader, /Promise\.all\(\["catalogue", "users", "bookings"\]/);
+  assert.match(loader, /retryAdminDashboardSummary\(kind\)/);
+  assert.match(loader, /data-admin-summary-retry=/);
+  assert.match(loader, /Loading .* summary/);
+  assert.match(loader, /status === 401/);
+  assert.match(loader, /status === 403/);
+  assert.match(loader, /status >= 500/);
+  assert.match(source, /if \(active === "admin-dashboard" && dataMode === "api"\) loadAdminDashboardSummaries\(false\)/);
+  assert.match(source, /role === "OWNER" && requestedAdmin/);
+  assert.match(source, /No user or owner accounts are available yet/);
+  assert.match(source, /No bookings are available yet/);
 });
-
-test("Admin Users API Mode uses account APIs while Demo and unavailable Revenue remain separate", () => {
+test("Admin Users API Mode uses account APIs and revenue uses the reporting API", () => {
   const people = section("  function peoplePage()", "  function profilePage(");
-  const revenue = section("  function revenuePage()", "  function peoplePage()");
+  const revenue = section("  function revenuePage(active)", "  function peoplePage()");
 
   assert.match(source, /window\.AdminManagementApi\.listUsers/);
   assert.match(source, /window\.AdminManagementApi\.setUserActive/);
   assert.match(people, /You cannot change your own account status/);
   assert.match(people, /var rows = data\.people/);
-  assert.match(revenue, /if \(dataMode !== "demo"\)[\s\S]*Revenue information is not available yet/);
-  assert.match(revenue, /var values = \[42, 61/);
+  assert.match(source, /window\.ManagementRevenueApi\.getReport/);
+  assert.match(revenue, /revenuePresetButtons\(revenueFilters\.preset\)/);
+  assert.match(revenue, /data-revenue-specific-date/);
+  assert.match(revenue, /data-revenue-export/);
+  assert.match(revenue, /revenueChart\(report\.revenue_series\)/);
+  assert.match(revenue, /No transactions are available for this period/);
+  assert.doesNotMatch(revenue, /Sample data|mock data|var values = \[42, 61/);
 });
 
 test("Login copy is concise and does not reveal test credentials or implementation details", () => {
@@ -145,11 +158,15 @@ test("Owner and Admin navigation share a read-only Settings page without a dupli
   assert.match(styles, /\.main-column \{ min-width: 0;/);
 });
 
-test("API Mode is the default and Demo preview is selected only at sign-in", () => {
-  assert.match(source, /var loginMode = "api"/);
-  assert.match(source, /data-login-mode="demo"/);
-  assert.match(source, /data-login-mode="api"/);
+test("Production login has no Demo entry and rejects direct Demo session restoration", () => {
+  const login = section("  function renderLogin()", "  function renderShell(");
+  assert.match(source, /var dataMode = "api"/);
+  assert.match(source, /var demoRole = ""/);
+  assert.match(source, /sessionStorage\.removeItem\("managementDemoRole"\)/);
+  assert.doesNotMatch(login, /Demo preview|data-login-mode|Optional in Demo Mode/);
   assert.doesNotMatch(source, /court-mode-bar|modeToolbar\(\)|court-data-mode/);
+  assert.match(source, /\["admin-revenue", "Revenue"/);
+  assert.match(source, /role === "OWNER" && requestedAdmin/);
   assert.match(source, /authUser\.role === "ADMIN" && \["sports", "venues", "courts", "slots"\]/);
   assert.match(source, /authUser\.role === "OWNER" && resource !== "sports"/);
 });

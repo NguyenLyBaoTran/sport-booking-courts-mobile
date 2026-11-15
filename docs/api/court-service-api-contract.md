@@ -8,8 +8,8 @@ Status: reflects the implementation in `backend/services/court_service/app` on 2
 - API Gateway base URL: `http://localhost:8000`
 - API prefix: `/api/v1`
 - Content type: JSON (`application/json`); date values use `YYYY-MM-DD`, time values use `HH:MM:SS`, and timestamps use ISO 8601. `price_per_hour` is a decimal with two places and is serialized as a JSON string, for example `"25.00"`.
-- Current access: all GET routes are public. Venue, Court, and Time Slot mutations require OWNER access scoped to the related Venue or ADMIN access system-wide. Sports mutations require an ADMIN JWT. Do not use request `owner_id` as evidence of OWNER authority.
-- Gateway forwards public Court paths, query strings, request bodies, the `Authorization` header, and upstream status. Public routes work directly and through the Gateway; internal reservation routes are direct service-to-service only and are intentionally not proxied.
+- Current access: the catalogue GET routes below remain public for Customer browsing. Management Web reads use authenticated management catalogue routes that scope OWNER results to the principal in the verified JWT; ADMIN can read across owners. Venue, Court, and Time Slot mutations require OWNER access scoped to the related Venue or ADMIN access system-wide. Sports mutations require an ADMIN JWT. Do not use request `owner_id` as evidence of OWNER authority.
+- Gateway forwards public and management Court paths, query strings, request bodies, the `Authorization` header, and upstream status. Public routes work directly and through the Gateway; internal reservation routes are direct service-to-service only and are intentionally not proxied.
 
 Every response schema contains the fields shown below; list routes return arrays of these objects. `description` and `phone` may be `null` where applicable.
 
@@ -37,6 +37,8 @@ Every response schema contains the fields shown below; list routes return arrays
 | `PUT /api/v1/venues/{venue_id}` | Replace editable venue fields | `VenueInput` | `200`, `Venue` | Owning OWNER or ADMIN |
 | `DELETE /api/v1/venues/{venue_id}` | Soft-deactivate (`is_active=false`) | No body | `204`, no body | Owning OWNER or ADMIN |
 
+Management Web uses `GET /api/v1/management/catalogue/venues[/{venue_id}]` instead. These routes require OWNER or ADMIN authentication. OWNER results are always scoped to the authenticated principal; an inaccessible detail is returned as `404`. An `owner_id` query parameter does not change this scope.
+
 `VenueInput`: `owner_id` (required positive integer; for OWNER it must match the authenticated `sub`), `name` (required, trimmed, 1–200 characters), `address` (required, trimmed, 1–255 characters), optional nullable `description` and `phone` (maximum 20 characters), and optional `is_active` (defaults to `true`). Court Service derives OWNER authority from the verified token, rejects mismatched OWNER `owner_id`, and preserves the stored owner on OWNER update. ADMIN may manage any venue and set its owner ID.
 
 ### Courts
@@ -49,17 +51,21 @@ Every response schema contains the fields shown below; list routes return arrays
 | `PUT /api/v1/courts/{court_id}` | Replace editable court fields | `CourtInput` | `200`, `Court` | OWNER of both current and target Venue or ADMIN |
 | `DELETE /api/v1/courts/{court_id}` | Soft-deactivate (`is_active=false`) | No body | `204`, no body | OWNER of related Venue or ADMIN |
 
+Management Web uses `GET /api/v1/management/catalogue/courts[/{court_id}]` instead, with the same OWNER/ADMIN authorization and owner-derived scope. Optional `venue_id`, `sport_id`, and `is_active` filters only narrow the authorized result set.
+
 `CourtInput`: positive `venue_id` and `sport_id`, `name` (required, trimmed, 1–100 characters), optional nullable `description`, `price_per_hour` (decimal greater than zero, at most 12 digits and 2 decimal places), and optional `is_active` (defaults to `true`). Create/update checks that the Venue exists and is active and that the Sport exists. The API currently does not reject an inactive Sport.
 
 ### Time Slots
 
 | Method and URL | Function | Query/body | Response | Status and access |
 |---|---|---|---|---|
-| `GET /api/v1/time-slots` | List time slots | Optional positive `court_id`, `slot_date`, `is_active` | `200`, `TimeSlot[]` | Anonymous/customer reads show only active future AVAILABLE slots under active Courts/Venues; OWNER/ADMIN reads retain the full schedule; unsupported authenticated roles receive `403`, invalid tokens `401`, missing JWT configuration `503` |
+| `GET /api/v1/time-slots` | List time slots | Optional positive `court_id`, `slot_date`, `is_active` | `200`, `TimeSlot[]` | Anonymous/customer/OWNER reads show only active future slots under active Courts/Venues, with reservation status; ADMIN can read the full schedule. Owner full-schedule reads use the authenticated management route below. Unsupported authenticated roles receive `403`, invalid tokens `401`, missing JWT configuration `503` |
 | `GET /api/v1/time-slots/{slot_id}` | Get one time slot | Positive integer path ID | `200`, `TimeSlot` | Public; `404` if absent |
 | `POST /api/v1/time-slots` | Create time slot | `TimeSlotInput` | `201`, `TimeSlot` | OWNER of related Court's Venue or ADMIN |
 | `PUT /api/v1/time-slots/{slot_id}` | Replace editable time-slot fields | `TimeSlotInput` | `200`, `TimeSlot` | OWNER of current and target Court Venues or ADMIN |
 | `DELETE /api/v1/time-slots/{slot_id}` | Soft-deactivate (`is_active=false`) | No body | `204`, no body | OWNER of related Court's Venue or ADMIN |
+
+Management Web uses `GET /api/v1/management/catalogue/time-slots[/{slot_id}]` to read the full schedule. OWNER results are scoped through Court to the Venue owner in the verified principal; inaccessible detail IDs return `404`. ADMIN can read the full schedule. Optional filters only narrow the authorized result set.
 
 `TimeSlotInput`: positive `court_id`, required `slot_date`, `start_time`, `end_time`, optional `is_active` (defaults to `true`). Both times must be on a 30-minute boundary (`:00` or `:30`, with zero seconds), and `start_time` must be earlier than `end_time`; otherwise FastAPI returns `422`. The Court must exist and be active. Active slots may not overlap on the same court and date; an update excludes the slot being changed. Inactive slots are excluded from overlap checks. Writes lock the affected Court rows before checking overlaps, serializing cooperating create/update requests on MySQL. The database also has an exact-range unique constraint. No opening hours are imposed because Venue opening-hour configuration is not part of this API. Slots with an active hold or booking cannot be edited or deactivated; expired holds can be reclaimed.
 
@@ -228,7 +234,8 @@ The reservation state is stored on `time_slots` using `reservation_status`, `res
 
 | Use case | Exists in Court Service now | Other service / future work |
 |---|---|---|
-| Read venues and courts | Public GET list/detail routes; venue list can filter by `owner_id`, courts by `venue_id`/`sport_id` | Reads are public; `owner_id` is not authorization |
+| Read public catalogue | `GET /api/v1/sports`, `/venues`, `/courts`, `/time-slots` and their public details | Remains available for Customer browsing; public `owner_id` is only a filter |
+| Read Owner/Admin management catalogue | `GET /api/v1/management/catalogue/venues[/{id}]`, `/courts[/{id}]`, `/time-slots[/{id}]` | Requires OWNER or ADMIN JWT; OWNER identity is derived from the token, ADMIN reads system-wide |
 | Manage venues, courts, and schedule | OWNER writes require valid JWT and ownership through related Venue; ADMIN has system-wide API access | Integrated Management Web provides OWNER Venue/Court/Time Slot CRUD and ADMIN Sports/Venue/Court/Time Slot CRUD. Authentication uses the integrated User Service and requires valid local credentials |
 | View bookings and complete booking | Not a Court Service responsibility or route | Booking Service implements Owner list/detail/complete; Gateway routes these APIs and Management Web consumes them in API Mode |
 | QR check-in | Not a Court Service responsibility or route | Court Service provides the Owner JWT adapter, which calls Booking Service's internal check-in API; Gateway routes the Owner endpoint and Management Web consumes it in API Mode |
@@ -262,7 +269,10 @@ Read-only examples:
 
 ```text
 GET http://localhost:8002/api/v1/sports
-GET http://localhost:8000/api/v1/venues?owner_id=1&is_active=true
+GET http://localhost:8000/api/v1/venues?is_active=true
 GET http://localhost:8000/api/v1/courts?venue_id=1&sport_id=1
 GET http://localhost:8000/api/v1/time-slots?court_id=1&slot_date=2026-10-29
+GET http://localhost:8000/api/v1/management/catalogue/venues
+GET http://localhost:8000/api/v1/management/catalogue/courts?venue_id=1
+GET http://localhost:8000/api/v1/management/catalogue/time-slots?court_id=1
 ```

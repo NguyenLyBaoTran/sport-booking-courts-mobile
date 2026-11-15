@@ -123,7 +123,10 @@ test("all date controls share one read-only calendar picker with direct month/ye
   assert.match(appSource, /fieldName: "slot_date", required: true/);
   assert.match(appSource, /data-calendar-month/);
   assert.match(appSource, /data-calendar-year/);
-  assert.doesNotMatch(appSource, /type="date"/);
+  assert.equal((appSource.match(/type="date"/g) || []).length, 2); // Revenue specific-date pickers only
+  const revenueStart = appSource.indexOf("  function revenuePage(active)");
+  const revenueEnd = appSource.indexOf("  function peoplePage()", revenueStart);
+  assert.match(appSource.slice(revenueStart, revenueEnd), /type="date"/);
   assert.match(appSource, /event\.key === "Escape"\) document\.querySelectorAll\('\[data-calendar-picker\]/);
   assert.match(appSource, /calendarOpenIds\[picker\.dataset\.calendarId\]/);
   assert.match(appSource, /document\.querySelectorAll\("\[data-calendar-picker\]"\)\.forEach/);
@@ -132,10 +135,10 @@ test("all date controls share one read-only calendar picker with direct month/ye
 test("calendar assets and the updated app use cache versions", () => {
   assert.ok(htmlSource.indexOf("assets/js/theme.js") < htmlSource.indexOf("assets/css/app.css"), "saved theme should apply before styles render");
   assert.match(htmlSource, /assets\/js\/theme\.js\?v=20261030-theme-1/);
-  assert.match(htmlSource, /assets\/css\/app\.css\?v=20261030-theme-1/);
+  assert.match(htmlSource, /assets\/css\/app\.css\?v=20261115-task36-revenue-ui-1/);
   assert.match(htmlSource, /assets\/js\/schedule-utils\.js\?v=20261025-shared-calendar-1/);
   assert.match(htmlSource, /assets\/js\/qr-scan-gate\.js\?v=20261030-owner-qr-state-1/);
-  assert.match(htmlSource, /assets\/js\/app\.js\?v=20261030-theme-1/);
+  assert.match(htmlSource, /assets\/js\/app\.js\?v=20261115-task36-revenue-ui-1/);
 });
 
 test("Schedule Date, Venue, Court, Status and date Search filters combine", () => {

@@ -329,6 +329,113 @@ def admin_catalogue_summary(db: Session = Depends(get_db)):
         raise HTTPException(status_code=503, detail="Catalogue summary is unavailable") from None
 
 
+def _management_venue_query(principal: Principal):
+    query = select(Venue)
+    if principal.role == "OWNER":
+        query = query.where(Venue.owner_id == principal.user_id)
+    return query
+
+
+def _management_court_query(principal: Principal):
+    query = select(Court).join(Venue, Court.venue_id == Venue.id)
+    if principal.role == "OWNER":
+        query = query.where(Venue.owner_id == principal.user_id)
+    return query
+
+
+def _management_slot_query(principal: Principal):
+    query = select(TimeSlot).join(Court, TimeSlot.court_id == Court.id).join(
+        Venue, Court.venue_id == Venue.id
+    )
+    if principal.role == "OWNER":
+        query = query.where(Venue.owner_id == principal.user_id)
+    return query
+
+
+@router.get("/management/catalogue/venues", response_model=list[VenueOutput], tags=["management"])
+def list_management_venues(
+    is_active: bool | None = None,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner_or_admin),
+):
+    query = _management_venue_query(principal)
+    if is_active is not None:
+        query = query.where(Venue.is_active == is_active)
+    return db.scalars(query.order_by(Venue.id)).all()
+
+
+@router.get("/management/catalogue/venues/{venue_id}", response_model=VenueOutput, tags=["management"])
+def get_management_venue(
+    venue_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner_or_admin),
+):
+    venue = db.scalar(_management_venue_query(principal).where(Venue.id == venue_id))
+    if venue is None:
+        raise HTTPException(status_code=404, detail="Venue not found")
+    return venue
+
+
+@router.get("/management/catalogue/courts", response_model=list[CourtOutput], tags=["management"])
+def list_management_courts(
+    venue_id: int | None = Query(default=None, gt=0),
+    sport_id: int | None = Query(default=None, gt=0),
+    is_active: bool | None = None,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner_or_admin),
+):
+    query = _management_court_query(principal)
+    if venue_id is not None:
+        query = query.where(Court.venue_id == venue_id)
+    if sport_id is not None:
+        query = query.where(Court.sport_id == sport_id)
+    if is_active is not None:
+        query = query.where(Court.is_active == is_active)
+    return db.scalars(query.order_by(Court.id)).all()
+
+
+@router.get("/management/catalogue/courts/{court_id}", response_model=CourtOutput, tags=["management"])
+def get_management_court(
+    court_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner_or_admin),
+):
+    court = db.scalar(_management_court_query(principal).where(Court.id == court_id))
+    if court is None:
+        raise HTTPException(status_code=404, detail="Court not found")
+    return court
+
+
+@router.get("/management/catalogue/time-slots", response_model=list[TimeSlotOutput], tags=["management"])
+def list_management_time_slots(
+    court_id: int | None = Query(default=None, gt=0),
+    slot_date: date | None = None,
+    is_active: bool | None = None,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner_or_admin),
+):
+    query = _management_slot_query(principal)
+    if court_id is not None:
+        query = query.where(TimeSlot.court_id == court_id)
+    if slot_date is not None:
+        query = query.where(TimeSlot.slot_date == slot_date)
+    if is_active is not None:
+        query = query.where(TimeSlot.is_active == is_active)
+    return db.scalars(query.order_by(TimeSlot.slot_date, TimeSlot.start_time, TimeSlot.id)).all()
+
+
+@router.get("/management/catalogue/time-slots/{slot_id}", response_model=TimeSlotOutput, tags=["management"])
+def get_management_time_slot(
+    slot_id: int,
+    db: Session = Depends(get_db),
+    principal: Principal = Depends(require_owner_or_admin),
+):
+    slot = db.scalar(_management_slot_query(principal).where(TimeSlot.id == slot_id))
+    if slot is None:
+        raise HTTPException(status_code=404, detail="Time slot not found")
+    return slot
+
+
 @router.get("/sports/{sport_id}", response_model=SportOutput)
 def read_sport(sport_id: int, db: Session = Depends(get_db)):
     return get_or_404(db, Sport, sport_id, "Sport")
@@ -525,7 +632,9 @@ def list_time_slots(
         query = query.where(TimeSlot.slot_date == slot_date)
     if is_active is not None:
         query = query.where(TimeSlot.is_active == is_active)
-    customer_view = principal is None or principal.role == "USER"
+    # OWNER tokens on the public customer route must not unlock the management schedule.
+    # OWNER/ADMIN full-schedule reads use /management/catalogue/time-slots instead.
+    customer_view = principal is None or principal.role in {"USER", "OWNER"}
     if customer_view:
         now = business_now()
         query = (

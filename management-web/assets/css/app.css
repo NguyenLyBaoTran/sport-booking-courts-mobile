@@ -47,6 +47,10 @@ button, input, select { font: inherit; }
 .btn-success { --bs-btn-bg: #2E7D32; --bs-btn-border-color: #2E7D32; --bs-btn-hover-bg: #256628; --bs-btn-hover-border-color: #256628; }
 .btn-outline-secondary { --bs-btn-color: #59665e; --bs-btn-border-color: #dce4de; --bs-btn-hover-bg: #f1f5f2; --bs-btn-hover-color: #24352b; --bs-btn-hover-border-color: #cbd8cf; }
 .stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px; margin-bottom: 19px; }
+.admin-dashboard-groups { display: grid; gap: 16px; }
+.admin-dashboard-stat-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,170px),1fr)); gap: 12px; padding: 16px; }
+.admin-dashboard-stat-grid .stat-card { min-width: 0; }
+.admin-summary-empty { padding: 0 16px 16px; font-size: 13px; }
 .stat-card, .panel-card, .venue-card, .profile-card { border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: var(--card-shadow); }
 .stat-card { min-height: 112px; padding: 17px 18px; }
 .stat-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 13px; font-weight: 500; }
@@ -502,7 +506,47 @@ button, input, select { font: inherit; }
 .booking-list-table-wrap { width: calc(100% - 40px); max-width: calc(100% - 40px); margin: 0 20px 14px; }
 .booking-list-table { width: 100%; min-width: 900px; }
 .booking-list-table th, .booking-list-table td { padding: 11px 12px !important; vertical-align: middle; }
+.booking-list-table th:nth-child(3), .booking-list-table th:nth-child(4),
+.booking-list-table td:nth-child(3), .booking-list-table td:nth-child(4),
+.booking-list-table td:nth-child(5), .booking-list-table td:nth-child(6),
+.booking-list-table td:nth-child(7) { white-space: nowrap; }
+.admin-booking-list-table { min-width: 1120px; }
+.booking-location-cell { display: inline-block; max-width: 190px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; white-space: nowrap; }
+.booking-time-cell { display: inline-block; max-width: 170px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; white-space: nowrap; }
 .booking-list-table .status-pill { min-width: 94px; justify-content: center; }
+.revenue-page-card { overflow: hidden; }
+.revenue-filter-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 14px 18px; border-bottom: 1px solid #edf1ee; }
+.revenue-filter-toolbar label { display: grid; min-width: 145px; flex: 1 1 145px; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.revenue-filter-toolbar label .form-control, .revenue-filter-toolbar label .form-select { min-width: 0; min-height: 40px; }
+.revenue-filter-toolbar > .btn { min-height: 40px; white-space: nowrap; }
+.revenue-preset-group { display: flex; flex: 1 1 100%; flex-wrap: wrap; gap: 7px; }
+.revenue-preset-group .btn { min-height: 38px; }
+.revenue-period-label { align-self: center; color: var(--muted); font-size: 13px; font-weight: 600; }
+.dashboard-revenue-panel { margin-top: 18px; }
+.dashboard-revenue-controls { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 14px 18px 0; }
+.dashboard-revenue-controls label { display: grid; min-width: 150px; flex: 1 1 150px; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.dashboard-revenue-controls .form-control, .dashboard-revenue-controls .form-select { min-height: 38px; }
+.dashboard-revenue-total { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 10px; padding: 16px 18px 4px; }
+.dashboard-revenue-total > div { display: grid; gap: 3px; }
+.dashboard-revenue-total > div span, .dashboard-revenue-period { color: var(--muted); font-size: 13px; }
+.dashboard-revenue-total strong { font-size: clamp(22px, 3vw, 30px); line-height: 1.2; }
+.dashboard-revenue-chart { padding: 0 18px 16px; }
+.dashboard-revenue-chart .revenue-chart-scroll { border-radius: 8px; }
+.revenue-stat-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,180px),1fr)); gap: 12px; padding: 18px; }
+.revenue-stat-grid .stat-card { min-width: 0; }
+.revenue-stat-grid .stat-value { overflow-wrap: anywhere; font-size: clamp(19px,2vw,24px); }
+.revenue-undated-note { margin: 0 18px 16px; padding: 11px 13px; border: 1px solid #eedba9; border-radius: 8px; background: #fff9e9; color: #745d2c; font-size: 13px; line-height: 1.5; }
+.revenue-chart-card, .revenue-history-card { margin: 0 18px 18px; }
+.revenue-chart-scroll { overflow-x: auto; }
+.revenue-chart { display: block; width: 100%; min-width: 680px; height: auto; }
+.revenue-grid-line { stroke: #e8eee9; stroke-width: 1; }
+.revenue-axis-label { fill: #738078; font-size: 11px; }
+.revenue-axis-title { fill: #59665e; font-size: 11px; font-weight: 600; }
+.revenue-bar { fill: #7eb790; transition: fill .15s ease; }
+.revenue-bar:hover { fill: #286b43; }
+.revenue-chart-empty { display: grid; min-height: 190px; place-items: center; border: 1px dashed #dbe5dd; border-radius: 9px; color: var(--muted); text-align: center; }
+.revenue-table { min-width: 880px; }
+.revenue-table td, .revenue-table th, .revenue-date-cell { white-space: nowrap; }
 @media (max-width: 900px) {
   .registry-toolbar--venues, .registry-toolbar--courts, .registry-toolbar--sports { grid-template-columns: repeat(2,minmax(0,1fr)); padding-inline: 16px; }
   .registry-search { grid-column: 1 / -1; }
@@ -530,6 +574,20 @@ button, input, select { font: inherit; }
   .page-heading--bookings { flex-wrap: wrap; align-items: center; }
   .booking-header-actions { margin-left: auto; padding-top: 0; }
   .booking-list-table-wrap { width: calc(100% - 24px); max-width: calc(100% - 24px); margin-inline: 12px; }
+  .revenue-filter-toolbar { align-items: stretch; padding: 14px; }
+  .revenue-filter-toolbar label { flex-basis: calc(50% - 6px); min-width: 0; }
+  .revenue-filter-toolbar > .btn { flex: 1 1 calc(50% - 6px); }
+  .revenue-preset-group { flex-basis: 100%; }
+  .revenue-preset-group .btn { flex: 1 1 calc(50% - 6px); }
+  .revenue-period-label { flex: 1 1 100%; }
+  .dashboard-revenue-controls { padding-inline: 13px; }
+  .dashboard-revenue-controls label { flex-basis: calc(50% - 6px); min-width: 0; }
+  .dashboard-revenue-total { padding-inline: 13px; }
+  .dashboard-revenue-chart { padding-inline: 12px; }
+  .revenue-stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; padding: 13px; }
+  .revenue-stat-grid .stat-card { padding: 13px; }
+  .revenue-chart-card, .revenue-history-card { margin-inline: 12px; }
+  .revenue-chart-card .panel-body { padding: 13px; }
   .venue-grid { grid-template-columns: minmax(0,1fr); gap: 14px; padding: 16px; }
   .venue-card { max-width: 560px; }
   .schedule-toolbar .schedule-search { flex: 1 1 100%; width: 100%; min-width: 100%; }
@@ -550,6 +608,10 @@ button, input, select { font: inherit; }
 .scanner-layout .input-group { align-items: stretch; }
 .scanner-layout .input-group .form-control, .scanner-layout .input-group .btn { min-height: 40px; }
 .scanner-layout .input-group .form-control { min-width: 0; }
+.qr-manual-token-form { min-width: 0; }
+.qr-manual-token-form .input-group { width: 100%; min-width: 0; }
+.qr-manual-token-form .form-label { font-weight: 600; }
+.qr-manual-token-form [data-owner-qr-submit] { min-width: 112px; font-weight: 600; }
 
 @media (max-width: 800px) {
   .scanner-layout { grid-template-columns: minmax(0, 1fr); }
