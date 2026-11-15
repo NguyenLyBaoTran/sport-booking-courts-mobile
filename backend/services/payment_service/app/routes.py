@@ -33,6 +33,7 @@ def _response(payment: Payment, booking: dict | None = None):
     return PaymentProcessResponse(
         id=payment.id,
         booking_id=payment.booking_id,
+        provider=payment.provider,
         status=payment.status,
         amount=payment.amount,
         transaction_code=payment.transaction_code,
@@ -89,7 +90,7 @@ def process_payment(
         attempt = Payment(
             booking_id=payload.booking_id,
             user_id=principal.user_id,
-            provider="MOCK",
+            provider=payload.payment_method.value,
             status="PENDING",
             amount=context["total_amount"],
             idempotency_key=key,
@@ -104,6 +105,11 @@ def process_payment(
                 raise HTTPException(status_code=409, detail="Payment request conflict") from None
     if attempt.booking_id != payload.booking_id or attempt.user_id != principal.user_id:
         raise HTTPException(status_code=409, detail="Idempotency-Key already used")
+    if attempt.status == "PENDING" and attempt.provider != payload.payment_method.value:
+        # No external gateway is connected yet; retain the customer's selected
+        # method as payment metadata while the same idempotent attempt is retried.
+        attempt.provider = payload.payment_method.value
+        db.commit()
 
     if payload.mock_result == "FAILED":
         integrations.fail_booking(payload.booking_id)

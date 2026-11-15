@@ -33,9 +33,19 @@ public class PaymentRepository {
             String mockResult,
             ApiCallback<JsonObject> callback
     ) {
+        processPayment(bookingId, mockResult, "MOCK", callback);
+    }
+
+    public void processPayment(
+            int bookingId,
+            String mockResult,
+            String paymentMethod,
+            ApiCallback<JsonObject> callback
+    ) {
         JsonObject body = new JsonObject();
         body.addProperty("booking_id", bookingId);
         body.addProperty("mock_result", mockResult);
+        body.addProperty("payment_method", paymentMethod);
 
         String idempotencyKey = idempotencyKeyForBooking(bookingId);
         if (idempotencyKey == null) {

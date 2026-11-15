@@ -121,6 +121,7 @@ test("Revenue method labels reflect the API provider and use Unknown when missin
   const label = vm.runInNewContext("(" + appSource.slice(start, end).trim() + ")");
   assert.equal(label("vnpay"), "VNPay");
   assert.equal(label("MOMO"), "MoMo");
+  assert.equal(label("ZALOPAY"), "ZaloPay");
   assert.equal(label("MOCK"), "Mock");
   assert.equal(label("BANK_TRANSFER"), "Bank Transfer");
   assert.equal(label(undefined), "Unknown");
@@ -138,11 +139,15 @@ test("dashboard revenue is role-gated, uses independent loading/error states, an
   assert.match(card, /state\.status === "idle" \|\| state\.status === "loading"/);
   assert.match(card, /state\.status === "error"/);
   assert.match(card, /data-revenue-retry/);
+  assert.match(card, /authUser\.role === "ADMIN"\) body \+= '<div class="dashboard-revenue-chart">'/);
   assert.match(loader, /ManagementRevenueApi\.getReport\(filters\)/);
   assert.match(loader, /revenueState\.promise && revenueState\.filtersKey === filtersKey/);
   assert.match(appSource, /active === "dashboard" && authUser && authUser\.role === "OWNER"/);
   assert.match(appSource, /active === "admin-dashboard" && authUser && authUser\.role === "ADMIN"/);
   assert.match(appSource, /if \(active === "admin-dashboard" && dataMode === "api"\) loadAdminDashboardSummaries\(false\)/);
+  const ownerRevenue = appSource.slice(appSource.indexOf("function revenuePage(active)"), appSource.indexOf("function peoplePage()"));
+  assert.match(ownerRevenue, /owner \? "" : '<div class="panel-card revenue-chart-card"/);
+  assert.match(ownerRevenue, /owner \? "" : '<label><span>Chart grouping/);
 });
 
 test("Revenue chart and tables remain scrollable and responsive at narrow widths", () => {

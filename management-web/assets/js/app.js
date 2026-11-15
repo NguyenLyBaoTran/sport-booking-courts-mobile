@@ -382,15 +382,15 @@
     var options = revenuePresetOptions(revenueFilters.preset);
     var controls = '<div class="dashboard-revenue-controls"><label><span>Period</span><select class="form-select" data-dashboard-revenue-preset>' + options + '</select></label>' +
       (revenueFilters.preset === "specific-date" ? '<label><span>Date</span><input class="form-control" type="date" data-revenue-specific-date value="' + esc(revenueFilters.specific_date) + '"></label>' : "") +
-      '<label><span>Chart</span><select class="form-select" data-revenue-group><option value="day" ' + (revenueFilters.group_by === "day" ? "selected" : "") + '>Daily</option><option value="month" ' + (revenueFilters.group_by === "month" ? "selected" : "") + '>Monthly</option></select></label></div>';
+      (authUser.role === "ADMIN" ? '<label><span>Chart</span><select class="form-select" data-revenue-group><option value="day" ' + (revenueFilters.group_by === "day" ? "selected" : "") + '>Daily</option><option value="month" ' + (revenueFilters.group_by === "month" ? "selected" : "") + '>Monthly</option></select></label>' : "") + '</div>';
     var body = controls;
     if (state.status === "idle" || state.status === "loading") {
       body += '<div class="panel-body text-secondary" role="status">Loading revenue…</div>';
     } else if (state.status === "error") {
       body += '<div class="panel-body"><div class="alert alert-warning mb-0" role="alert">' + esc(revenueErrorMessage(state.error)) + ' <button class="btn btn-sm btn-outline-secondary ms-2" type="button" data-revenue-retry>Retry</button></div></div>';
     } else {
-      body += '<div class="dashboard-revenue-total"><div><span>Total revenue</span><strong>' + esc(formatRevenueAmount(Number(state.data.summary.total_revenue))) + '</strong></div><span class="dashboard-revenue-period">' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + '</span></div>' +
-        '<div class="dashboard-revenue-chart">' + revenueChart(state.data.revenue_series) + '</div>';
+      body += '<div class="dashboard-revenue-total"><div><span>Total revenue</span><strong>' + esc(formatRevenueAmount(Number(state.data.summary.total_revenue))) + '</strong></div><span class="dashboard-revenue-period">' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + '</span></div>';
+      if (authUser.role === "ADMIN") body += '<div class="dashboard-revenue-chart">' + revenueChart(state.data.revenue_series) + '</div>';
     }
     var action = '<a class="btn btn-sm btn-outline-secondary" href="' + (authUser.role === "ADMIN" ? "#/admin-revenue" : "#/revenue") + '">Detailed report</a>';
     return panel("Revenue", body, authUser.role === "ADMIN" ? "System-wide" : "Your venues", action, "dashboard-revenue-panel");
@@ -648,7 +648,7 @@
     if (dataMode === "demo") {
       return '<div class="alert alert-info py-2 small" role="status"><strong>Demo Mode:</strong> Changes affect only the in-memory sample data. Reload the page to restore the starter data.</div>';
     }
-    if (authUser && authUser.role === "OWNER") return '<div class="alert alert-info py-2 small" role="status">You can manage your venues, courts, and time slots. Sports are managed centrally.</div>';
+    if (authUser && authUser.role === "OWNER") return "";
     if (authUser && authUser.role === "ADMIN") return "";
     return '<div class="alert alert-warning py-2 small" role="status">This catalogue is currently read-only.</div>';
   }
@@ -1534,7 +1534,6 @@
       ((dataMode === "demo" || canManageApi) ? crudOpenButton("slots", null, "Add time slot", "btn-success") : "") + '</div>';
     return relationErrors + heading(adminView ? "admin-schedule" : "schedule", scheduleActions) + pendingWriteNotice() +
       stats("court-overview", [resources.sports.status === "loaded" ? resources.sports.data.length : "?", venues.status === "loaded" ? venues.data.length : "?", courts.status === "loaded" ? courts.data.length : "?", activeSlots], true) +
-      '<p class="small text-secondary mt-2">Times follow the venue schedule?s local clock.</p>' +
       panel(adminView ? "Time slots" : "Court schedule",
         '<div class="toolbar schedule-toolbar"><input class="form-control schedule-search" type="search" data-schedule-search data-focus-key="schedule-search" value="' + esc(scheduleFilters.search) + '" placeholder="Search venue, court, sport, time, or date (e.g. 23/10)" aria-label="Search schedule details or a date">' +
         calendarPickerMarkup("schedule-filter", "Filter date", scheduleFilters.date) +
@@ -1543,7 +1542,7 @@
         '<select class="form-select" data-schedule-status data-focus-key="schedule-status" aria-label="Filter by status"><option value="">All statuses</option><option value="true" ' + (scheduleFilters.status === "true" ? "selected" : "") + '>Active</option><option value="false" ' + (scheduleFilters.status === "false" ? "selected" : "") + '>Inactive</option></select>' +
         '<button class="btn btn-outline-secondary" type="button" data-schedule-reset>Reset filters</button></div>' +
         ((dataMode === "demo" || canManageApi) ? crudFormMarkup("slots", resources) : "") + statusBlock,
-        dataMode === "demo" ? "Demo refresh restores the sample Time Slots." : "Active status describes the schedule entry, not booking availability.",
+        dataMode === "demo" ? "Demo refresh restores the sample Time Slots." : "",
         "", "calendar-panel-card");
   }
   function checkinPage(active, admin) {
@@ -1569,9 +1568,9 @@
     var controls = '<div class="qr-camera-controls"><button class="btn btn-success" data-scanner-start ' + (scannerBusy || ownerCheckinPending ? "disabled" : "") + '>Start Camera</button><button class="btn btn-outline-secondary" data-scanner-stop ' + (scannerState === "stopping" || (!scannerInstance && !qrScanner && !scannerStarting) ? "disabled" : "") + '>Stop Camera</button></div>';
     var cameraPanel = '<div class="scanner-frame qr-camera-frame ' + cameraFrameClass + '"><div id="qr-reader" aria-label="Camera preview"></div>' + (scannerState === "idle" ? '<div class="qr-camera-placeholder"><i class="bi bi-qr-code-scan"></i><strong>Camera preview</strong><small>Start the camera when you are ready to scan.</small></div>' : "") + '</div><div class="qr-scanner-footer"><div class="qr-scanner-toolbar"><div class="qr-scanner-status qr-scanner-status--' + scannerState + '" role="status" data-scanner-status>' + statusLabel + '</div>' + controls + '</div><div class="qr-scanner-result" data-scanner-result-host>' + result + '</div></div>';
     var notice = '<div class="alert alert-info py-2 small" role="status">Scan a booking QR code or enter its code to check in.</div>';
-    var manual = '<div class="panel-body"><form class="qr-manual-token-form" data-owner-qr-form novalidate><label class="form-label" for="owner-qr-token">Enter QR token</label><div class="input-group"><input class="form-control" id="owner-qr-token" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="128" aria-describedby="owner-qr-token-help" placeholder="Enter QR token"><button class="btn btn-outline-primary" type="submit" data-owner-qr-submit>Check in</button></div><small class="text-secondary" id="owner-qr-token-help">Your code stays private and is not shown in the result.</small></form></div>';
+    var manual = '<div class="panel-body"><form class="qr-manual-token-form" data-owner-qr-form novalidate><label class="form-label" for="owner-qr-token">Enter QR token</label><div class="input-group"><input class="form-control" id="owner-qr-token" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="128" aria-describedby="owner-qr-token-help" placeholder="Enter QR token"><button class="btn btn-outline-primary" type="submit" data-owner-qr-submit>Check in</button></div><small class="text-secondary" id="owner-qr-token-help"></small></form></div>';
     var examples = '<div class="panel-body text-secondary">Use a booking QR code or enter its code to check in.</div>';
-    return heading(active) + notice + '<div class="scanner-layout mb-3">' + panel("QR Check-in", cameraPanel, "Camera access starts only after you press Start Camera") + panel("Check-in result", manual + examples, "Booking check-in") + '</div>';
+    return heading(active) + notice + '<div class="scanner-layout mb-3">' + panel("QR Check-in", cameraPanel, "") + panel("Check-in result", manual + examples, "") + '</div>';
   }
   function setScanResult(ok, title, message, booking) {
     scanResult = { ok: ok, title: title, message: message, booking: booking || null };
@@ -1888,6 +1887,7 @@
     var normalized = value.toUpperCase();
     if (normalized === "VNPAY") return "VNPay";
     if (normalized === "MOMO") return "MoMo";
+    if (normalized === "ZALOPAY") return "ZaloPay";
     if (normalized === "MOCK") return "Mock";
     return value.toLowerCase().split(/[_\s]+/).map(function (part) {
       return part ? part.charAt(0).toUpperCase() + part.slice(1) : "";
@@ -1932,7 +1932,7 @@
     var title = owner ? "revenue" : "admin-revenue";
     var toolbar = '<div class="revenue-filter-toolbar"><div class="revenue-preset-group" role="group" aria-label="Revenue date range">' + revenuePresetButtons(revenueFilters.preset) + '</div>' +
       (revenueFilters.preset === "specific-date" ? '<label class="revenue-specific-date"><span>Choose date</span><input class="form-control" type="date" data-revenue-specific-date value="' + esc(revenueFilters.specific_date) + '"></label>' : "") +
-      '<label><span>Chart grouping</span><select class="form-select" data-revenue-group><option value="day" ' + (revenueFilters.group_by === "day" ? "selected" : "") + '>Daily</option><option value="month" ' + (revenueFilters.group_by === "month" ? "selected" : "") + '>Monthly</option></select></label>' +
+      (owner ? "" : '<label><span>Chart grouping</span><select class="form-select" data-revenue-group><option value="day" ' + (revenueFilters.group_by === "day" ? "selected" : "") + '>Daily</option><option value="month" ' + (revenueFilters.group_by === "month" ? "selected" : "") + '>Monthly</option></select></label>') +
       '<label><span>Payment order</span><select class="form-select" data-revenue-sort><option value="desc" ' + (revenueFilters.sort === "desc" ? "selected" : "") + '>Newest first</option><option value="asc" ' + (revenueFilters.sort === "asc" ? "selected" : "") + '>Oldest first</option></select></label>' +
       '<button class="btn btn-success" type="button" data-revenue-export ' + (revenueExportState.status === "loading" || revenueState.status === "loading" ? "disabled" : "") + '>' + (revenueExportState.status === "loading" ? "Preparing CSV..." : "Export CSV") + '</button>' +
       '<span class="revenue-period-label" aria-live="polite">' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + '</span></div>';
@@ -1966,7 +1966,7 @@
         ? '<div class="table-wrap"><table class="table revenue-table"><thead><tr><th>Payment</th><th>Booking</th><th>Payment date</th><th>Amount</th><th>Payment status</th><th>Booking status</th><th>Method</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
           '<div class="table-foot"><span>Page ' + page + ' of ' + pageCount + ' · ' + report.transactions.total + ' transactions</span><div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-revenue-page="prev" ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><button type="button" class="btn btn-sm btn-outline-secondary" data-revenue-page="next" ' + (page >= pageCount ? 'disabled' : '') + '>Next</button></div></div>'
         : '<div class="panel-body text-secondary" role="status">No transactions are available for this period.</div>';
-      body = cards + '<div class="panel-card revenue-chart-card"><div class="panel-head"><div><h2>Revenue trend</h2><p>' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + ' · ' + (revenueFilters.group_by === "month" ? "Monthly" : "Daily") + '</p></div></div><div class="panel-body">' + revenueChart(report.revenue_series) + '</div></div>' +
+      body = cards + (owner ? "" : '<div class="panel-card revenue-chart-card"><div class="panel-head"><div><h2>Revenue trend</h2><p>' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + ' · ' + (revenueFilters.group_by === "month" ? "Monthly" : "Daily") + '</p></div></div><div class="panel-body">' + revenueChart(report.revenue_series) + '</div></div>') +
         '<div class="panel-card revenue-history-card"><div class="panel-head"><div><h2>Payment transactions</h2><p>PAID amounts count as revenue; pending and failed attempts do not.</p></div></div>' + history + '</div>';
     }
     var refresh = '<button class="btn btn-outline-secondary" type="button" data-revenue-refresh ' + (revenueState.status === "loading" ? "disabled" : "") + '><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>';

@@ -97,7 +97,8 @@ public class CourtDetailActivity extends AppCompatActivity {
         ivPhoto2.setImageResource(SportImageMapper.getSecondaryImage(initialCourt, courtName));
         ivPhoto3.setImageResource(primaryImage);
 
-        rvTimeSlots.setLayoutManager(new GridLayoutManager(this, 4));
+        int columns = getResources().getConfiguration().smallestScreenWidthDp >= 600 ? 3 : 2;
+        rvTimeSlots.setLayoutManager(new GridLayoutManager(this, columns));
         slotAdapter = new TimeSlotAdapter(slotList, slot -> {
             selectedTimeSlotId = slot.has("id") ? slot.get("id").getAsInt() : null;
             if (slotSelectionVisible) {

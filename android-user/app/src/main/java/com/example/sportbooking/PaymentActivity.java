@@ -6,6 +6,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
+import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -32,6 +33,7 @@ public class PaymentActivity extends AppCompatActivity {
     private Button btnPayNow;
     private ProgressBar progressBar;
     private ImageView ivBack;
+    private RadioGroup rgPaymentMethod;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,6 +60,7 @@ public class PaymentActivity extends AppCompatActivity {
         tvTotalAmount = findViewById(R.id.tvTotalAmount);
         btnPayNow = findViewById(R.id.btnPayNow);
         progressBar = findViewById(R.id.progressBar);
+        rgPaymentMethod = findViewById(R.id.rgPaymentMethod);
 
         if (courtName != null && !courtName.isEmpty()) {
             tvSummaryCourtName.setText(courtName);
@@ -137,7 +140,7 @@ public class PaymentActivity extends AppCompatActivity {
     }
 
     private void submitPayment() {
-        paymentRepository.processPayment(bookingId, "SUCCESS", new ApiCallback<JsonObject>() {
+        paymentRepository.processPayment(bookingId, "SUCCESS", selectedPaymentMethod(), new ApiCallback<JsonObject>() {
             @Override
             public void onSuccess(JsonObject result) {
                 progressBar.setVisibility(View.GONE);
@@ -169,5 +172,13 @@ public class PaymentActivity extends AppCompatActivity {
                 Toast.makeText(PaymentActivity.this, error, Toast.LENGTH_LONG).show();
             }
         });
+    }
+
+    private String selectedPaymentMethod() {
+        int selectedId = rgPaymentMethod.getCheckedRadioButtonId();
+        if (selectedId == R.id.rbVnpay) return "VNPAY";
+        if (selectedId == R.id.rbMomo) return "MOMO";
+        if (selectedId == R.id.rbZaloPay) return "ZALOPAY";
+        return "MOCK";
     }
 }

@@ -85,15 +85,9 @@
                             android:text="Badminton Court 1"
                             android:textColor="@color/text_primary"
                             android:textSize="16sp"
+                            android:maxLines="2"
+                            android:ellipsize="end"
                             android:textStyle="bold" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:text="Greenfield Sports Complex"
-                            android:textColor="@color/text_secondary"
-                            android:textSize="13sp" />
                     </LinearLayout>
                 </LinearLayout>
 
@@ -122,6 +116,7 @@
                         android:text="Tuesday, April 22, 2025"
                         android:textColor="@color/text_primary"
                         android:textSize="14sp"
+                        android:maxLines="2"
                         android:textStyle="bold" />
                 </LinearLayout>
 
@@ -144,6 +139,7 @@
                         android:text="11:00 AM - 12:00 PM (1 Hour)"
                         android:textColor="@color/text_primary"
                         android:textSize="14sp"
+                        android:maxLines="2"
                         android:textStyle="bold" />
                 </LinearLayout>
 
@@ -180,6 +176,14 @@
                 android:textStyle="bold"
                 android:layout_marginBottom="12dp" />
 
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                android:text="Demo checkout records your selected method. Payment processing is simulated; external gateways are not connected."
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+
             <RadioGroup
                 android:id="@+id/rgPaymentMethod"
                 android:layout_width="match_parent"
@@ -187,14 +191,14 @@
                 android:orientation="vertical">
 
                 <RadioButton
-                    android:id="@+id/rbCard"
+                    android:id="@+id/rbMock"
                     android:layout_width="match_parent"
                     android:layout_height="56dp"
                     android:background="@drawable/bg_card"
                     android:checked="true"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:text="Credit / Debit Card"
+                    android:text="Mock payment"
                     android:textColor="@color/text_primary"
                     android:textSize="15sp"
                     android:layout_marginBottom="8dp" />
@@ -207,7 +211,20 @@
                     android:checked="false"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:text="Momo"
+                    android:text="MoMo"
+                    android:textColor="@color/text_primary"
+                    android:textSize="15sp"
+                    android:layout_marginBottom="8dp" />
+
+                <RadioButton
+                    android:id="@+id/rbVnpay"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:background="@drawable/bg_card"
+                    android:checked="false"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:text="VNPay"
                     android:textColor="@color/text_primary"
                     android:textSize="15sp"
                     android:layout_marginBottom="8dp" />
@@ -221,19 +238,6 @@
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
                     android:text="ZaloPay"
-                    android:textColor="@color/text_primary"
-                    android:textSize="15sp"
-                    android:layout_marginBottom="8dp" />
-
-                <RadioButton
-                    android:id="@+id/rbBank"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:background="@drawable/bg_card"
-                    android:checked="false"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="Bank Transfer"
                     android:textColor="@color/text_primary"
                     android:textSize="15sp" />
 

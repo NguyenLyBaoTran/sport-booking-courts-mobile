@@ -93,24 +93,35 @@ def test_successful_mock_payment_confirms_booking_and_is_idempotent(
 
     first = client.post(
         "/api/v1/payments/process",
-        json={"booking_id": 5, "mock_result": "SUCCESS"},
+        json={"booking_id": 5, "mock_result": "SUCCESS", "payment_method": "ZALOPAY"},
         headers=headers,
     )
     second = client.post(
         "/api/v1/payments/process",
-        json={"booking_id": 5, "mock_result": "SUCCESS"},
+        json={"booking_id": 5, "mock_result": "SUCCESS", "payment_method": "ZALOPAY"},
         headers=headers,
     )
 
     assert first.status_code == 200
     assert first.json()["status"] == "PAID"
+    assert first.json()["provider"] == "ZALOPAY"
     assert first.json()["booking_status"] == "CONFIRMED"
     assert first.json()["qr_token"] == "opaque-qr"
     assert second.json()["id"] == first.json()["id"]
     assert second.json()["qr_token"] == first.json()["qr_token"]
     assert first.json()["paid_at"] is not None
     assert second.json()["paid_at"] == first.json()["paid_at"]
+    assert second.json()["provider"] == "ZALOPAY"
     assert confirmations == [5]
+
+
+def test_payment_method_must_be_supported(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/payments/process",
+        json={"booking_id": 5, "payment_method": "UNSUPPORTED_PROVIDER"},
+        headers={"Authorization": f"Bearer {_token()}"},
+    )
+    assert response.status_code == 422
 
 
 def test_retry_after_pending_attempt_reuses_key_and_creates_one_payment(
@@ -137,12 +148,12 @@ def test_retry_after_pending_attempt_reuses_key_and_creates_one_payment(
 
     first = client.post(
         "/api/v1/payments/process",
-        json={"booking_id": 5, "mock_result": "SUCCESS"},
+        json={"booking_id": 5, "mock_result": "SUCCESS", "payment_method": "VNPAY"},
         headers=headers,
     )
     second = client.post(
         "/api/v1/payments/process",
-        json={"booking_id": 5, "mock_result": "SUCCESS"},
+        json={"booking_id": 5, "mock_result": "SUCCESS", "payment_method": "VNPAY"},
         headers=headers,
     )
 
@@ -153,6 +164,7 @@ def test_retry_after_pending_attempt_reuses_key_and_creates_one_payment(
         payments = db.query(Payment).filter(Payment.booking_id == 5).all()
         assert len(payments) == 1
         assert payments[0].idempotency_key == "same-booking-retry-key"
+        assert payments[0].provider == "VNPAY"
 
 
 def test_different_bookings_use_different_idempotency_keys(

@@ -16,11 +16,19 @@ class MockResult(str, Enum):
     FAILED = "FAILED"
 
 
+class PaymentMethod(str, Enum):
+    MOCK = "MOCK"
+    VNPAY = "VNPAY"
+    MOMO = "MOMO"
+    ZALOPAY = "ZALOPAY"
+
+
 class PaymentProcess(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     booking_id: int = Field(gt=0)
     mock_result: MockResult = MockResult.SUCCESS
+    payment_method: PaymentMethod = PaymentMethod.MOCK
 
 
 class PaymentResponse(BaseModel):
@@ -28,6 +36,7 @@ class PaymentResponse(BaseModel):
 
     id: int
     booking_id: int
+    provider: str
     status: str
     amount: Decimal
     transaction_code: str | None

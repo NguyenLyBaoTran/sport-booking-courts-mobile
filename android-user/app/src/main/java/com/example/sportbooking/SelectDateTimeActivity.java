@@ -79,7 +79,8 @@ public class SelectDateTimeActivity extends AppCompatActivity {
         findViewById(R.id.ivBack).setOnClickListener(v -> finish());
         findViewById(R.id.btnPickCalendar).setOnClickListener(v -> showFullCalendar());
 
-        rvTimeSlots.setLayoutManager(new GridLayoutManager(this, 4));
+        int columns = getResources().getConfiguration().smallestScreenWidthDp >= 600 ? 3 : 2;
+        rvTimeSlots.setLayoutManager(new GridLayoutManager(this, columns));
         slotAdapter = new TimeSlotAdapter(slotList, this::toggleSlotSelection);
         rvTimeSlots.setAdapter(slotAdapter);
 

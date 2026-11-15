@@ -275,7 +275,7 @@ Payment nhận `SUCCESS` hoặc `FAILED`; không xử lý tiền thật. `Idempo
 | GET | `/api/v1/owner/bookings` | Owner list, lọc venue/date/status |
 | GET | `/api/v1/owner/bookings/{id}` | Owner xem chi tiết của mình |
 | POST | `/api/v1/owner/bookings/{id}/complete` | `CHECKED_IN` → `COMPLETED` |
-| POST | `/api/v1/payments/process` | Mock payment |
+| POST | `/api/v1/payments/process` | Simulated payment; accepts `booking_id`, `mock_result`, and optional `payment_method` (`MOCK`, `VNPAY`, `MOMO`, `ZALOPAY`; defaults to `MOCK`). The selected method is recorded, but external gateways are not connected. |
 | GET | `/api/v1/payments` và `/{id}` | Payment history của USER |
 | GET | `/api/v1/payments/report` | Owner-scoped hoặc system-wide payment/revenue report |
 | GET | `/api/v1/admin/bookings/summary` | Admin summary bookings |
