@@ -89,7 +89,7 @@ test("CSV includes UTF-8 BOM, numeric amounts, provider method, and escaped fiel
   assert.doesNotMatch(csv, /MUST_NOT_EXPORT|SECRET|User ID|idempotency/);
 });
 
-test("Owner and Admin Revenue pages share backend metrics and chart data without Demo fallback", () => {
+test("Owner and Admin Revenue pages share backend metrics without Demo fallback or chart UI", () => {
   assert.match(appSource, /\["revenue", "Revenue"/);
   assert.match(appSource, /\["admin-revenue", "Revenue"/);
   assert.match(appSource, /ManagementRevenueApi\.getReport\(filters\)/);
@@ -132,7 +132,7 @@ test("dashboard revenue is role-gated, uses independent loading/error states, an
   const cardEnd = appSource.indexOf("  function adminApiErrorMessage", cardStart);
   const card = appSource.slice(cardStart, cardEnd);
   const loaderStart = appSource.indexOf("  function loadRevenueReport(force)");
-  const loaderEnd = appSource.indexOf("  function revenueChart(points)", loaderStart);
+  const loaderEnd = appSource.indexOf("  function paymentMethodLabel(provider)", loaderStart);
   const loader = appSource.slice(loaderStart, loaderEnd);
   assert.match(card, /dataMode !== "api"/);
   assert.match(card, /authUser\.role !== "OWNER" && authUser\.role !== "ADMIN"/);
@@ -146,12 +146,11 @@ test("dashboard revenue is role-gated, uses independent loading/error states, an
   assert.match(appSource, /active === "admin-dashboard" && authUser && authUser\.role === "ADMIN"/);
   assert.match(appSource, /if \(active === "admin-dashboard" && dataMode === "api"\) loadAdminDashboardSummaries\(false\)/);
   const ownerRevenue = appSource.slice(appSource.indexOf("function revenuePage(active)"), appSource.indexOf("function peoplePage()"));
-  assert.match(ownerRevenue, /owner \? "" : '<div class="panel-card revenue-chart-card"/);
-  assert.match(ownerRevenue, /owner \? "" : '<label><span>Chart grouping/);
+  assert.doesNotMatch(ownerRevenue, /revenueChart|Revenue trend|Chart grouping|revenue-chart/);
 });
 
-test("Revenue chart and tables remain scrollable and responsive at narrow widths", () => {
-  assert.match(css, /\.revenue-chart-scroll \{ overflow-x: auto; \}/);
+test("Revenue tables remain scrollable and responsive at narrow widths without chart styles", () => {
+  assert.doesNotMatch(css, /revenue-chart|revenue-axis|revenue-grid-line|revenue-bar/);
   assert.match(css, /\.revenue-table \{ min-width: 880px; \}/);
   assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.revenue-filter-toolbar/);
   assert.match(css, /\.revenue-stat-grid \{ display: grid;/);

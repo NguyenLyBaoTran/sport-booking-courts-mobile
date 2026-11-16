@@ -61,17 +61,6 @@
     return display(range.date_from) + " – " + display(range.date_to);
   }
 
-  function chartDate(bucket, groupBy) {
-    var value = new Date(bucket + (groupBy === "month" ? "-01" : "") + "T00:00:00Z");
-    if (Number.isNaN(value.getTime())) return bucket;
-    return new Intl.DateTimeFormat("en-GB", {
-      timeZone: "UTC",
-      day: groupBy === "month" ? undefined : "2-digit",
-      month: "short",
-      year: groupBy === "month" ? "numeric" : undefined
-    }).format(value);
-  }
-
   function csvCell(value) {
     var text = value === null || value === undefined ? "" : String(value);
     return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
@@ -100,7 +89,6 @@
     rangeForPreset: rangeForPreset,
     initialFilters: initialFilters,
     periodLabel: periodLabel,
-    chartDate: chartDate,
     buildCsv: buildCsv
   };
 })();

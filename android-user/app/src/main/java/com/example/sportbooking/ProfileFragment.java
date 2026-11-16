@@ -7,21 +7,24 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
 
-import androidx.appcompat.app.AppCompatActivity;
+import androidx.annotation.NonNull;
+import androidx.fragment.app.Fragment;
 
 import com.example.sportbooking.api.ApiClient;
 import com.example.sportbooking.api.AuthApi;
 import com.example.sportbooking.api.model.UserResponse;
 import com.example.sportbooking.api.model.UserUpdateRequest;
 import com.example.sportbooking.auth.TokenStore;
-import com.example.sportbooking.utils.BottomNavUtils;
 
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
-public class ProfileActivity extends AppCompatActivity {
+public class ProfileFragment extends Fragment {
 
     private AuthApi authApi;
     private TextView tvProfileName, tvProfileEmail;
@@ -29,39 +32,32 @@ public class ProfileActivity extends AppCompatActivity {
     private Button btnSaveProfile, btnLogout;
 
     @Override
-    public void onBackPressed() {
-        BottomNavUtils.handleBack(this);
-    }
+    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        View root = inflater.inflate(R.layout.activity_profile, container, false);
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_profile);
+        authApi = ApiClient.getAuthApi(requireContext());
 
-        authApi = ApiClient.getAuthApi(this);
-
-        tvProfileName = findViewById(R.id.tvProfileName);
-        tvProfileEmail = findViewById(R.id.tvProfileEmail);
-        etFullName = findViewById(R.id.etFullName);
-        etEmail = findViewById(R.id.etEmail);
-        etPhone = findViewById(R.id.etPhone);
-        btnSaveProfile = findViewById(R.id.btnSaveProfile);
-        btnLogout = findViewById(R.id.btnLogout);
-
-        BottomNavUtils.setupBottomNav(this, R.id.navProfile);
+        tvProfileName = root.findViewById(R.id.tvProfileName);
+        tvProfileEmail = root.findViewById(R.id.tvProfileEmail);
+        etFullName = root.findViewById(R.id.etFullName);
+        etEmail = root.findViewById(R.id.etEmail);
+        etPhone = root.findViewById(R.id.etPhone);
+        btnSaveProfile = root.findViewById(R.id.btnSaveProfile);
+        btnLogout = root.findViewById(R.id.btnLogout);
 
         loadUserProfile();
 
         btnSaveProfile.setOnClickListener(v -> saveProfile());
 
         btnLogout.setOnClickListener(v -> {
-            TokenStore.clearToken(this);
-            getSharedPreferences("user_profile_prefs", MODE_PRIVATE).edit().clear().apply();
-            Intent intent = new Intent(this, LoginActivity.class);
+            TokenStore.clearToken(requireContext());
+            requireContext().getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE).edit().clear().apply();
+            Intent intent = new Intent(requireContext(), LoginActivity.class);
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(intent);
-            finish();
+            requireActivity().finish();
         });
+        return root;
     }
 
     private void saveProfile() {
@@ -69,7 +65,7 @@ public class ProfileActivity extends AppCompatActivity {
         String phone = etPhone.getText().toString().trim();
 
         if (TextUtils.isEmpty(name)) {
-            Toast.makeText(this, "Please enter your full name", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), "Please enter your full name", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -86,15 +82,16 @@ public class ProfileActivity extends AppCompatActivity {
 
                     tvProfileName.setText(updatedName);
 
-                    getSharedPreferences("user_profile_prefs", MODE_PRIVATE)
+                    requireContext().getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE)
                             .edit()
                             .putString("saved_full_name", updatedName)
                             .putString("saved_phone", updatedPhone)
                             .apply();
+                    ((MainActivity) requireActivity()).refreshHomeGreeting();
 
-                    Toast.makeText(ProfileActivity.this, "Profile updated successfully!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(requireContext(), "Profile updated successfully!", Toast.LENGTH_SHORT).show();
                 } else {
-                    Toast.makeText(ProfileActivity.this, "Failed to update profile", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(requireContext(), "Failed to update profile", Toast.LENGTH_SHORT).show();
                 }
             }
 
@@ -103,19 +100,20 @@ public class ProfileActivity extends AppCompatActivity {
                 btnSaveProfile.setEnabled(true);
                 // Fallback to local save if offline
                 tvProfileName.setText(name);
-                getSharedPreferences("user_profile_prefs", MODE_PRIVATE)
+                requireContext().getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE)
                         .edit()
                         .putString("saved_full_name", name)
                         .putString("saved_phone", phone)
                         .apply();
-                Toast.makeText(ProfileActivity.this, "Saved locally (offline)", Toast.LENGTH_SHORT).show();
+                ((MainActivity) requireActivity()).refreshHomeGreeting();
+                Toast.makeText(requireContext(), "Saved locally (offline)", Toast.LENGTH_SHORT).show();
             }
         });
     }
 
     private void loadUserProfile() {
-        String savedName = getSharedPreferences("user_profile_prefs", MODE_PRIVATE).getString("saved_full_name", null);
-        String savedPhone = getSharedPreferences("user_profile_prefs", MODE_PRIVATE).getString("saved_phone", null);
+        String savedName = requireContext().getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE).getString("saved_full_name", null);
+        String savedPhone = requireContext().getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE).getString("saved_phone", null);
 
         authApi.getCurrentUser().enqueue(new Callback<UserResponse>() {
             @Override
@@ -132,7 +130,7 @@ public class ProfileActivity extends AppCompatActivity {
                     etEmail.setText(!TextUtils.isEmpty(email) ? email : "");
                     etPhone.setText(!TextUtils.isEmpty(phone) ? phone : "");
 
-                    getSharedPreferences("user_profile_prefs", MODE_PRIVATE)
+                    requireContext().getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE)
                             .edit()
                             .putString("saved_full_name", name)
                             .putString("saved_phone", phone)

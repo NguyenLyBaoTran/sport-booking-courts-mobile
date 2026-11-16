@@ -12,7 +12,7 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
+import androidx.fragment.app.Fragment;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -20,7 +20,6 @@ import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.BookingRepository;
 import com.example.sportbooking.repository.CourtRepository;
 import com.example.sportbooking.repository.PaymentRepository;
-import com.example.sportbooking.utils.BottomNavUtils;
 import com.example.sportbooking.utils.CustomerUiUtils;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -32,7 +31,7 @@ import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 
-public class BookingsActivity extends AppCompatActivity {
+public class HistoryFragment extends Fragment {
 
     public static final String EXTRA_REFRESH_BOOKINGS = "refresh_bookings";
 
@@ -57,25 +56,24 @@ public class BookingsActivity extends AppCompatActivity {
     private boolean paymentsAvailable = true;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_bookings);
+    public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        View root = inflater.inflate(R.layout.activity_bookings, container, false);
 
-        bookingRepository = new BookingRepository(this);
-        paymentRepository = new PaymentRepository(this);
-        courtRepository = new CourtRepository(this);
+        bookingRepository = new BookingRepository(requireContext());
+        paymentRepository = new PaymentRepository(requireContext());
+        courtRepository = new CourtRepository(requireContext());
 
-        rvBookings = findViewById(R.id.rvBookings);
-        progressBar = findViewById(R.id.progressBar);
-        tvEmpty = findViewById(R.id.tvEmpty);
-        tabUpcoming = findViewById(R.id.tabUpcoming);
-        tabPast = findViewById(R.id.tabPast);
-        tvUpcoming = findViewById(R.id.tvUpcoming);
-        tvPast = findViewById(R.id.tvPast);
-        indicatorUpcoming = findViewById(R.id.indicatorUpcoming);
-        indicatorPast = findViewById(R.id.indicatorPast);
+        rvBookings = root.findViewById(R.id.rvBookings);
+        progressBar = root.findViewById(R.id.progressBar);
+        tvEmpty = root.findViewById(R.id.tvEmpty);
+        tabUpcoming = root.findViewById(R.id.tabUpcoming);
+        tabPast = root.findViewById(R.id.tabPast);
+        tvUpcoming = root.findViewById(R.id.tvUpcoming);
+        tvPast = root.findViewById(R.id.tvPast);
+        indicatorUpcoming = root.findViewById(R.id.indicatorUpcoming);
+        indicatorPast = root.findViewById(R.id.indicatorPast);
 
-        rvBookings.setLayoutManager(new LinearLayoutManager(this));
+        rvBookings.setLayoutManager(new LinearLayoutManager(requireContext()));
         bookingAdapter = createBookingAdapter(true);
         rvBookings.setAdapter(bookingAdapter);
 
@@ -94,9 +92,9 @@ public class BookingsActivity extends AppCompatActivity {
                 filterBookings();
             }
         });
-        setupBottomNav();
         loadHistory();
         loadCatalogueNames();
+        return root;
     }
 
     private void updateTabUi() {
@@ -109,26 +107,7 @@ public class BookingsActivity extends AppCompatActivity {
         indicatorPast.setBackgroundColor(selectedTab == 1 ? primaryColor : android.graphics.Color.TRANSPARENT);
     }
 
-    private void setupBottomNav() {
-        BottomNavUtils.setupBottomNav(this, R.id.navBookings);
-    }
-
-    @Override
-    protected void onResume() {
-        super.onResume();
-    }
-
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        if (intent.getBooleanExtra(EXTRA_REFRESH_BOOKINGS, false)) loadHistory();
-    }
-
-    @Override
-    public void onBackPressed() {
-        BottomNavUtils.handleBack(this);
-    }
+    public void refreshBookings() { if (isAdded()) loadHistory(); }
 
     private void filterBookings() {
         displayedBookings.clear();
@@ -154,13 +133,13 @@ public class BookingsActivity extends AppCompatActivity {
                 courtNames, venueNames, booking -> {
                     int id = booking.has("id") ? booking.get("id").getAsInt() : -1;
                     if (id <= 0) {
-                        Toast.makeText(this, "Invalid booking ID", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(requireContext(), "Invalid booking ID", Toast.LENGTH_SHORT).show();
                     } else if (CustomerUiUtils.isCompletedBooking(stringValue(booking, "status"))) {
                         openReceipt(booking);
                     } else {
                         loadBookingDetail(id);
                     }
-                });
+                }, booking -> confirmAndCancelBooking(booking));
     }
 
     private void loadHistory() {
@@ -250,7 +229,7 @@ public class BookingsActivity extends AppCompatActivity {
 
     private void openReceipt(JsonObject booking) {
         int bookingId = booking.get("id").getAsInt();
-        Intent intent = new Intent(this, BookingReceiptActivity.class);
+        Intent intent = new Intent(requireContext(), BookingReceiptActivity.class);
         intent.putExtra("booking_id", bookingId);
         JsonObject payment = paymentsByBooking.get(bookingId);
         if (payment != null) intent.putExtra("payment_json", payment.toString());
@@ -274,7 +253,7 @@ public class BookingsActivity extends AppCompatActivity {
                 String qrToken = booking.has("qr_token") && !booking.get("qr_token").isJsonNull()
                         ? booking.get("qr_token").getAsString() : null;
 
-                Intent intent = new Intent(BookingsActivity.this, BookingSuccessActivity.class);
+                Intent intent = new Intent(requireContext(), BookingSuccessActivity.class);
                 intent.putExtra("booking_id", bookingId);
                 intent.putExtra("qr_token", qrToken);
                 intent.putExtra("court_name", booking.has("court_id") && !booking.get("court_id").isJsonNull()
@@ -290,7 +269,7 @@ public class BookingsActivity extends AppCompatActivity {
             @Override
             public void onError(String error) {
                 progressBar.setVisibility(View.GONE);
-                Toast.makeText(BookingsActivity.this, error, Toast.LENGTH_LONG).show();
+                Toast.makeText(requireContext(), error, Toast.LENGTH_LONG).show();
             }
         });
     }
@@ -298,11 +277,11 @@ public class BookingsActivity extends AppCompatActivity {
     private void confirmAndCancelBooking(JsonObject booking) {
         int id = booking.has("id") ? booking.get("id").getAsInt() : -1;
         if (id <= 0) {
-            Toast.makeText(this, "Invalid booking ID", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), "Invalid booking ID", Toast.LENGTH_SHORT).show();
             return;
         }
 
-        new AlertDialog.Builder(this)
+        new AlertDialog.Builder(requireContext())
                 .setTitle("Cancel booking")
                 .setMessage("Cancel booking #" + id + "? The held time slot will be released.")
                 .setNegativeButton("Keep booking", null)
@@ -315,14 +294,14 @@ public class BookingsActivity extends AppCompatActivity {
         bookingRepository.cancelBooking(bookingId, new ApiCallback<JsonObject>() {
             @Override
             public void onSuccess(JsonObject result) {
-                Toast.makeText(BookingsActivity.this, "Booking cancelled", Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), "Booking cancelled", Toast.LENGTH_SHORT).show();
                 loadHistory();
             }
 
             @Override
             public void onError(String error) {
                 progressBar.setVisibility(View.GONE);
-                Toast.makeText(BookingsActivity.this, error, Toast.LENGTH_LONG).show();
+                Toast.makeText(requireContext(), error, Toast.LENGTH_LONG).show();
             }
         });
     }
@@ -335,15 +314,19 @@ public class BookingsActivity extends AppCompatActivity {
         private final Map<Integer, String> courtNames;
         private final Map<Integer, String> venueNames;
         private final OnBookingClickListener listener;
+        private final OnCancelBookingListener cancelListener;
 
         public interface OnBookingClickListener {
             void onBookingClick(JsonObject booking);
+        }
+        public interface OnCancelBookingListener {
+            void onCancelBooking(JsonObject booking);
         }
 
         public BookingAdapter(List<JsonObject> items, boolean isUpcoming,
                               Map<Integer, JsonObject> paymentsByBooking, boolean paymentsAvailable,
                               Map<Integer, String> courtNames, Map<Integer, String> venueNames,
-                              OnBookingClickListener listener) {
+                              OnBookingClickListener listener, OnCancelBookingListener cancelListener) {
             this.items = items;
             this.isUpcoming = isUpcoming;
             this.paymentsByBooking = paymentsByBooking;
@@ -351,6 +334,7 @@ public class BookingsActivity extends AppCompatActivity {
             this.courtNames = courtNames;
             this.venueNames = venueNames;
             this.listener = listener;
+            this.cancelListener = cancelListener;
         }
 
         @NonNull
@@ -404,7 +388,7 @@ public class BookingsActivity extends AppCompatActivity {
                 holder.btnViewTicket.setVisibility(View.GONE);
                 holder.btnCancelBooking.setVisibility(View.VISIBLE);
                 holder.btnCancelBooking.setEnabled(true);
-                holder.btnCancelBooking.setOnClickListener(v -> ((BookingsActivity) holder.itemView.getContext()).confirmAndCancelBooking(booking));
+                holder.btnCancelBooking.setOnClickListener(v -> { if (cancelListener != null) cancelListener.onCancelBooking(booking); });
                 holder.itemView.setOnClickListener(null);
             } else if (isUpcoming) {
                 holder.layoutButtonsRow.setVisibility(View.VISIBLE);
@@ -413,7 +397,7 @@ public class BookingsActivity extends AppCompatActivity {
                 holder.btnViewTicket.setVisibility(confirmedStatus ? View.VISIBLE : View.GONE);
                 holder.btnCancelBooking.setVisibility(canCancel ? View.VISIBLE : View.GONE);
                 holder.btnCancelBooking.setEnabled(canCancel);
-                holder.btnCancelBooking.setOnClickListener(v -> ((BookingsActivity) holder.itemView.getContext()).confirmAndCancelBooking(booking));
+                holder.btnCancelBooking.setOnClickListener(v -> { if (cancelListener != null) cancelListener.onCancelBooking(booking); });
                 holder.btnViewTicket.setOnClickListener(v -> { if (confirmedStatus && listener != null) listener.onBookingClick(booking); });
                 holder.itemView.setOnClickListener(v -> { if (confirmedStatus && listener != null) listener.onBookingClick(booking); });
             } else {

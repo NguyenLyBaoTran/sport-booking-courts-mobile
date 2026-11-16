@@ -382,7 +382,7 @@
     var options = revenuePresetOptions(revenueFilters.preset);
     var controls = '<div class="dashboard-revenue-controls"><label><span>Period</span><select class="form-select" data-dashboard-revenue-preset>' + options + '</select></label>' +
       (revenueFilters.preset === "specific-date" ? '<label><span>Date</span><input class="form-control" type="date" data-revenue-specific-date value="' + esc(revenueFilters.specific_date) + '"></label>' : "") +
-      (authUser.role === "ADMIN" ? '<label><span>Chart</span><select class="form-select" data-revenue-group><option value="day" ' + (revenueFilters.group_by === "day" ? "selected" : "") + '>Daily</option><option value="month" ' + (revenueFilters.group_by === "month" ? "selected" : "") + '>Monthly</option></select></label>' : "") + '</div>';
+      '</div>';
     var body = controls;
     if (state.status === "idle" || state.status === "loading") {
       body += '<div class="panel-body text-secondary" role="status">Loading revenue…</div>';
@@ -1808,11 +1808,6 @@
     Object.assign(revenueFilters, range, { specific_date: preset === "specific-date" ? specificDate : "", page: 1 });
     return loadRevenueReport(true);
   }
-  function setRevenueGroup(groupBy) {
-    revenueFilters.group_by = groupBy === "month" ? "month" : "day";
-    revenueFilters.page = 1;
-    return loadRevenueReport(true);
-  }
   function validRevenueReport(report) {
     var summary = report && report.summary;
     var transactions = report && report.transactions;
@@ -1846,39 +1841,6 @@
     });
     render();
     return revenueState.promise;
-  }
-  function revenueChart(points) {
-    if (!points.length) return '<div class="revenue-chart-empty" role="status">No dated successful payments in this period.</div>';
-    var width = Math.max(720, points.length * 54 + 150);
-    var height = 300;
-    var left = 132;
-    var right = 18;
-    var top = 20;
-    var bottom = 58;
-    var plotWidth = width - left - right;
-    var plotHeight = height - top - bottom;
-    var max = Math.max.apply(null, points.map(function (point) { return Number(point.revenue) || 0; })) || 1;
-    var ticks = [0, max / 2, max];
-    var grid = ticks.map(function (tick) {
-      var y = top + plotHeight - (tick / max) * plotHeight;
-      var label = new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", notation: "compact", maximumFractionDigits: 1 }).format(tick);
-      return '<line class="revenue-grid-line" x1="' + left + '" y1="' + y + '" x2="' + (width - right) + '" y2="' + y + '"></line><text class="revenue-axis-label" x="' + (left - 8) + '" y="' + (y + 4) + '" text-anchor="end">' + esc(label) + '</text>';
-    }).join("");
-    var step = plotWidth / points.length;
-    var barWidth = Math.min(32, step * 0.62);
-    var labelsEvery = Math.max(1, Math.ceil(points.length / 14));
-    var bars = points.map(function (point, index) {
-      var amount = Number(point.revenue) || 0;
-      var barHeight = amount ? Math.max(2, (amount / max) * plotHeight) : 0;
-      var x = left + index * step + (step - barWidth) / 2;
-      var y = top + plotHeight - barHeight;
-      var dateLabel = ManagementRevenueUtils.chartDate(point.bucket, revenueFilters.group_by);
-      var title = dateLabel + ": " + formatRevenueAmount(amount) + " · " + point.successful_payments + " successful payments";
-      var label = index % labelsEvery === 0 || index === points.length - 1 ? dateLabel : "";
-      return '<g><title>' + esc(title) + '</title><rect class="revenue-bar" x="' + x + '" y="' + y + '" width="' + barWidth + '" height="' + barHeight + '" rx="3"></rect>' +
-        (label ? '<text class="revenue-axis-label revenue-x-label" x="' + (x + barWidth / 2) + '" y="' + (height - 16) + '" text-anchor="middle">' + esc(label) + '</text>' : "") + '</g>';
-    }).join("");
-    return '<div class="revenue-chart-scroll"><svg class="revenue-chart" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Revenue by ' + (revenueFilters.group_by === "month" ? "month" : "day") + '"><text class="revenue-axis-title" x="0" y="16">Revenue (VND)</text>' + grid + bars + '</svg></div>';
   }
   function paymentMethodLabel(provider) {
     var value = typeof provider === "string" ? provider.trim() : "";
@@ -1931,7 +1893,6 @@
     var title = owner ? "revenue" : "admin-revenue";
     var toolbar = '<div class="revenue-filter-toolbar"><div class="revenue-preset-group" role="group" aria-label="Revenue date range">' + revenuePresetButtons(revenueFilters.preset) + '</div>' +
       (revenueFilters.preset === "specific-date" ? '<label class="revenue-specific-date"><span>Choose date</span><input class="form-control" type="date" data-revenue-specific-date value="' + esc(revenueFilters.specific_date) + '"></label>' : "") +
-      (owner ? "" : '<label><span>Chart grouping</span><select class="form-select" data-revenue-group><option value="day" ' + (revenueFilters.group_by === "day" ? "selected" : "") + '>Daily</option><option value="month" ' + (revenueFilters.group_by === "month" ? "selected" : "") + '>Monthly</option></select></label>') +
       '<label><span>Payment order</span><select class="form-select" data-revenue-sort><option value="desc" ' + (revenueFilters.sort === "desc" ? "selected" : "") + '>Newest first</option><option value="asc" ' + (revenueFilters.sort === "asc" ? "selected" : "") + '>Oldest first</option></select></label>' +
       '<button class="btn btn-success" type="button" data-revenue-export ' + (revenueExportState.status === "loading" || revenueState.status === "loading" ? "disabled" : "") + '>' + (revenueExportState.status === "loading" ? "Preparing CSV..." : "Export CSV") + '</button>' +
       '<span class="revenue-period-label" aria-live="polite">' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + '</span></div>';
@@ -1965,7 +1926,7 @@
         ? '<div class="table-wrap"><table class="table revenue-table"><thead><tr><th>Payment</th><th>Booking</th><th>Payment date</th><th>Amount</th><th>Payment status</th><th>Booking status</th><th>Method</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
           '<div class="table-foot"><span>Page ' + page + ' of ' + pageCount + ' · ' + report.transactions.total + ' transactions</span><div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-revenue-page="prev" ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><button type="button" class="btn btn-sm btn-outline-secondary" data-revenue-page="next" ' + (page >= pageCount ? 'disabled' : '') + '>Next</button></div></div>'
         : '<div class="panel-body text-secondary" role="status">No transactions are available for this period.</div>';
-      body = cards + (owner ? "" : '<div class="panel-card revenue-chart-card"><div class="panel-head"><div><h2>Revenue trend</h2><p>' + esc(ManagementRevenueUtils.periodLabel(revenueFilters)) + ' · ' + (revenueFilters.group_by === "month" ? "Monthly" : "Daily") + '</p></div></div><div class="panel-body">' + revenueChart(report.revenue_series) + '</div></div>') +
+      body = cards +
         '<div class="panel-card revenue-history-card"><div class="panel-head"><div><h2>Payment transactions</h2><p>PAID amounts count as revenue; pending and failed attempts do not.</p></div></div>' + history + '</div>';
     }
     var refresh = '<button class="btn btn-outline-secondary" type="button" data-revenue-refresh ' + (revenueState.status === "loading" ? "disabled" : "") + '><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>';
@@ -2242,9 +2203,6 @@
       input.addEventListener("change", function () {
         if (input.value) setRevenuePreset("specific-date", input.value);
       });
-    });
-    document.querySelectorAll("[data-revenue-group]").forEach(function (select) {
-      select.addEventListener("change", function () { setRevenueGroup(select.value); });
     });
     var revenueSort = document.querySelector("[data-revenue-sort]");
     if (revenueSort) revenueSort.addEventListener("change", function () {

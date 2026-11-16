@@ -113,7 +113,7 @@ test("Admin Users API Mode uses account APIs and revenue uses the reporting API"
   assert.match(revenue, /revenuePresetButtons\(revenueFilters\.preset\)/);
   assert.match(revenue, /data-revenue-specific-date/);
   assert.match(revenue, /data-revenue-export/);
-  assert.match(revenue, /revenueChart\(report\.revenue_series\)/);
+  assert.doesNotMatch(revenue, /revenueChart|Revenue trend|revenue-chart/);
   assert.match(revenue, /No transactions are available for this period/);
   assert.doesNotMatch(revenue, /Sample data|mock data|var values = \[42, 61/);
 });

@@ -3,10 +3,13 @@ package com.example.sportbooking;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.text.method.HideReturnsTransformationMethod;
+import android.text.method.PasswordTransformationMethod;
 import android.util.Patterns;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -44,6 +47,8 @@ public class LoginActivity extends AppCompatActivity {
     private EditText etPassword;
     private Button btnLogin;
     private Button btnGoogleLogin;
+    private ImageButton btnTogglePassword;
+    private boolean passwordVisible;
     private ProgressBar progressBar;
     private TextView tvError;
     private AuthApi authApi;
@@ -57,6 +62,7 @@ public class LoginActivity extends AppCompatActivity {
 
         etEmail = findViewById(R.id.etEmail);
         etPassword = findViewById(R.id.etPassword);
+        btnTogglePassword = findViewById(R.id.btnTogglePassword);
         btnLogin = findViewById(R.id.btnLogin);
         btnGoogleLogin = findViewById(R.id.btnGoogleLogin);
         progressBar = findViewById(R.id.progressBar);
@@ -70,6 +76,9 @@ public class LoginActivity extends AppCompatActivity {
         }
 
         btnLogin.setOnClickListener(v -> login());
+        if (btnTogglePassword != null) {
+            btnTogglePassword.setOnClickListener(v -> togglePasswordVisibility());
+        }
         if (btnGoogleLogin != null) {
             btnGoogleLogin.setOnClickListener(v -> handleGoogleLogin());
         }
@@ -92,6 +101,21 @@ public class LoginActivity extends AppCompatActivity {
                 startActivity(intent);
             });
         }
+    }
+
+    private void togglePasswordVisibility() {
+        int selectionStart = etPassword.getSelectionStart();
+        int selectionEnd = etPassword.getSelectionEnd();
+        passwordVisible = !passwordVisible;
+        etPassword.setTransformationMethod(passwordVisible
+                ? HideReturnsTransformationMethod.getInstance()
+                : PasswordTransformationMethod.getInstance());
+        int length = etPassword.getText().length();
+        etPassword.setSelection(Math.max(0, Math.min(selectionStart, length)),
+                Math.max(0, Math.min(selectionEnd, length)));
+        btnTogglePassword.setImageResource(passwordVisible ? R.drawable.ic_visibility_off : R.drawable.ic_visibility);
+        btnTogglePassword.setContentDescription(getString(passwordVisible
+                ? R.string.hide_password : R.string.show_password));
     }
 
     private void login() {

@@ -80,6 +80,27 @@ public class ExampleUnitTest {
     }
 
     @Test
+    public void homeAddressFilterCombinesWithSportAndHandlesMissingAddresses() {
+        assertTrue(CustomerUiUtils.matchesAddressFilter(" District   1, Ho Chi Minh City ", "district 1, ho chi minh city"));
+        assertFalse(CustomerUiUtils.matchesAddressFilter("District 2", "District 1"));
+        assertFalse(CustomerUiUtils.matchesAddressFilter(null, "District 1"));
+        assertTrue(CustomerUiUtils.matchesAddressFilter("", ""));
+
+        boolean matchingCourt = CustomerUiUtils.matchesCourtFilters("", "Court A", "Indoor",
+                "Central Arena District 1", "Badminton", 3, null, 7, 7)
+                && CustomerUiUtils.matchesAddressFilter("District 1", "District 1");
+        boolean wrongSport = CustomerUiUtils.matchesCourtFilters("", "Court A", "Indoor",
+                "Central Arena District 1", "Badminton", 3, null, 7, 8)
+                && CustomerUiUtils.matchesAddressFilter("District 1", "District 1");
+        boolean wrongAddress = CustomerUiUtils.matchesCourtFilters("", "Court A", "Indoor",
+                "Central Arena District 1", "Badminton", 3, null, 7, 7)
+                && CustomerUiUtils.matchesAddressFilter("District 1", "District 2");
+        assertTrue(matchingCourt);
+        assertFalse(wrongSport);
+        assertFalse(wrongAddress);
+    }
+
+    @Test
     public void checkInSuccessRequiresConfirmedBackendStatus() {
         assertTrue(BookingSuccessActivity.isCheckInConfirmed("CHECKED_IN"));
         assertFalse(BookingSuccessActivity.isCheckInConfirmed("CONFIRMED"));

@@ -57,6 +57,16 @@ public final class CustomerUiUtils {
                 || contains(sportName, needle);
     }
 
+    public static boolean matchesAddressFilter(String address, String selectedAddress) {
+        if (selectedAddress == null || selectedAddress.trim().isEmpty()) return true;
+        if (address == null || address.trim().isEmpty()) return false;
+        return normalizeAddress(address).equals(normalizeAddress(selectedAddress));
+    }
+
+    public static String normalizeAddress(String address) {
+        return address == null ? "" : address.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
     public static String formatAmount(String amount) {
         try {
             return NumberFormat.getNumberInstance(new Locale("vi", "VN"))

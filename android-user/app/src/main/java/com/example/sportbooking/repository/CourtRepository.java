@@ -40,7 +40,7 @@ public class CourtRepository {
             ApiCallback<JsonArray> callback
     ) {
         // Fetch the complete catalogue once per search refresh. Venue and sport
-        // filters are applied to this complete list in CourtSearchActivity.
+        // filters are applied to this complete list in HomeFragment.
         api.getCourts(null, null, null)
                 .enqueue(arrayCallback(callback));
     }
