@@ -129,7 +129,7 @@ public class ForgotPasswordActivity extends AppCompatActivity {
                         setLoading(false);
                         if (response.isSuccessful()) {
                             Toast.makeText(ForgotPasswordActivity.this, "Password reset successfully!", Toast.LENGTH_LONG).show();
-                            Intent intent = new Intent(ForgotPasswordActivity.this, LoginActivity.class);
+                            Intent intent = new Intent(ForgotPasswordActivity.this, AuthActivity.class);
                             intent.putExtra("registered_email", email);
                             intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                             startActivity(intent);

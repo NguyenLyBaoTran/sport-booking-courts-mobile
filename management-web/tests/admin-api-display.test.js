@@ -44,6 +44,20 @@ test("Admin API Mode uses paginated read-only booking and check-in endpoints wit
   assert.match(checkins, /var adminRows = data\.checkins/);
 });
 
+test("Admin and Owner wrapped tables use consistent readable cell spacing", () => {
+  assert.match(styles, /\.table-wrap \.table > :not\(caption\) > \* > \* \{ padding: 12px 14px; \}/);
+  assert.match(styles, /\.booking-list-table th, \.booking-list-table td \{ padding: 12px 14px !important;/);
+  for (const table of [
+    /<table class="table"><thead><tr><th>ID<\/th><th>Name<\/th><th>Email<\/th>/,
+    /class="table booking-list-table admin-booking-list-table"/,
+    /<table class="table"><thead><tr><th>Booking<\/th><th>Venue<\/th><th>Court<\/th><th>Checked in by<\/th>/,
+    /<table class="table revenue-table">/,
+    /<table class="table booking-list-table">/,
+    /<table class="table"><thead><tr><th>Date<\/th><th>Venue<\/th><th>Court<\/th><th>Sport<\/th>/
+  ]) assert.match(source, table);
+  assert.match(styles, /@media \(max-width: 600px\) \{[\s\S]*?\.table-wrap \{ overflow-x: auto;/);
+});
+
 test("Admin booking and check-in toolbars expose only supported, clearly named filters", () => {
   const bookings = section("  function bookingPage(active, admin)", "  function filteredDemoBookings()");
   const checkins = section("  function checkinPage(active, admin)", "  function setScanResult(");
@@ -125,6 +139,18 @@ test("Login copy is concise and does not reveal test credentials or implementati
   assert.match(login, /Sign in/);
   assert.doesNotMatch(login, /JWT|API Gateway|User Service|name@example\.com.{0,100}password/i);
   assert.doesNotMatch(login, /@example\.test|password123|admin@sportbooking/);
+  assert.match(login, /data-password-toggle/);
+  assert.match(login, /passwordInput\.selectionStart/);
+  assert.match(styles, /\.management-password-field/);
+});
+
+test("Owner booking tables paginate filtered API results with bounded page controls", () => {
+  assert.match(source, /var ownerBookingsPageSize = 25/);
+  assert.match(source, /ownerBookingsPage \* ownerBookingsPageSize/);
+  assert.match(source, /ownerBookingPagination\(apiBookings\.length\)/);
+  assert.match(source, /data-owner-page="prev"/);
+  assert.match(source, /data-owner-page="next"/);
+  assert.match(source, /ownerBookingsPage = 1/);
 });
 
 test("Owner and Admin navigation share a read-only Settings page without a duplicate sidebar identity", () => {

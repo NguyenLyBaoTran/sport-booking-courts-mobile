@@ -13,7 +13,9 @@ import android.widget.ImageButton;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
-import androidx.appcompat.app.AppCompatActivity;
+import androidx.fragment.app.Fragment;
+import android.view.LayoutInflater;
+import android.view.ViewGroup;
 
 import com.example.sportbooking.api.ApiClient;
 import com.example.sportbooking.api.AuthApi;
@@ -41,7 +43,7 @@ import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
-public class LoginActivity extends AppCompatActivity {
+public class LoginFragment extends Fragment {
 
     private EditText etEmail;
     private EditText etPassword;
@@ -54,53 +56,37 @@ public class LoginActivity extends AppCompatActivity {
     private AuthApi authApi;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.login_screen);
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        return inflater.inflate(R.layout.login_screen, container, false);
+    }
 
-        authApi = ApiClient.getAuthApi(this);
-
-        etEmail = findViewById(R.id.etEmail);
-        etPassword = findViewById(R.id.etPassword);
-        btnTogglePassword = findViewById(R.id.btnTogglePassword);
-        btnLogin = findViewById(R.id.btnLogin);
-        btnGoogleLogin = findViewById(R.id.btnGoogleLogin);
-        progressBar = findViewById(R.id.progressBar);
-        tvError = findViewById(R.id.tvError);
-
-        String registeredEmail =
-                getIntent().getStringExtra("registered_email");
-
-        if (registeredEmail != null) {
-            etEmail.setText(registeredEmail);
-        }
-
+    @Override
+    public void onViewCreated(View root, Bundle savedInstanceState) {
+        super.onViewCreated(root, savedInstanceState);
+        authApi = ApiClient.getAuthApi(requireContext());
+        etEmail = root.findViewById(R.id.etEmail);
+        etPassword = root.findViewById(R.id.etPassword);
+        btnTogglePassword = root.findViewById(R.id.btnTogglePassword);
+        btnLogin = root.findViewById(R.id.btnLogin);
+        btnGoogleLogin = root.findViewById(R.id.btnGoogleLogin);
+        progressBar = root.findViewById(R.id.progressBar);
+        tvError = root.findViewById(R.id.tvError);
+        Bundle arguments = getArguments();
+        String registeredEmail = arguments == null ? null : arguments.getString("registered_email");
+        if (registeredEmail != null) etEmail.setText(registeredEmail);
         btnLogin.setOnClickListener(v -> login());
-        if (btnTogglePassword != null) {
-            btnTogglePassword.setOnClickListener(v -> togglePasswordVisibility());
-        }
-        if (btnGoogleLogin != null) {
-            btnGoogleLogin.setOnClickListener(v -> handleGoogleLogin());
-        }
+        if (btnTogglePassword != null) btnTogglePassword.setOnClickListener(v -> togglePasswordVisibility());
+        if (btnGoogleLogin != null) btnGoogleLogin.setOnClickListener(v -> handleGoogleLogin());
+        View tabRegister = root.findViewById(R.id.tabRegister);
+        View tvGoRegister = root.findViewById(R.id.tvGoRegister);
+        View tvForgotPassword = root.findViewById(R.id.tvForgotPassword);
+        if (tabRegister != null) tabRegister.setOnClickListener(v -> openRegister());
+        if (tvGoRegister != null) tvGoRegister.setOnClickListener(v -> openRegister());
+        if (tvForgotPassword != null) tvForgotPassword.setOnClickListener(v -> startActivity(new Intent(requireContext(), ForgotPasswordActivity.class)));
+    }
 
-        View tabRegister = findViewById(R.id.tabRegister);
-        View tvGoRegister = findViewById(R.id.tvGoRegister);
-        View tvForgotPassword = findViewById(R.id.tvForgotPassword);
-
-        if (tabRegister != null) {
-            tabRegister.setOnClickListener(v -> openRegister());
-        }
-
-        if (tvGoRegister != null) {
-            tvGoRegister.setOnClickListener(v -> openRegister());
-        }
-
-        if (tvForgotPassword != null) {
-            tvForgotPassword.setOnClickListener(v -> {
-                Intent intent = new Intent(this, ForgotPasswordActivity.class);
-                startActivity(intent);
-            });
-        }
+    public void setRegisteredEmail(String email) {
+        if (etEmail != null && email != null) etEmail.setText(email);
     }
 
     private void togglePasswordVisibility() {
@@ -170,22 +156,11 @@ public class LoginActivity extends AppCompatActivity {
                         }
 
                         TokenStore.saveToken(
-                                LoginActivity.this,
+                                requireContext(),
                                 token
                         );
 
-                        Intent intent = new Intent(
-                                LoginActivity.this,
-                                MainActivity.class
-                        );
-
-                        intent.setFlags(
-                                Intent.FLAG_ACTIVITY_NEW_TASK
-                                        | Intent.FLAG_ACTIVITY_CLEAR_TASK
-                        );
-
-                        startActivity(intent);
-                        finish();
+                        ((AuthActivity) requireActivity()).onLoginSuccess();
                     }
 
                     @Override
@@ -204,9 +179,7 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void openRegister() {
-        startActivity(
-                new Intent(this, RegisterActivity.class)
-        );
+        ((AuthActivity) requireActivity()).showRegister();
     }
 
     private void setLoading(boolean loading) {
@@ -238,13 +211,13 @@ public class LoginActivity extends AppCompatActivity {
                 .addCredentialOption(googleOption)
                 .build();
 
-        CredentialManager credentialManager = CredentialManager.create(this);
+        CredentialManager credentialManager = CredentialManager.create(requireContext());
 
         credentialManager.getCredentialAsync(
-                this,
+                requireActivity(),
                 request,
                 null,
-                androidx.core.content.ContextCompat.getMainExecutor(this),
+                androidx.core.content.ContextCompat.getMainExecutor(requireContext()),
                 new CredentialManagerCallback<GetCredentialResponse, GetCredentialException>() {
                     @Override
                     public void onResult(GetCredentialResponse result) {
@@ -319,19 +292,16 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
 
-        TokenStore.saveToken(this, tokenResponse.getAccess_token());
+        TokenStore.saveToken(requireContext(), tokenResponse.getAccess_token());
 
         UserResponse user = tokenResponse.getUser();
-        getSharedPreferences("user_profile_prefs", MODE_PRIVATE)
+        requireContext().getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putString("saved_full_name", user.getFull_name())
                 .putString("saved_phone", user.getPhone())
                 .apply();
 
-        Intent intent = new Intent(this, MainActivity.class);
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        startActivity(intent);
-        finish();
+        ((AuthActivity) requireActivity()).onLoginSuccess();
     }
 
     private void showError(String message) {

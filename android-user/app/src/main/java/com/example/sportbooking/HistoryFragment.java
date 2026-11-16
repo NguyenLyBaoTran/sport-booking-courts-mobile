@@ -2,6 +2,7 @@ package com.example.sportbooking;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Parcelable;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -42,6 +43,7 @@ public class HistoryFragment extends Fragment {
     private ProgressBar progressBar;
     private TextView tvEmpty;
     private View tabUpcoming, tabPast;
+    private View refreshButton;
     private TextView tvUpcoming, tvPast;
     private View indicatorUpcoming, indicatorPast;
 
@@ -54,6 +56,11 @@ public class HistoryFragment extends Fragment {
     private int selectedTab = 0;
     private int historyRequestId;
     private boolean paymentsAvailable = true;
+    private boolean historyLoaded;
+    private boolean historyLoading;
+    private boolean refreshOnResume;
+    private long lastSuccessfulLoadAt;
+    private static final long HISTORY_STALE_AFTER_MS = 15_000L;
 
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
@@ -70,12 +77,14 @@ public class HistoryFragment extends Fragment {
         tabPast = root.findViewById(R.id.tabPast);
         tvUpcoming = root.findViewById(R.id.tvUpcoming);
         tvPast = root.findViewById(R.id.tvPast);
+        refreshButton = root.findViewById(R.id.btnRefreshBookings);
         indicatorUpcoming = root.findViewById(R.id.indicatorUpcoming);
         indicatorPast = root.findViewById(R.id.indicatorPast);
 
         rvBookings.setLayoutManager(new LinearLayoutManager(requireContext()));
         bookingAdapter = createBookingAdapter(true);
         rvBookings.setAdapter(bookingAdapter);
+        if (refreshButton != null) refreshButton.setOnClickListener(v -> refreshBookings());
 
         tabUpcoming.setOnClickListener(v -> {
             if (selectedTab != 0) {
@@ -92,9 +101,33 @@ public class HistoryFragment extends Fragment {
                 filterBookings();
             }
         });
-        loadHistory();
+        loadHistory(false);
         loadCatalogueNames();
         return root;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (!isVisible()) return;
+        if (refreshOnResume && !historyLoading) {
+            refreshOnResume = false;
+            loadHistory(historyLoaded);
+        } else {
+            refreshIfStale();
+        }
+    }
+
+    @Override
+    public void onPause() {
+        if (isVisible()) refreshOnResume = true;
+        super.onPause();
+    }
+
+    @Override
+    public void onHiddenChanged(boolean hidden) {
+        super.onHiddenChanged(hidden);
+        if (!hidden) refreshIfStale();
     }
 
     private void updateTabUi() {
@@ -107,7 +140,14 @@ public class HistoryFragment extends Fragment {
         indicatorPast.setBackgroundColor(selectedTab == 1 ? primaryColor : android.graphics.Color.TRANSPARENT);
     }
 
-    public void refreshBookings() { if (isAdded()) loadHistory(); }
+    public void refreshBookings() { if (isAdded()) loadHistory(true); }
+
+    private void refreshIfStale() {
+        if (!isAdded() || historyLoading) return;
+        if (!historyLoaded || System.currentTimeMillis() - lastSuccessfulLoadAt >= HISTORY_STALE_AFTER_MS) {
+            loadHistory(historyLoaded);
+        }
+    }
 
     private void filterBookings() {
         displayedBookings.clear();
@@ -142,33 +182,57 @@ public class HistoryFragment extends Fragment {
                 }, booking -> confirmAndCancelBooking(booking));
     }
 
-    private void loadHistory() {
+    private void loadHistory(boolean preservePosition) {
+        if (historyLoading || !isAdded() || rvBookings == null) return;
+        historyLoading = true;
+        Parcelable scrollState = preservePosition && rvBookings.getLayoutManager() != null
+                ? rvBookings.getLayoutManager().onSaveInstanceState() : null;
         final int requestId = ++historyRequestId;
         progressBar.setVisibility(View.VISIBLE);
-        tvEmpty.setVisibility(View.GONE);
-        tvEmpty.setText("No bookings found.");
-        allBookings.clear();
-        displayedBookings.clear();
-        paymentsByBooking.clear();
-        bookingAdapter.notifyDataSetChanged();
+        if (!historyLoaded) {
+            tvEmpty.setVisibility(View.GONE);
+            tvEmpty.setText("No bookings found.");
+        }
+        final List<JsonObject> refreshedBookings = new ArrayList<>();
+        final Map<Integer, JsonObject> refreshedPayments = new HashMap<>();
+        final boolean[] refreshedPaymentsAvailable = {true};
         final int[] pending = {2};
         final boolean[] bookingsFailed = {false};
         Runnable finishPart = () -> {
             pending[0] -= 1;
             if (pending[0] != 0 || requestId != historyRequestId) return;
+            historyLoading = false;
             progressBar.setVisibility(View.GONE);
             if (bookingsFailed[0]) {
-                tvEmpty.setText("Could not load bookings. Check your connection and try again.");
-                tvEmpty.setVisibility(View.VISIBLE);
+                if (!historyLoaded) {
+                    tvEmpty.setText("Could not load bookings. Check your connection and try again.");
+                    tvEmpty.setVisibility(View.VISIBLE);
+                } else {
+                    Toast.makeText(requireContext(), "Could not refresh bookings. Showing the last loaded results.", Toast.LENGTH_SHORT).show();
+                }
                 return;
             }
+            allBookings.clear();
+            allBookings.addAll(refreshedBookings);
+            paymentsByBooking.clear();
+            paymentsByBooking.putAll(refreshedPayments);
+            paymentsAvailable = refreshedPaymentsAvailable[0];
+            historyLoaded = true;
+            lastSuccessfulLoadAt = System.currentTimeMillis();
             filterBookings();
+            if (scrollState != null && rvBookings.getLayoutManager() != null) {
+                rvBookings.getLayoutManager().onRestoreInstanceState(scrollState);
+            }
+            if (refreshOnResume && isVisible() && isResumed()) {
+                refreshOnResume = false;
+                loadHistory(true);
+            }
         };
 
         bookingRepository.getBookings(new ApiCallback<JsonArray>() {
             @Override public void onSuccess(JsonArray result) {
                 if (requestId != historyRequestId) return;
-                for (int i = 0; i < result.size(); i++) allBookings.add(result.get(i).getAsJsonObject());
+                for (int i = 0; i < result.size(); i++) refreshedBookings.add(result.get(i).getAsJsonObject());
                 finishPart.run();
             }
             @Override public void onError(String error) {
@@ -186,13 +250,13 @@ public class HistoryFragment extends Fragment {
                     JsonObject payment = result.get(i).getAsJsonObject();
                     if (!payment.has("booking_id") || payment.get("booking_id").isJsonNull()) continue;
                     int bookingId = payment.get("booking_id").getAsInt();
-                    if (!paymentsByBooking.containsKey(bookingId)) paymentsByBooking.put(bookingId, payment);
+                    if (!refreshedPayments.containsKey(bookingId)) refreshedPayments.put(bookingId, payment);
                 }
                 finishPart.run();
             }
             @Override public void onError(String error) {
                 if (requestId != historyRequestId) return;
-                paymentsAvailable = false;
+                refreshedPaymentsAvailable[0] = false;
                 finishPart.run();
             }
         });
@@ -295,7 +359,7 @@ public class HistoryFragment extends Fragment {
             @Override
             public void onSuccess(JsonObject result) {
                 Toast.makeText(requireContext(), "Booking cancelled", Toast.LENGTH_SHORT).show();
-                loadHistory();
+                loadHistory(true);
             }
 
             @Override

@@ -10,7 +10,9 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AppCompatActivity;
+import androidx.fragment.app.Fragment;
+import android.view.LayoutInflater;
+import android.view.ViewGroup;
 
 import com.example.sportbooking.api.ApiClient;
 import com.example.sportbooking.api.AuthApi;
@@ -23,7 +25,7 @@ import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
-public class RegisterActivity extends AppCompatActivity {
+public class RegisterFragment extends Fragment {
 
     private EditText etFullName;
     private EditText etEmail;
@@ -34,31 +36,25 @@ public class RegisterActivity extends AppCompatActivity {
     private AuthApi authApi;
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.register_screen);
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        return inflater.inflate(R.layout.register_screen, container, false);
+    }
 
-        authApi = ApiClient.getAuthApi(this);
-
-        etFullName = findViewById(R.id.etFullName);
-        etEmail = findViewById(R.id.etEmail);
-        etPassword = findViewById(R.id.etPassword);
-        etConfirmPassword = findViewById(R.id.etConfirmPassword);
-        btnRegister = findViewById(R.id.btnRegister);
-        tvError = findViewById(R.id.tvError);
-
+    @Override
+    public void onViewCreated(View root, Bundle savedInstanceState) {
+        super.onViewCreated(root, savedInstanceState);
+        authApi = ApiClient.getAuthApi(requireContext());
+        etFullName = root.findViewById(R.id.etFullName);
+        etEmail = root.findViewById(R.id.etEmail);
+        etPassword = root.findViewById(R.id.etPassword);
+        etConfirmPassword = root.findViewById(R.id.etConfirmPassword);
+        btnRegister = root.findViewById(R.id.btnRegister);
+        tvError = root.findViewById(R.id.tvError);
         btnRegister.setOnClickListener(v -> register());
-
-        View tvGoLogin = findViewById(R.id.tvGoLogin);
-        View tvGoLoginBottom = findViewById(R.id.tvGoLoginBottom);
-
-        if (tvGoLogin != null) {
-            tvGoLogin.setOnClickListener(v -> finish());
-        }
-
-        if (tvGoLoginBottom != null) {
-            tvGoLoginBottom.setOnClickListener(v -> finish());
-        }
+        View tvGoLogin = root.findViewById(R.id.tvGoLogin);
+        View tvGoLoginBottom = root.findViewById(R.id.tvGoLoginBottom);
+        if (tvGoLogin != null) tvGoLogin.setOnClickListener(v -> ((AuthActivity) requireActivity()).showLogin(null));
+        if (tvGoLoginBottom != null) tvGoLoginBottom.setOnClickListener(v -> ((AuthActivity) requireActivity()).showLogin(null));
     }
 
     private void register() {
@@ -114,21 +110,12 @@ public class RegisterActivity extends AppCompatActivity {
 
                 if (response.code() == 201 && response.body() != null) {
                     Toast.makeText(
-                            RegisterActivity.this,
+                            requireContext(),
                             "Account created. Please log in.",
                             Toast.LENGTH_LONG
                     ).show();
 
-                    Intent intent = new Intent(
-                            RegisterActivity.this,
-                            LoginActivity.class
-                    );
-
-                    intent.putExtra("registered_email", email);
-                    intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-
-                    startActivity(intent);
-                    finish();
+                    ((AuthActivity) requireActivity()).showLogin(email);
                     return;
                 }
 

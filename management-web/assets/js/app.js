@@ -17,6 +17,9 @@
   var ownerDashboardBookingsPromise = null;
   var ownerDashboardBookingsRequestId = 0;
   var ownerBookingCompletionPending = false;
+  var ownerBookingsPage = 1;
+  var ownerBookingsPageSize = 25;
+  var ownerBookingSearchApplied = "";
   var venueSearch = "";
   var courtSearch = "";
   var sportSearch = "";
@@ -434,7 +437,9 @@
   function adminPagination(kind, result) {
     if (!result) return "";
     var pages = Math.max(1, Math.ceil(result.total / result.page_size));
-    return '<div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mt-3"><small class="text-secondary">Page ' + result.page + ' of ' + pages + ' · ' + result.total + ' records</small><div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-page="' + kind + '" data-page="' + Math.max(1, result.page - 1) + '" ' + (result.page <= 1 ? "disabled" : "") + '>Previous</button><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-page="' + kind + '" data-page="' + Math.min(pages, result.page + 1) + '" ' + (result.page >= pages ? "disabled" : "") + '>Next</button></div></div>';
+    var start = result.total ? (result.page - 1) * result.page_size + 1 : 0;
+    var end = Math.min(result.total, result.page * result.page_size);
+    return '<div class="table-foot table-pagination"><span>Showing ' + start + '–' + end + ' of ' + result.total + ' records · Page ' + result.page + ' of ' + pages + '</span><div class="d-flex gap-2"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-page="' + kind + '" data-page="' + Math.max(1, result.page - 1) + '" ' + (result.page <= 1 ? "disabled" : "") + '>Previous</button><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-page="' + kind + '" data-page="' + Math.min(pages, result.page + 1) + '" ' + (result.page >= pages ? "disabled" : "") + '>Next</button></div></div>';
   }
   function adminListState(state) {
     if (state.status === "idle" || state.status === "loading") return '<div class="panel-body text-secondary" role="status">Loading records...</div>';
@@ -618,6 +623,7 @@
         render();
       } else if (pickerId === "booking-filter") {
         bookingDate = selectedDate;
+        ownerBookingsPage = 1;
         setCalendarDate(picker, selectedDate);
         closeCalendarPicker(picker, false);
         if (dataMode === "demo") applyBookingFilters();
@@ -891,12 +897,25 @@
       '<div class="login-art-foot">Sports Court Booking Management</div></section>' +
       '<section class="login-form-side"><form class="login-card" id="login-form" novalidate><p class="eyebrow">Welcome back</p><h2>Sign in to your account</h2><p>Access your management workspace.</p>' +
       '<label class="form-label" for="login-email">Email address</label><input class="form-control" id="login-email" type="email" autocomplete="username" value="' + esc(loginEmailValue) + '" placeholder="name@example.com" required>' +
-      '<label class="form-label" for="login-password">Password</label><input class="form-control" id="login-password" type="password" autocomplete="current-password" required placeholder="Enter your password">' +
+      '<label class="form-label" for="login-password">Password</label><div class="management-password-field"><input class="form-control" id="login-password" type="password" autocomplete="current-password" required placeholder="Enter your password"><button class="password-visibility-toggle" type="button" data-password-toggle aria-label="Show password" aria-pressed="false"><i class="bi bi-eye" aria-hidden="true"></i></button></div>' +
       '<button class="btn btn-success w-100" type="submit" data-login-submit>Sign in <i class="bi bi-arrow-right ms-1"></i></button>' +
       (authMessage ? '<div class="alert alert-danger mt-3" role="alert">' + esc(authMessage) + '</div>' : '');
 
     var emailInput = document.getElementById("login-email");
     emailInput.addEventListener("input", function () { loginEmailValue = emailInput.value; });
+    var passwordInput = document.getElementById("login-password");
+    var passwordToggle = document.querySelector("[data-password-toggle]");
+    if (passwordToggle) passwordToggle.addEventListener("click", function () {
+      var start = passwordInput.selectionStart;
+      var end = passwordInput.selectionEnd;
+      var reveal = passwordInput.type === "password";
+      passwordInput.type = reveal ? "text" : "password";
+      passwordToggle.setAttribute("aria-label", reveal ? "Hide password" : "Show password");
+      passwordToggle.setAttribute("aria-pressed", String(reveal));
+      passwordToggle.innerHTML = '<i class="bi ' + (reveal ? "bi-eye-slash" : "bi-eye") + '" aria-hidden="true"></i>';
+      passwordInput.focus();
+      if (start !== null && end !== null) passwordInput.setSelectionRange(start, end);
+    });
     document.getElementById("login-form").addEventListener("submit", function (event) {
       event.preventDefault();
       var email = emailInput.value.trim();
@@ -1152,7 +1171,14 @@
         if (!ownerBookingsState.data.length) {
           var filtersActive = bookingVenueId || bookingDate || bookingStatus;
           apiContent = '<div class="panel-body text-secondary" role="status">' + (filtersActive ? "No bookings match these filters." : "No bookings are available for your venues.") + '</div>';
-        } else apiContent = '<div class="table-wrap booking-list-table-wrap"><table class="table booking-list-table"><thead><tr><th>Booking ID</th><th>User ID</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Total amount</th><th>Status</th><th>Actions</th></tr></thead><tbody id="owner-booking-rows" aria-live="polite">' + ownerBookingRowsMarkup(apiBookings) + '</tbody></table></div><div class="table-foot" data-booking-count>Showing ' + apiBookings.length + ' of ' + ownerBookingsState.data.length + ' bookings</div>';
+        } else if (!apiBookings.length) {
+          apiContent = '<div class="panel-body text-secondary" role="status">No bookings match this search.</div>';
+        } else {
+          var totalBookingPages = Math.max(1, Math.ceil(apiBookings.length / ownerBookingsPageSize));
+          ownerBookingsPage = Math.min(ownerBookingsPage, totalBookingPages);
+          var pageBookings = apiBookings.slice((ownerBookingsPage - 1) * ownerBookingsPageSize, ownerBookingsPage * ownerBookingsPageSize);
+          apiContent = '<div class="table-wrap booking-list-table-wrap"><table class="table booking-list-table"><thead><tr><th>Booking ID</th><th>User ID</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Total amount</th><th>Status</th><th>Actions</th></tr></thead><tbody id="owner-booking-rows" aria-live="polite">' + ownerBookingRowsMarkup(pageBookings) + '</tbody></table></div>' + ownerBookingPagination(apiBookings.length);
+        }
       }
       return heading(active, bookingRefreshAction) + bookingModeNotice() + panel("Owner bookings", apiToolbar + apiContent, "", "", "calendar-panel-card");
     }
@@ -1211,6 +1237,21 @@
       return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.user_id) + '</td><td><span class="booking-location-cell" title="' + esc(venue) + '">' + esc(venue) + '</span></td><td><span class="booking-location-cell" title="' + esc(court) + '">' + esc(court) + '</span></td><td>' + apiDate(booking.slot_date) + '</td><td><span class="booking-time-cell" title="' + esc(timeRange) + '">' + timeRange + '</span></td><td>' + esc(formatBookingAmount(Number(booking.total_amount))) + '</td><td>' + statusBadge(booking.status) + '</td><td class="table-actions"><div class="table-action-group"><button class="btn btn-sm btn-outline-secondary" type="button" data-booking-detail="' + esc(booking.id) + '">Details</button>' + complete + '</div></td></tr>';
     }).join("");
   }
+  function ownerBookingPagination(total) {
+    var pages = Math.max(1, Math.ceil(total / ownerBookingsPageSize));
+    var start = total ? (ownerBookingsPage - 1) * ownerBookingsPageSize + 1 : 0;
+    var end = Math.min(total, ownerBookingsPage * ownerBookingsPageSize);
+    return '<div class="table-foot"><span>Showing ' + start + '–' + end + ' of ' + total + ' bookings · Page ' + ownerBookingsPage + ' of ' + pages + '</span><div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-owner-page="prev" ' + (ownerBookingsPage <= 1 ? 'disabled' : '') + '>Previous</button><button type="button" class="btn btn-sm btn-outline-secondary" data-owner-page="next" ' + (ownerBookingsPage >= pages ? 'disabled' : '') + '>Next</button></div></div>';
+  }
+  function wireOwnerPagination() {
+    document.querySelectorAll("[data-owner-page]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        ownerBookingsPage += button.dataset.ownerPage === "next" ? 1 : -1;
+        ownerBookingsPage = Math.max(1, ownerBookingsPage);
+        render();
+      });
+    });
+  }
   function bookingRowsMarkup(bookings) {
     if (!bookings.length) return '<tr><td colspan="9" class="text-secondary">No bookings match these filters.</td></tr>';
     return bookings.map(function (booking) {
@@ -1225,9 +1266,17 @@
     bookingSearch = (document.querySelector("[data-booking-search]") || {}).value || "";
     if (dataMode !== "demo") {
       var apiBookings = filteredOwnerBookings();
-      rows.innerHTML = ownerBookingRowsMarkup(apiBookings);
-      var apiCount = document.querySelector("[data-booking-count]");
-      if (apiCount) apiCount.textContent = "Showing " + apiBookings.length + " of " + ownerBookingsState.data.length + " bookings";
+      if (bookingSearch !== ownerBookingSearchApplied) {
+        ownerBookingsPage = 1;
+        ownerBookingSearchApplied = bookingSearch;
+      }
+      var pageCount = Math.max(1, Math.ceil(apiBookings.length / ownerBookingsPageSize));
+      ownerBookingsPage = Math.min(ownerBookingsPage, pageCount);
+      rows.innerHTML = ownerBookingRowsMarkup(apiBookings.slice((ownerBookingsPage - 1) * ownerBookingsPageSize, ownerBookingsPage * ownerBookingsPageSize));
+      var apiPanel = rows.closest(".panel-card");
+      var apiFoot = apiPanel && apiPanel.querySelector(".table-foot");
+      if (apiFoot) apiFoot.outerHTML = ownerBookingPagination(apiBookings.length);
+      wireOwnerPagination();
       return;
     }
     var bookingDateInput = document.querySelector("[data-booking-date]");
@@ -2434,17 +2483,21 @@
     var bookingStatusInput = document.querySelector("[data-booking-status]");
     if (bookingStatusInput) bookingStatusInput.addEventListener("change", function () {
       bookingStatus = bookingStatusInput.value || "";
+      ownerBookingsPage = 1;
       if (dataMode === "demo") applyBookingFilters();
       else loadOwnerBookings();
     });
     var bookingVenueInput = document.querySelector("[data-booking-venue]");
     if (bookingVenueInput) bookingVenueInput.addEventListener("change", function () {
       bookingVenueId = bookingVenueInput.value || "";
+      ownerBookingsPage = 1;
       loadOwnerBookings();
     });
     var bookingClear = document.querySelector("[data-booking-clear]");
     if (bookingClear) bookingClear.addEventListener("click", function () {
       bookingSearch = ""; bookingDate = ""; bookingStatus = ""; bookingVenueId = "";
+      ownerBookingsPage = 1;
+      ownerBookingSearchApplied = "";
       if (bookingSearchInput) bookingSearchInput.value = "";
       var bookingDatePicker = document.querySelector('[data-calendar-picker][data-calendar-id="booking-filter"]');
       if (bookingDatePicker) { setCalendarDate(bookingDatePicker, ""); closeCalendarPicker(bookingDatePicker, false); }
@@ -2457,6 +2510,7 @@
     document.querySelectorAll("[data-booking-retry]").forEach(function (button) {
       button.addEventListener("click", loadOwnerBookings);
     });
+    wireOwnerPagination();
     var bookingRowsHost = document.getElementById("owner-booking-rows");
     if (bookingRowsHost) bookingRowsHost.addEventListener("click", function (event) {
       var detailButton = event.target.closest("[data-booking-detail]");

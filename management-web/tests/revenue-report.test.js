@@ -154,4 +154,9 @@ test("Revenue tables remain scrollable and responsive at narrow widths without c
   assert.match(css, /\.revenue-table \{ min-width: 880px; \}/);
   assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.revenue-filter-toolbar/);
   assert.match(css, /\.revenue-stat-grid \{ display: grid;/);
+  assert.match(css, /\.dashboard-revenue-total \{[^}]*padding: 16px 18px 18px;/);
+  assert.match(css, /\.revenue-stat-grid \.stat-card \{ display: flex; min-width: 0; min-height: 128px; flex-direction: column; padding: 18px 18px 22px; \}/);
+  assert.match(css, /\.revenue-stat-grid \.stat-top > span:first-child \{ min-width: 0; line-height: 1\.35; \}/);
+  assert.match(css, /\.revenue-stat-grid \.stat-value \{ margin-top: auto; padding-top: 12px; \}/);
+  assert.match(css, /\.revenue-stat-grid \.stat-card \{ min-height: 120px; padding: 14px 13px 18px; \}/);
 });

@@ -52,7 +52,7 @@ public class ProfileFragment extends Fragment {
         btnLogout.setOnClickListener(v -> {
             TokenStore.clearToken(requireContext());
             requireContext().getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE).edit().clear().apply();
-            Intent intent = new Intent(requireContext(), LoginActivity.class);
+            Intent intent = new Intent(requireContext(), AuthActivity.class);
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(intent);
             requireActivity().finish();
