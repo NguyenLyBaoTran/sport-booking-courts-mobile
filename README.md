@@ -245,7 +245,3 @@ Không dùng `down -v` như cách sửa lỗi khởi động. Trước khi dọn
 - **Gmail SMTP authentication failed:** kiểm tra `smtp.gmail.com`, cổng `587`, `SMTP_STARTTLS=true`, username/from và App Password; xác nhận 2-Step Verification và chính sách tài khoản cho phép App Password.
 - **Gradle Sync/build lỗi:** xem nguyên nhân đầu tiên trong Build Output, kiểm tra JDK/SDK theo Gradle Wrapper; không xóa global Gradle cache như bước xử lý đầu tiên.
 - **Compose báo thiếu biến:** xác nhận root `.env` tồn tại và các giá trị bắt buộc đã cấu hình; không dán secret vào issue/log công khai.
-
-## Tài liệu
-
-Tài liệu kỹ thuật dành cho kiến trúc, yêu cầu, API, database, nghiệp vụ và giới hạn hiện tại nằm trong [PROJECT_DOCUMENTATION.md](docs/PROJECT_DOCUMENTATION.md). README này là hướng dẫn duy nhất để cài đặt và chạy dự án. Các file contract và requirements trong `docs/` là tài liệu tham chiếu, không cần mở để làm theo quy trình setup ở đây.
