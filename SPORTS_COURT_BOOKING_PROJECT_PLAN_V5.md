@@ -299,9 +299,9 @@ Giữ prefix `/api/v1`; JSON `snake_case`; ID integer; tiền integer VND; date 
 
 | S1 | S2 | Bàn giao chung |
 |---|---|---|
-| Android regression, screenshots, User/Booking/Payment tests, report phần S1 | Web/Gateway/Court/QR tests, clean DB setup, README, tổng hợp report | E2E demo từ database sạch, test service unavailable/timeout, source/diagram/report khớp nhau |
+| Android regression, screenshots, User/Booking/Payment tests, report phần S1 | Web/Gateway/Court/QR tests, clean DB setup, README, tổng hợp report | manual end-to-end demo từ database sạch, test service unavailable/timeout, source/diagram/report khớp nhau |
 
-**Customer Web SOA chỉ làm sau khi Mobile E2E ổn định**; nếu còn thời gian, Customer Web chỉ cần tái sử dụng API hiện có. **Payment Gateway tùy chọn chỉ sau tất cả phần bắt buộc.**
+**Customer Web SOA chỉ làm sau khi mobile flow ổn định**; nếu còn thời gian, Customer Web chỉ cần tái sử dụng API hiện có. **Payment Gateway tùy chọn chỉ sau tất cả phần bắt buộc.**
 
 ## 8. Git và kế hoạch migration từ V4
 
@@ -408,7 +408,7 @@ Lưu **source `.puml/.dbml/.drawio` + PNG/SVG**; không ghi diagram phản ánh 
 | T12 | Complete rồi Review | Chỉ review COMPLETED, một review | S1 |
 | T13 | User gọi Admin/Owner API | 403 | S1+S2 |
 | T14 | Court Service timeout/unavailable | Booking trả lỗi có kiểm soát, không tạo booking sai | S1+S2 |
-| T15 | Android E2E qua Gateway | Search→Booking→Payment→QR→Check-in→Review | Cả hai |
+| T15 | Android full manual flow qua Gateway | Search→Booking→Payment→QR→Check-in→Review | Cả hai |
 | T16 | Setup từ 4 DB sạch | Migration + seed + run services thành công | Cả hai |
 
 ### 10.2. Acceptance criteria
