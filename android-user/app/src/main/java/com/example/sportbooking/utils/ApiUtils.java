@@ -25,7 +25,6 @@ public final class ApiUtils {
                     return obj.get(key).getAsJsonArray();
                 }
             }
-            // If object has no array key but is not empty, wrap it or return empty
         }
         return new JsonArray();
     }
