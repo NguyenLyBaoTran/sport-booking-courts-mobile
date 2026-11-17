@@ -1,18 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="@color/background">
+    android:background="@color/surface">
 
-    <LinearLayout
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:background="@color/surface">
 
         <FrameLayout
+            android:id="@+id/heroHeader"
             android:layout_width="match_parent"
-            android:layout_height="190dp"
+            android:layout_height="250dp"
             android:background="@color/primary_dark">
 
             <ImageView
@@ -31,15 +33,15 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:paddingStart="22dp"
-                android:paddingTop="24dp">
+                android:paddingStart="26dp"
+                android:paddingTop="36dp">
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/hero_title_first"
                     android:textColor="@color/surface"
-                    android:textSize="28sp"
+                    android:textSize="32sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -48,31 +50,33 @@
                     android:layout_marginTop="5dp"
                     android:text="@string/hero_title_second"
                     android:textColor="@color/surface"
-                    android:textSize="28sp"
+                    android:textSize="32sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="5dp"
+                    android:layout_marginTop="8dp"
                     android:text="@string/hero_subtitle"
                     android:textColor="@color/text_on_image"
-                    android:textSize="14sp" />
+                    android:textSize="16sp" />
 
             </LinearLayout>
         </FrameLayout>
 
         <LinearLayout
+            android:id="@+id/cardLogin"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="-18dp"
+            android:layout_height="match_parent"
+            android:layout_below="@id/heroHeader"
+            android:layout_marginTop="-28dp"
             android:background="@drawable/bg_login_card"
             android:elevation="8dp"
             android:orientation="vertical"
-            android:paddingStart="20dp"
+            android:paddingStart="24dp"
             android:paddingTop="16dp"
-            android:paddingEnd="20dp"
-            android:paddingBottom="20dp">
+            android:paddingEnd="24dp"
+            android:paddingBottom="28dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -137,7 +141,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="18dp"
                 android:text="@string/email"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp"
@@ -145,7 +149,7 @@
 
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
+                android:layout_height="52dp"
                 android:layout_marginTop="8dp"
                 android:background="@drawable/bg_input"
                 android:gravity="center_vertical"
@@ -178,7 +182,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="13dp"
+                android:layout_marginTop="18dp"
                 android:text="@string/password"
                 android:textColor="@color/text_primary"
                 android:textSize="14sp"
@@ -186,7 +190,7 @@
 
             <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
+                android:layout_height="52dp"
                 android:layout_marginTop="8dp"
                 android:background="@drawable/bg_input"
                 android:gravity="center_vertical"
@@ -222,7 +226,7 @@
                     android:contentDescription="@string/show_password"
                     android:padding="10dp"
                     android:src="@drawable/ic_visibility"
-                    android:tint="@color/text_secondary" />
+                    app:tint="@color/text_secondary" />
 
             </LinearLayout>
 
@@ -231,7 +235,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="end"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="12dp"
                 android:text="@string/forgot_password"
                 android:textColor="@color/primary"
                 android:textSize="13sp"
@@ -240,8 +244,8 @@
             <Button
                 android:id="@+id/btnLogin"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:layout_marginTop="16dp"
+                android:layout_height="52dp"
+                android:layout_marginTop="22dp"
                 android:backgroundTint="@color/primary"
                 android:text="@string/login"
                 android:textAllCaps="false"
@@ -252,8 +256,8 @@
             <Button
                 android:id="@+id/btnGoogleLogin"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
-                android:layout_marginTop="8dp"
+                android:layout_height="52dp"
+                android:layout_marginTop="10dp"
                 android:backgroundTint="@color/surface"
                 android:text="Sign in with Google"
                 android:textAllCaps="false"
@@ -292,7 +296,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="22dp"
                 android:gravity="center"
                 android:orientation="horizontal">
 
@@ -316,5 +320,5 @@
             </LinearLayout>
 
         </LinearLayout>
-    </LinearLayout>
+    </RelativeLayout>
 </ScrollView>

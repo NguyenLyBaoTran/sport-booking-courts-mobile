@@ -3,14 +3,15 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="@color/background">
+    android:background="@color/surface">
 
-    <LinearLayout
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:background="@color/surface">
 
         <FrameLayout
+            android:id="@+id/heroHeader"
             android:layout_width="match_parent"
             android:layout_height="250dp"
             android:background="@color/primary_dark">
@@ -63,8 +64,10 @@
         </FrameLayout>
 
         <LinearLayout
+            android:id="@+id/cardRegister"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_below="@id/heroHeader"
             android:layout_marginTop="-28dp"
             android:background="@drawable/bg_login_card"
             android:elevation="8dp"
@@ -264,5 +267,5 @@
             </LinearLayout>
 
         </LinearLayout>
-    </LinearLayout>
+    </RelativeLayout>
 </ScrollView>
