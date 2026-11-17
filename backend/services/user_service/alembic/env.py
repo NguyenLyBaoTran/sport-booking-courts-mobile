@@ -1,19 +1,16 @@
-import os
 from logging.config import fileConfig
-from pathlib import Path
 
 from alembic import context
-from dotenv import load_dotenv
 from sqlalchemy import engine_from_config, pool
 
+from app.db_config import user_database_url
 from app.models import User
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-load_dotenv(Path(__file__).resolve().parents[3] / ".env")
-database_url = os.getenv("USER_DATABASE_URL")
+database_url = user_database_url()
 if not database_url:
     raise RuntimeError("USER_DATABASE_URL must be configured before running migrations")
 config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))

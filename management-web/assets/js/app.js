@@ -670,6 +670,9 @@
     var parts = String(value || "").split("-");
     return parts.length === 3 ? esc(parts[2] + "/" + parts[1] + "/" + parts[0]) : esc(value || "");
   }
+  function apiDateTime(value) {
+    return esc(ManagementDateTimeUtils.formatVietnamDateTime(value));
+  }
   function formatPriceVnd(value) {
     var parts = String(value === null || value === undefined ? "" : value).split(".");
     var whole = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -1141,7 +1144,7 @@
             var venue = booking.venue_id === null ? "Venue unavailable" : "Venue #" + booking.venue_id;
             var court = booking.court_id === null ? "Court unavailable" : "Court #" + booking.court_id;
       var timeRange = apiTime(booking.start_time) + " - " + apiTime(booking.end_time);
-            return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.user_id) + '</td><td>' + esc(booking.owner_id) + '</td><td><span class="booking-location-cell" title="' + esc(venue) + '">' + esc(venue) + '</span></td><td><span class="booking-location-cell" title="' + esc(court) + '">' + esc(court) + '</span></td><td>' + apiDate(booking.slot_date) + '</td><td><span class="booking-time-cell" title="' + esc(timeRange) + '">' + esc(timeRange) + '</span></td><td>' + statusBadge(booking.status) + '</td><td>' + esc(booking.total_amount) + '</td><td class="table-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-booking-detail="' + esc(booking.id) + '">Details</button></td></tr>';
+            return '<tr><td class="table-primary-text">' + esc(booking.id) + '</td><td>' + esc(booking.user_id) + '</td><td>' + esc(booking.owner_id) + '</td><td><span class="booking-location-cell" title="' + esc(venue) + '">' + esc(venue) + '</span></td><td><span class="booking-location-cell" title="' + esc(court) + '">' + esc(court) + '</span></td><td>' + apiDate(booking.slot_date) + '</td><td><span class="booking-time-cell" title="' + esc(timeRange) + '">' + esc(timeRange) + '</span></td><td>' + statusBadge(booking.status) + '</td><td>' + esc(formatBookingAmount(Number(booking.total_amount))) + '</td><td class="table-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-booking-detail="' + esc(booking.id) + '">Details</button></td></tr>';
           }).join("");
           content = '<div class="table-wrap booking-list-table-wrap"><table class="table booking-list-table admin-booking-list-table"><thead><tr><th>Booking</th><th>User</th><th>Owner</th><th>Venue</th><th>Court</th><th>Date</th><th>Time</th><th>Status</th><th>Amount</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' + adminPagination("bookings", adminBookingsState.data);
         }
@@ -1364,9 +1367,12 @@
     var bookingRows = apiBooking
       ? [["Venue ID", booking.venue_id], ["Court ID", booking.court_id], ["Time Slot ID", booking.time_slot_id], ["Date", apiDate(booking.slot_date)], ["Time", booking.start_time + " - " + booking.end_time], ["Total amount", formatBookingAmount(Number(booking.total_amount))]]
       : [["Venue", booking.venue], ["Court", booking.court], ["Date", apiDate(booking.date)], ["Time", booking.start_time + " - " + booking.end_time], ["Total amount", formatBookingAmount(booking.total_amount)]];
-    if (apiBooking && booking.expires_at) bookingRows.push(["Expires at", booking.expires_at]);
-    if (apiBooking && booking.created_at) bookingRows.push(["Created at", booking.created_at]);
+    if (apiBooking && booking.expires_at) bookingRows.push(["Expires at", apiDateTime(booking.expires_at)]);
+    if (apiBooking && booking.created_at) bookingRows.push(["Created at", apiDateTime(booking.created_at)]);
     var statusRows = [];
+    if (apiBooking && booking.confirmed_at) statusRows.push(["Confirmed at", apiDateTime(booking.confirmed_at)]);
+    if (apiBooking && booking.checked_in_at) statusRows.push(["Checked in at", apiDateTime(booking.checked_in_at)]);
+    if (apiBooking && booking.completed_at) statusRows.push(["Completed at", apiDateTime(booking.completed_at)]);
     if (!apiBooking && booking.payment_status) statusRows.push(["Payment", booking.payment_status]);
     if (!apiBooking && booking.checkin_status) statusRows.push(["QR check-in", booking.checkin_status]);
     function detailSection(title, rows) {
@@ -1429,7 +1435,10 @@
     if (!host) { host = document.createElement("div"); host.id = "admin-record-modal-host"; document.body.appendChild(host); }
     var rows = fields.filter(function (field) { return record[field[0]] !== undefined && record[field[0]] !== null; }).map(function (field) {
       var nowrap = /date|time|^start$|^end$/i.test(field[1]) ? " detail-value--nowrap" : "";
-      return '<div class="detail-row"><span>' + esc(field[1]) + '</span><strong class="detail-value' + nowrap + '">' + esc(record[field[0]]) + '</strong></div>';
+      var value = field[0].endsWith("_at")
+        ? apiDateTime(record[field[0]])
+        : (field[0].endsWith("_date") ? apiDate(record[field[0]]) : esc(record[field[0]]));
+      return '<div class="detail-row"><span>' + esc(field[1]) + '</span><strong class="detail-value' + nowrap + '">' + value + '</strong></div>';
     }).join("");
     host.innerHTML = '<div class="modal fade" id="admin-record-modal" tabindex="-1" aria-labelledby="admin-record-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered modal-dialog-scrollable admin-record-detail-modal"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-6" id="admin-record-title">' + esc(title) + '</h2><button type="button" class="btn-close" data-modal-close aria-label="Close"></button></div><div class="modal-body"><div class="record-details-grid">' + rows + '</div></div></div></div></div>';
     showManagedModal(document.getElementById("admin-record-modal"), host);
@@ -1600,7 +1609,7 @@
         var content = adminListState(adminCheckinsState);
         if (adminCheckinsState.status === "loaded" && adminCheckinsState.data.items.length) {
           var rows = adminCheckinsState.data.items.map(function (item) {
-            return '<tr><td class="table-primary-text">' + esc(item.id) + '</td><td>' + esc(item.venue_id) + '</td><td>' + esc(item.court_id) + '</td><td>' + esc(item.checked_in_by || "—") + '</td><td>' + esc(item.checked_in_at || "—") + '</td><td>' + statusBadge(item.status) + '</td><td>' + esc(item.user_id) + '</td><td class="table-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-booking-detail="' + esc(item.id) + '">Booking details</button></td></tr>';
+            return '<tr><td class="table-primary-text">' + esc(item.id) + '</td><td>' + esc(item.venue_id) + '</td><td>' + esc(item.court_id) + '</td><td>' + esc(item.checked_in_by || "—") + '</td><td>' + apiDateTime(item.checked_in_at) + '</td><td>' + statusBadge(item.status) + '</td><td>' + esc(item.user_id) + '</td><td class="table-actions"><button class="btn btn-sm btn-outline-secondary" type="button" data-admin-booking-detail="' + esc(item.id) + '">Booking details</button></td></tr>';
           }).join("");
           content = '<div class="table-wrap"><table class="table"><thead><tr><th>Booking</th><th>Venue</th><th>Court</th><th>Checked in by</th><th>Check-in time</th><th>Status</th><th>User</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>' + adminPagination("checkins", adminCheckinsState.data);
         }
@@ -1633,7 +1642,7 @@
       + (apiBooking.venue_id ? ' · Venue #' + esc(apiBooking.venue_id) : '')
       + (apiBooking.court_id ? ' · Court #' + esc(apiBooking.court_id) : '')
       + (apiSchedule ? ' · ' + esc(apiSchedule) : '')
-      + (apiBooking.checked_in_at ? ' · ' + esc(apiBooking.checked_in_at) : '') + '</div>';
+      + (apiBooking.checked_in_at ? ' · ' + apiDateTime(apiBooking.checked_in_at) : '') + '</div>';
   }
   function ownerCheckinErrorMessage(error) {
     var status = error && error.status;
@@ -1965,7 +1974,7 @@
         return '<article class="stat-card"><div class="stat-top"><span>' + metric[0] + '</span><span class="stat-icon"><i class="bi ' + icon + '"></i></span></div><div class="stat-value">' + esc(metric[1]) + '</div></article>';
       }).join("") + '</div>';
       var rows = report.transactions.items.map(function (item) {
-        var paymentDate = item.payment_date ? String(item.payment_date).replace("T", " ").replace(/Z$/, " UTC") : "Date unavailable";
+        var paymentDate = item.payment_date ? apiDateTime(item.payment_date) : "Date unavailable";
         var statusStyle = item.status === "PAID" ? "" : (item.status === "PENDING" ? "warning" : "danger");
         return '<tr><td>' + esc(item.payment_id) + '</td><td>' + esc(item.booking_id) + '</td><td class="revenue-date-cell">' + esc(paymentDate) + '</td><td>' + esc(formatRevenueAmount(Number(item.amount))) + '</td><td><span class="badge-soft ' + statusStyle + '">' + esc(item.status) + '</span></td><td>' + esc(item.booking_status || "Unavailable") + '</td><td>' + esc(paymentMethodLabel(item.provider)) + '</td></tr>';
       }).join("");
@@ -1976,7 +1985,7 @@
           '<div class="table-foot"><span>Page ' + page + ' of ' + pageCount + ' · ' + report.transactions.total + ' transactions</span><div class="d-flex gap-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-revenue-page="prev" ' + (page <= 1 ? 'disabled' : '') + '>Previous</button><button type="button" class="btn btn-sm btn-outline-secondary" data-revenue-page="next" ' + (page >= pageCount ? 'disabled' : '') + '>Next</button></div></div>'
         : '<div class="panel-body text-secondary" role="status">No transactions are available for this period.</div>';
       body = cards +
-        '<div class="panel-card revenue-history-card"><div class="panel-head"><div><h2>Payment transactions</h2><p>PAID amounts count as revenue; pending and failed attempts do not.</p></div></div>' + history + '</div>';
+        '<div class="panel-card revenue-history-card"><div class="panel-head"><div><h2>Payment transactions</h2></div></div>' + history + '</div>';
     }
     var refresh = '<button class="btn btn-outline-secondary" type="button" data-revenue-refresh ' + (revenueState.status === "loading" ? "disabled" : "") + '><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>';
     return heading(title, refresh) + '<section class="panel-card revenue-page-card"><div class="panel-head"><div><h2>' + (owner ? "Owner revenue" : "System revenue") + '</h2></div></div>' + toolbar + body + '</section>';

@@ -151,97 +151,20 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Price"
+                        android:text="Rental duration"
                         android:textColor="@color/text_secondary"
                         android:textSize="14sp" />
                     <TextView
-                        android:id="@+id/tvSummaryPrice"
+                        android:id="@+id/tvSummaryDuration"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="150,000 VND / hour"
+                        android:text="2 hours"
                         android:textColor="@color/primary"
                         android:textSize="14sp"
                         android:textStyle="bold" />
                 </LinearLayout>
 
             </LinearLayout>
-
-            <!-- Payment Method Section -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Payment Method"
-                android:textColor="@color/text_primary"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="12dp" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="10dp"
-                android:text="Demo checkout records your selected method. Payment processing is simulated; external gateways are not connected."
-                android:textColor="@color/text_secondary"
-                android:textSize="13sp" />
-
-            <RadioGroup
-                android:id="@+id/rgPaymentMethod"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <RadioButton
-                    android:id="@+id/rbMock"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:background="@drawable/bg_card"
-                    android:checked="true"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="Mock payment"
-                    android:textColor="@color/text_primary"
-                    android:textSize="15sp"
-                    android:layout_marginBottom="8dp" />
-
-                <RadioButton
-                    android:id="@+id/rbMomo"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:background="@drawable/bg_card"
-                    android:checked="false"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="MoMo"
-                    android:textColor="@color/text_primary"
-                    android:textSize="15sp"
-                    android:layout_marginBottom="8dp" />
-
-                <RadioButton
-                    android:id="@+id/rbVnpay"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:background="@drawable/bg_card"
-                    android:checked="false"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="VNPay"
-                    android:textColor="@color/text_primary"
-                    android:textSize="15sp"
-                    android:layout_marginBottom="8dp" />
-
-                <RadioButton
-                    android:id="@+id/rbZaloPay"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:background="@drawable/bg_card"
-                    android:checked="false"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="ZaloPay"
-                    android:textColor="@color/text_primary"
-                    android:textSize="15sp" />
-
-            </RadioGroup>
 
             <ProgressBar
                 android:id="@+id/progressBar"
@@ -274,7 +197,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Total Payment"
+                android:text="Total price"
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
 

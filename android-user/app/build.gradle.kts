@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
 }
@@ -21,7 +23,7 @@ android {
         versionName = "1.0"
 
         val configuredGatewayUrl = project.findProperty("API_BASE_URL")?.toString()
-            ?: "http://10.0.2.2:8000/"
+            ?: "http://192.168.1.21:8000/"
         val gatewayBaseUrl = configuredGatewayUrl.trim().let {
             if (it.endsWith("/")) it else "$it/"
         }
@@ -32,13 +34,26 @@ android {
             "\"$gatewayBaseUrl\""
         )
 
-        val googleServerClientId = project.findProperty("GOOGLE_SERVER_CLIENT_ID")?.toString()?.trim().orEmpty()
-            .ifEmpty { "your-google-oauth-client-id.apps.googleusercontent.com" }
+        val googleLocalProperties = Properties().apply {
+            val localFile = rootProject.file("google-oauth.local.properties")
+            if (localFile.isFile) localFile.inputStream().use { load(it) }
+        }
+        val gradleGoogleClientId = project.findProperty("GOOGLE_SERVER_CLIENT_ID")?.toString()?.trim().orEmpty()
+        val localGoogleClientId = googleLocalProperties.getProperty("GOOGLE_SERVER_CLIENT_ID")?.trim().orEmpty()
+        val googleServerClientId = when {
+            gradleGoogleClientId.isNotEmpty() && !gradleGoogleClientId.startsWith("your-") -> gradleGoogleClientId
+            googleLocalProperties.containsKey("GOOGLE_SERVER_CLIENT_ID") -> localGoogleClientId
+            else -> gradleGoogleClientId
+        }.ifEmpty { "your-google-oauth-client-id.apps.googleusercontent.com" }
         buildConfigField(
             "String",
             "GOOGLE_SERVER_CLIENT_ID",
             "\"$googleServerClientId\""
         )
+        val googleLoginEnabled = project.findProperty("GOOGLE_LOGIN_ENABLED")?.toString()?.toBooleanStrictOrNull()
+            ?: googleLocalProperties.getProperty("GOOGLE_LOGIN_ENABLED")?.toBooleanStrictOrNull()
+            ?: false
+        buildConfigField("boolean", "GOOGLE_LOGIN_ENABLED", googleLoginEnabled.toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

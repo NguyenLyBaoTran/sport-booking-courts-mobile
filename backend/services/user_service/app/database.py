@@ -1,14 +1,10 @@
-import os
-from pathlib import Path
-
-from dotenv import load_dotenv
 from fastapi import HTTPException, status
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+from app.db_config import user_database_url
 
-database_url = os.getenv("USER_DATABASE_URL")
+database_url = user_database_url()
 engine = create_engine(database_url, pool_pre_ping=True) if database_url else None
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()

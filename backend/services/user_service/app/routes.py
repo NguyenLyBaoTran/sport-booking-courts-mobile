@@ -2,7 +2,9 @@ import os
 import secrets
 import smtplib
 import ssl
+from collections.abc import Mapping
 from email.message import EmailMessage
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -54,7 +56,10 @@ def get_current_user(
 
     try:
         claims = decode_access_token(credentials.credentials)
-        user_id = int(claims["sub"])
+        subject = claims.get("sub")
+        if isinstance(subject, bool) or not isinstance(subject, (str, int)):
+            raise ValueError("Token subject must be a string or integer")
+        user_id = int(subject)
     except (JWTError, KeyError, TypeError, ValueError):
         raise unauthorized from None
 
@@ -64,7 +69,13 @@ def get_current_user(
     return user
 
 
-def verify_google_identity(id_token: str) -> tuple[str, str, dict]:
+def verify_google_identity(id_token: str) -> tuple[str, str, Mapping[str, Any]]:
+    google_login_enabled = os.getenv("GOOGLE_LOGIN_ENABLED", "").strip().lower()
+    if google_login_enabled != "true":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google sign-in is not configured",
+        )
     client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
     if not client_id:
         raise HTTPException(
@@ -98,7 +109,7 @@ def verify_google_identity(id_token: str) -> tuple[str, str, dict]:
     return email, google_sub, claims
 
 
-def is_google_email_authoritative(email: str, claims: dict) -> bool:
+def is_google_email_authoritative(email: str, claims: Mapping[str, Any]) -> bool:
     # Google is authoritative for Gmail addresses and verified Workspace domains.
     hosted_domain = str(claims.get("hd") or "").strip().lower()
     email_domain = email.rsplit("@", 1)[-1]
@@ -192,8 +203,9 @@ def request_password_reset_otp(
     smtp_username = os.getenv("SMTP_USERNAME", "").strip()
     smtp_password = os.getenv("SMTP_PASSWORD", "")
     sender = os.getenv("SMTP_FROM", smtp_username).strip()
+    smtp_configured = bool(smtp_host and sender)
 
-    if all((smtp_host, smtp_username, smtp_password, sender)):
+    if smtp_configured:
         message = EmailMessage()
         message["Subject"] = "Reset your Sports Court Booking password"
         message["From"] = sender
@@ -203,13 +215,16 @@ def request_password_reset_otp(
             "If you did not request this, you can ignore this email."
         )
         try:
-            context = ssl.create_default_context()
             with smtplib.SMTP(smtp_host, int(os.getenv("SMTP_PORT", "587")), timeout=15) as smtp:
-                smtp.starttls(context=context)
-                smtp.login(smtp_username, smtp_password)
+                if os.getenv("SMTP_STARTTLS", "true").strip().lower() not in {"false", "0", "no", "off"}:
+                    smtp.starttls(context=ssl.create_default_context())
+                if smtp_username or smtp_password:
+                    if not (smtp_username and smtp_password):
+                        raise ValueError("SMTP_USERNAME and SMTP_PASSWORD must both be configured")
+                    smtp.login(smtp_username, smtp_password)
                 smtp.send_message(message)
         except (OSError, ValueError, smtplib.SMTPException) as err:
-            print(f"[SMTP ERROR] {err}")
+            print(f"[SMTP ERROR] Email could not be sent ({type(err).__name__}); check local SMTP configuration.")
             if os.getenv("APP_ENV") not in ("development", "test"):
                 OTP_STORE.pop(email, None)
                 raise HTTPException(
@@ -222,7 +237,7 @@ def request_password_reset_otp(
     res = {
         "detail": "If an eligible account exists, a reset code has been sent to its email address.",
     }
-    if not all((smtp_host, smtp_username, smtp_password, sender)):
+    if not smtp_configured:
         res["otp_debug"] = otp_code
     return res
 

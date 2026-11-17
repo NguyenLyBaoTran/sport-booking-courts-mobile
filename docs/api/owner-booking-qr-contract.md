@@ -1,8 +1,8 @@
 # Owner Booking & QR Check-in API Contract
 
-**Approved Design Contract — Implemented in S1/S2 Branches; E2E Pending**
+**Approved Design Contract — Implemented in S1/S2 Branches; Cross-service testing pending**
 
-This document records the approved shared design for Owner booking reads, completion, and QR check-in. The S1 and S2 feature branches now contain the listed implementations, and their isolated service/UI tests pass. A real cross-service E2E run has not been performed. Existing Booking internal endpoints remain unchanged.
+This document records the approved shared design for Owner booking reads, completion, and QR check-in. The S1 and S2 feature branches now contain the listed implementations, and their isolated service/UI tests pass. A real cross-service integration run has not been performed. Existing Booking internal endpoints remain unchanged.
 
 ## 1. Overview
 
@@ -33,7 +33,7 @@ All paths below are relative to the API Gateway base `/api/v1`.
 | `POST /owner/bookings/{booking_id}/complete` | S1 Booking | JWT `OWNER` | `CHECKED_IN` → `COMPLETED` |
 | `POST /owner/checkins` | S2 Court adapter | JWT `OWNER` | Delegates `CONFIRMED` → `CHECKED_IN` to S1 internal API |
 
-These paths do not conflict with existing S1 `/bookings/{booking_id}` routes or `/internal/bookings/...` routes. They are implemented by the respective S1/S2 feature branches; cross-service E2E availability remains unverified.
+These paths do not conflict with existing S1 `/bookings/{booking_id}` routes or `/internal/bookings/...` routes. They are implemented by the respective S1/S2 feature branches; cross-service integration availability remains unverified.
 
 ### 2.1 Owner booking list
 
@@ -261,4 +261,4 @@ The following remaining implementation detail does not change the approved secur
 
 1. **Upstream error detail mapping:** preserve `404` and `409` semantics from internal S1 API while returning a stable public error message; exact wording can follow existing FastAPI `detail` convention.
 
-The Owner Booking APIs, Court check-in adapter, Gateway routes, and Management Web calls are implemented and have isolated tests. Real service-to-service E2E, including the Booking state transition through the configured databases, remains pending.
+The Owner Booking APIs, Court check-in adapter, Gateway routes, and Management Web calls are implemented and have isolated tests. Real service-to-service integration, including the Booking state transition through the configured databases, remains pending.

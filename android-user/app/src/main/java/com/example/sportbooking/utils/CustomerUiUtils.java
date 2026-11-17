@@ -2,6 +2,7 @@ package com.example.sportbooking.utils;
 
 import java.text.NumberFormat;
 import java.text.ParseException;
+import java.text.ParsePosition;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -28,6 +29,15 @@ public final class CustomerUiUtils {
         int duration = endMinutes - startMinutes;
         int hours = duration / 60;
         int minutes = duration % 60;
+        if (hours > 0 && minutes > 0) return hours + " hr " + minutes + " min";
+        if (hours > 0) return hours + (hours == 1 ? " hour" : " hours");
+        return minutes + " min";
+    }
+
+    public static String durationLabel(int durationMinutes) {
+        if (durationMinutes <= 0) return "Unavailable";
+        int hours = durationMinutes / 60;
+        int minutes = durationMinutes % 60;
         if (hours > 0 && minutes > 0) return hours + " hr " + minutes + " min";
         if (hours > 0) return hours + (hours == 1 ? " hour" : " hours");
         return minutes + " min";
@@ -69,7 +79,7 @@ public final class CustomerUiUtils {
 
     public static String formatAmount(String amount) {
         try {
-            return NumberFormat.getNumberInstance(new Locale("vi", "VN"))
+            return NumberFormat.getNumberInstance(Locale.US)
                     .format(Double.parseDouble(amount));
         } catch (Exception ignored) {
             return amount == null ? "Unavailable" : amount;
@@ -79,8 +89,13 @@ public final class CustomerUiUtils {
     public static String formatBookingDate(String date) {
         if (date == null || !date.matches("\\d{4}-\\d{2}-\\d{2}")) return date == null ? "Unavailable" : date;
         try {
-            Date parsed = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).parse(date);
-            return new SimpleDateFormat("dd/MM/yyyy", Locale.ROOT).format(parsed);
+            SimpleDateFormat parser = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT);
+            parser.setTimeZone(TimeZone.getTimeZone("UTC"));
+            parser.setLenient(false);
+            Date parsed = parser.parse(date);
+            SimpleDateFormat output = new SimpleDateFormat("dd/MM/yyyy", Locale.ROOT);
+            output.setTimeZone(TimeZone.getTimeZone("UTC"));
+            return output.format(parsed);
         } catch (ParseException ignored) {
             return date;
         }
@@ -88,17 +103,25 @@ public final class CustomerUiUtils {
 
     public static String formatUtcTimestamp(String value) {
         if (value == null || value.trim().isEmpty()) return "Not recorded";
-        String[] patterns = {"yyyy-MM-dd'T'HH:mm:ss.SSSX", "yyyy-MM-dd'T'HH:mm:ssX"};
+        String normalized = value.trim();
+        String[] patterns = {
+                "yyyy-MM-dd'T'HH:mm:ss.SSSXXX", "yyyy-MM-dd'T'HH:mm:ssXXX",
+                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss.SSS", "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd HH:mm:ss.SSS", "yyyy-MM-dd HH:mm:ss"
+        };
         for (String pattern : patterns) {
             SimpleDateFormat parser = new SimpleDateFormat(pattern, Locale.ROOT);
             parser.setTimeZone(TimeZone.getTimeZone("UTC"));
             parser.setLenient(false);
-            try {
-                Date parsed = parser.parse(value);
-                SimpleDateFormat output = new SimpleDateFormat("dd/MM/yyyy HH:mm 'UTC'", Locale.ROOT);
-                output.setTimeZone(TimeZone.getTimeZone("UTC"));
+            ParsePosition position = new ParsePosition(0);
+            String parseValue = normalized.replaceAll("\\.(\\d{3})\\d+(?=Z|[+-]\\d{2}:?\\d{2}$|$)", ".$1");
+            Date parsed = parser.parse(parseValue, position);
+            if (parsed != null && position.getIndex() == parseValue.length()) {
+                SimpleDateFormat output = new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ROOT);
+                output.setTimeZone(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
                 return output.format(parsed);
-            } catch (ParseException ignored) { }
+            }
         }
         return value;
     }

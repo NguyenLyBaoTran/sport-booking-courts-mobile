@@ -424,7 +424,7 @@ public class HistoryFragment extends Fragment {
             holder.tvVenue.setText(venue != null ? venue : (venueId > 0 ? "Venue #" + venueId : ""));
             holder.tvVenue.setVisibility(venueId > 0 ? View.VISIBLE : View.GONE);
             holder.tvDate.setText(booking.has("slot_date") && !booking.get("slot_date").isJsonNull()
-                    ? booking.get("slot_date").getAsString() : "");
+                    ? CustomerUiUtils.formatBookingDate(booking.get("slot_date").getAsString()) : "");
             String startTime = booking.has("start_time") && !booking.get("start_time").isJsonNull() ? formatTime(booking.get("start_time").getAsString()) : "";
             String endTime = booking.has("end_time") && !booking.get("end_time").isJsonNull() ? formatTime(booking.get("end_time").getAsString()) : "";
             holder.tvTime.setText(startTime + (endTime.isEmpty() ? "" : " - " + endTime));
@@ -440,7 +440,10 @@ public class HistoryFragment extends Fragment {
                 String method = CustomerUiUtils.paymentMethodLabel(
                         payment.has("provider") && !payment.get("provider").isJsonNull()
                                 ? payment.get("provider").getAsString() : null);
-                holder.tvPayment.setText("Payment: " + paymentStatus + " · " + method);
+                String paidAt = payment.has("paid_at") && !payment.get("paid_at").isJsonNull()
+                        ? CustomerUiUtils.formatUtcTimestamp(payment.get("paid_at").getAsString()) : "";
+                holder.tvPayment.setText("Payment: " + paymentStatus + " · " + method
+                        + (paidAt.isEmpty() || "Not recorded".equals(paidAt) ? "" : " · " + paidAt));
                 holder.tvPayment.setVisibility(View.VISIBLE);
             } else {
                 holder.tvPayment.setText("Payment: No record");
@@ -476,7 +479,7 @@ public class HistoryFragment extends Fragment {
         }
 
         private static String formatAmount(String value) {
-            try { return NumberFormat.getNumberInstance(Locale.getDefault()).format(Double.parseDouble(value)); }
+            try { return NumberFormat.getNumberInstance(Locale.US).format(Double.parseDouble(value)); }
             catch (Exception ignored) { return value; }
         }
 

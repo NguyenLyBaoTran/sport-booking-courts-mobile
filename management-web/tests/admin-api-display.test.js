@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const source = fs.readFileSync(path.join(__dirname, "../assets/js/app.js"), "utf8");
 const styles = fs.readFileSync(path.join(__dirname, "../assets/css/app.css"), "utf8");
+const dateTimeUtils = require("../assets/js/datetime-utils.js");
 
 function section(startText, endText) {
   const start = source.indexOf(startText);
@@ -71,6 +72,17 @@ test("Admin booking and check-in toolbars expose only supported, clearly named f
   assert.match(checkins, /emptyLabel: "Date from"/);
   assert.match(checkins, /emptyLabel: "Date to"/);
   assert.doesNotMatch(checkins, /data-admin-checkin-field|Owner ID|Court ID/);
+  assert.match(styles, /\.admin-booking-filter-toolbar > \.form-select \{ min-width: 0; \}/);
+  assert.match(styles, /\.admin-booking-filter-toolbar \.calendar-date-trigger \{ min-height: 40px; height: 40px; \}/);
+});
+
+test("API timestamps render in Vietnam time once while date-only fields remain calendar dates", () => {
+  assert.equal(dateTimeUtils.formatVietnamDateTime("2026-11-17T01:00:00Z"), "17/11/2026 08:00");
+  assert.equal(dateTimeUtils.formatVietnamDateTime("2026-11-17 01:00:00"), "17/11/2026 08:00");
+  assert.equal(dateTimeUtils.formatVietnamDateTime("2026-11-17T01:00:00+02:00"), "17/11/2026 06:00");
+  assert.equal(dateTimeUtils.formatVietnamDateTime("2026-11-17"), "17/11/2026");
+  assert.match(source, /item\.payment_date \? apiDateTime\(item\.payment_date\)/);
+  assert.match(source, /apiDateTime\(item\.checked_in_at\)/);
 });
 
 test("Admin API errors distinguish missing list endpoints, missing records, server errors and network failures", () => {

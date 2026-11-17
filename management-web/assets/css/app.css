@@ -480,10 +480,12 @@ button, input, select { font: inherit; }
 .admin-filter-toolbar [data-admin-search] { flex: 1 1 360px; min-width: min(280px, 100%); }
 .admin-filter-toolbar > .form-select { flex: 0 1 190px; min-width: 160px; }
 .admin-filter-toolbar > [data-filter-reset] { flex: 0 0 auto; min-height: 38px; white-space: nowrap; }
-.admin-booking-filter-toolbar { display: grid; grid-template-columns: minmax(115px,.85fr) minmax(190px,1.7fr) minmax(130px,1fr) repeat(2,minmax(135px,1fr)) auto; align-items: stretch; gap: 9px; padding: 16px 20px; }
+.admin-booking-filter-toolbar { display: grid; grid-template-columns: minmax(112px,.8fr) minmax(180px,1.55fr) minmax(125px,1fr) repeat(2,minmax(132px,1fr)) auto; align-items: stretch; gap: 9px; padding: 14px 18px; }
 .admin-checkin-filter-toolbar { display: grid; grid-template-columns: minmax(220px,2fr) repeat(2,minmax(145px,1fr)) auto; align-items: stretch; gap: 9px; padding: 16px 20px; }
-.admin-booking-filter-toolbar > *, .admin-checkin-filter-toolbar > * { width: 100%; min-width: 0; min-height: 42px; height: 42px; }
+.admin-booking-filter-toolbar > *, .admin-checkin-filter-toolbar > * { box-sizing: border-box; width: 100%; min-width: 0; min-height: 40px; height: 40px; }
+.admin-booking-filter-toolbar > .form-select { min-width: 0; }
 .admin-booking-filter-toolbar > .calendar-picker, .admin-checkin-filter-toolbar > .calendar-picker { display: flex; align-items: stretch; }
+.admin-booking-filter-toolbar .calendar-date-trigger { min-height: 40px; height: 40px; }
 .admin-booking-filter-toolbar > [data-admin-filter-clear], .admin-checkin-filter-toolbar > [data-admin-filter-clear] { justify-self: end; width: auto; min-width: 112px; white-space: nowrap; }
 .booking-filter-toolbar { display: grid; grid-template-columns: minmax(240px,2.1fr) minmax(120px,1fr) minmax(145px,1.15fr) minmax(140px,1.05fr) auto; align-items: stretch; gap: 9px; padding: 16px 20px; }
 .booking-filter-toolbar [data-booking-search] { width: 100%; min-width: 0; }

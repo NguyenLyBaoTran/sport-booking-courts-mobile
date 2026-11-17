@@ -26,13 +26,7 @@ TARGETS = {
     "BOOKING_DATABASE_URL": "sports_booking_db",
     "PAYMENT_DATABASE_URL": "sports_payment_db",
 }
-PROTECTED_DATABASES = {
-    "sports_user_e2e_test",
-    "sports_court_e2e_test",
-    "sports_booking_e2e_test",
-    "sports_payment_e2e_test",
-    "sports_court_booking_s2_test",
-}
+PROTECTED_DATABASES = {"sports_court_booking_s2_test"}
 RESERVATION_COLUMNS = {
     "reservation_status",
     "reservation_booking_id",

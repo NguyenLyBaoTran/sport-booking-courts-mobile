@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.example.sportbooking.utils.CustomerUiUtils;
 
 import java.util.Arrays;
+import java.util.TimeZone;
 
 import static org.junit.Assert.*;
 
@@ -66,7 +67,26 @@ public class ExampleUnitTest {
         assertFalse(CustomerUiUtils.isCompletedBooking("CONFIRMED"));
         assertTrue(CustomerUiUtils.isCompletedBooking("completed"));
         assertEquals("15/11/2026", CustomerUiUtils.formatBookingDate("2026-11-15"));
-        assertEquals("15/11/2026 09:30 UTC", CustomerUiUtils.formatUtcTimestamp("2026-11-15T09:30:00Z"));
+        assertEquals("2 hours", CustomerUiUtils.durationLabel(120));
+        assertEquals("1 hr 30 min", CustomerUiUtils.durationLabel(90));
+        assertEquals("Unavailable", CustomerUiUtils.durationLabel(0));
+        assertEquals("300,000", CustomerUiUtils.formatAmount("300000.00"));
+        assertEquals("17/11/2026", CustomerUiUtils.formatBookingDate("2026-11-17"));
+    }
+
+    @Test
+    public void utcTimestampsDisplayOnceInVietnamTimeAndDateOnlyDoesNotShift() {
+        assertEquals("17/11/2026 08:00", CustomerUiUtils.formatUtcTimestamp("2026-11-17T01:00:00Z"));
+        assertEquals("17/11/2026 08:00", CustomerUiUtils.formatUtcTimestamp("2026-11-17 01:00:00"));
+        assertEquals("17/11/2026 06:00", CustomerUiUtils.formatUtcTimestamp("2026-11-17T01:00:00+02:00"));
+
+        TimeZone previous = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"));
+            assertEquals("17/11/2026", CustomerUiUtils.formatBookingDate("2026-11-17"));
+        } finally {
+            TimeZone.setDefault(previous);
+        }
     }
 
     @Test

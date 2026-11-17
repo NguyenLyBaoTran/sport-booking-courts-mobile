@@ -6,7 +6,6 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
-import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -14,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.sportbooking.repository.ApiCallback;
 import com.example.sportbooking.repository.PaymentRepository;
+import com.example.sportbooking.utils.CustomerUiUtils;
 import com.google.gson.JsonObject;
 
 import java.text.NumberFormat;
@@ -29,11 +29,10 @@ public class PaymentActivity extends AppCompatActivity {
 
     private PaymentRepository paymentRepository;
 
-    private TextView tvSummaryCourtName, tvSummaryDate, tvSummaryPrice, tvTotalAmount;
+    private TextView tvSummaryCourtName, tvSummaryDate, tvSummaryDuration, tvTotalAmount;
     private Button btnPayNow;
     private ProgressBar progressBar;
     private ImageView ivBack;
-    private RadioGroup rgPaymentMethod;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,11 +55,10 @@ public class PaymentActivity extends AppCompatActivity {
         ivBack = findViewById(R.id.ivBack);
         tvSummaryCourtName = findViewById(R.id.tvSummaryCourtName);
         tvSummaryDate = findViewById(R.id.tvSummaryDate);
-        tvSummaryPrice = findViewById(R.id.tvSummaryPrice);
+        tvSummaryDuration = findViewById(R.id.tvSummaryDuration);
         tvTotalAmount = findViewById(R.id.tvTotalAmount);
         btnPayNow = findViewById(R.id.btnPayNow);
         progressBar = findViewById(R.id.progressBar);
-        rgPaymentMethod = findViewById(R.id.rgPaymentMethod);
 
         if (courtName != null && !courtName.isEmpty()) {
             tvSummaryCourtName.setText(courtName);
@@ -71,10 +69,10 @@ public class PaymentActivity extends AppCompatActivity {
         if (timeRange != null && !timeRange.isEmpty()) {
             ((TextView) findViewById(R.id.tvSummaryTimeSlot)).setText(timeRange);
         }
+        tvSummaryDuration.setText(CustomerUiUtils.durationLabel(
+                getIntent().getIntExtra("duration_minutes", 0)));
         if (totalAmount != null && !totalAmount.isEmpty()) {
             String formatted = formatPrice(totalAmount);
-            tvSummaryPrice.setText(getIntent().getIntExtra("duration_minutes", 0) > 0
-                    ? (getIntent().getIntExtra("duration_minutes", 0) / 60.0) + " hours" : "Booking total");
             tvTotalAmount.setText(formatted);
         } else {
             btnPayNow.setEnabled(false);
@@ -91,7 +89,7 @@ public class PaymentActivity extends AppCompatActivity {
         }
         try {
             double val = Double.parseDouble(rawAmount);
-            NumberFormat nf = NumberFormat.getInstance(Locale.getDefault());
+            NumberFormat nf = NumberFormat.getInstance(Locale.US);
             return nf.format(val) + " VND";
         } catch (Exception e) {
             return "Price unavailable";
@@ -140,7 +138,7 @@ public class PaymentActivity extends AppCompatActivity {
     }
 
     private void submitPayment() {
-        paymentRepository.processPayment(bookingId, "SUCCESS", selectedPaymentMethod(), new ApiCallback<JsonObject>() {
+        paymentRepository.processPayment(bookingId, "SUCCESS", "MOCK", new ApiCallback<JsonObject>() {
             @Override
             public void onSuccess(JsonObject result) {
                 progressBar.setVisibility(View.GONE);
@@ -174,11 +172,4 @@ public class PaymentActivity extends AppCompatActivity {
         });
     }
 
-    private String selectedPaymentMethod() {
-        int selectedId = rgPaymentMethod.getCheckedRadioButtonId();
-        if (selectedId == R.id.rbVnpay) return "VNPAY";
-        if (selectedId == R.id.rbMomo) return "MOMO";
-        if (selectedId == R.id.rbZaloPay) return "ZALOPAY";
-        return "MOCK";
-    }
 }

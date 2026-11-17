@@ -5,11 +5,53 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
+from fastapi import HTTPException
 
 from app.database import Base, get_db
 from app.main import app
 from app.models import User
 from app.security import decode_access_token
+from app.routes import verify_google_identity
+
+
+def test_disabled_google_login_rejects_before_token_verification(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GOOGLE_LOGIN_ENABLED", "false")
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "123456789-example.apps.googleusercontent.com")
+    with pytest.raises(HTTPException) as error:
+        verify_google_identity("untrusted-token")
+    assert error.value.status_code == 503
+    assert error.value.detail == "Google sign-in is not configured"
+
+
+@pytest.mark.parametrize("flag", [None, "", "false", "0", "no", "enabled"])
+def test_google_login_requires_explicit_true_even_with_client_id(monkeypatch: pytest.MonkeyPatch, flag: str | None) -> None:
+    if flag is None:
+        monkeypatch.delenv("GOOGLE_LOGIN_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("GOOGLE_LOGIN_ENABLED", flag)
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "123456789-example.apps.googleusercontent.com")
+    with pytest.raises(HTTPException) as error:
+        verify_google_identity("untrusted-token")
+    assert error.value.status_code == 503
+
+
+def test_google_login_true_requires_client_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GOOGLE_LOGIN_ENABLED", "true")
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    with pytest.raises(HTTPException) as error:
+        verify_google_identity("untrusted-token")
+    assert error.value.status_code == 503
+
+
+def test_google_login_true_verifies_with_configured_client_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GOOGLE_LOGIN_ENABLED", "true")
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "123456789-example.apps.googleusercontent.com")
+    monkeypatch.setattr("app.routes.google_id_token.verify_oauth2_token", lambda *_args: {
+        "email": "test@example.com", "sub": "subject-1", "email_verified": True,
+    })
+    email, subject, claims = verify_google_identity("valid-token")
+    assert (email, subject) == ("test@example.com", "subject-1")
+    assert claims["email_verified"] is True
 
 
 @pytest.fixture
@@ -149,6 +191,16 @@ def test_current_user_requires_valid_bearer_token(client: TestClient) -> None:
     ).status_code == 401
 
 
+@pytest.mark.parametrize("subject", [None, [], {}, True, 1.5])
+def test_current_user_rejects_non_string_or_integer_subject(client: TestClient, monkeypatch: pytest.MonkeyPatch, subject: object) -> None:
+    monkeypatch.setattr("app.routes.decode_access_token", lambda _token: {"sub": subject})
+    response = client.get(
+        "/api/v1/users/me",
+        headers={"Authorization": "Bearer test-token"},
+    )
+    assert response.status_code == 401
+
+
 def test_current_user_returns_authenticated_account(client: TestClient) -> None:
     client.post(
         "/api/v1/auth/register",
@@ -249,6 +301,99 @@ def test_reset_password_with_otp(client: TestClient) -> None:
         json={"email": "reset@example.com", "password": "new-password-456"},
     )
     assert login_new.status_code == 200
+
+
+def test_reset_password_sends_to_plaintext_local_smtp_without_auth(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Mailpit User",
+            "email": "mailpit@example.com",
+            "password": "strong-pass-123",
+        },
+    )
+    monkeypatch.setenv("SMTP_HOST", "mailpit.test")
+    monkeypatch.setenv("SMTP_PORT", "1025")
+    monkeypatch.setenv("SMTP_USERNAME", "")
+    monkeypatch.setenv("SMTP_PASSWORD", "")
+    monkeypatch.setenv("SMTP_FROM", "noreply@example.test")
+    monkeypatch.setenv("SMTP_STARTTLS", "false")
+    calls: dict[str, object] = {}
+
+    class FakeSmtp:
+        def __init__(self, host: str, port: int, timeout: int):
+            calls["connection"] = (host, port, timeout)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def starttls(self, **_kwargs):
+            calls["starttls"] = True
+
+        def login(self, *_args):
+            calls["login"] = True
+
+        def send_message(self, message):
+            calls["message"] = message
+
+    monkeypatch.setattr("app.routes.smtplib.SMTP", FakeSmtp)
+
+    response = client.post(
+        "/api/v1/auth/forgot-password",
+        json={"email": "mailpit@example.com"},
+    )
+
+    assert response.status_code == 200
+    assert "otp_debug" not in response.json()
+    assert calls["connection"] == ("mailpit.test", 1025, 15)
+    assert "starttls" not in calls
+    assert "login" not in calls
+    assert calls["message"]["To"] == "mailpit@example.com"
+
+
+def test_smtp_failure_log_never_includes_configured_app_password(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("APP_ENV", "test")
+    client.post(
+        "/api/v1/auth/register",
+        json={"full_name": "Mail User", "email": "mail-log@example.com", "password": "strong-pass-123"},
+    )
+    secret = "app-password-never-log-this"
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.test")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_USERNAME", "sender@example.test")
+    monkeypatch.setenv("SMTP_PASSWORD", secret)
+    monkeypatch.setenv("SMTP_FROM", "sender@example.test")
+    monkeypatch.setenv("SMTP_STARTTLS", "true")
+
+    class FailingSmtp:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def starttls(self, **_kwargs):
+            pass
+
+        def login(self, *_args):
+            raise __import__("smtplib").SMTPAuthenticationError(535, secret.encode())
+
+    monkeypatch.setattr("app.routes.smtplib.SMTP", FailingSmtp)
+    response = client.post("/api/v1/auth/forgot-password", json={"email": "mail-log@example.com"})
+    captured = capsys.readouterr()
+    assert response.status_code == 200
+    assert secret not in captured.out
+    assert "SMTPAuthenticationError" in captured.out
 
 
 def test_admin_users_list_status_and_summary(client: TestClient) -> None:

@@ -1,12 +1,24 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+where py >nul 2>nul
+if not errorlevel 1 goto use_py
+where python >nul 2>nul
+if not errorlevel 1 goto use_python
+echo Python 3 was not found. Install Python 3 or run setup.sh from a compatible shell.
+exit /b 1
 
-if not exist "backend\.venv\Scripts\python.exe" (
-    echo Backend virtual environment was not found.
-    echo Create it with: cd backend ^&^& python -m venv .venv ^&^& .venv\Scripts\python -m pip install -r requirements.txt
-    exit /b 1
-)
+:use_py
+py -3 -c "import sys" >nul 2>nul
+if errorlevel 1 goto use_python
+py -3 "%~dp0setup_config.py"
+exit /b %ERRORLEVEL%
 
-"backend\.venv\Scripts\python.exe" "backend\scripts\setup_local.py"
-exit /b %errorlevel%
+:use_python
+python -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)" >nul 2>nul
+if errorlevel 1 goto no_python
+python "%~dp0setup_config.py"
+exit /b %ERRORLEVEL%
+
+:no_python
+echo Python 3.10 or newer was not found. Install Python and retry.
+exit /b 1

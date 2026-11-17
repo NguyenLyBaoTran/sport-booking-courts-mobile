@@ -275,7 +275,8 @@ public class SelectDateTimeActivity extends AppCompatActivity {
                     return;
                 }
                 int minutes = quote.has("duration_minutes") ? quote.get("duration_minutes").getAsInt() : 0;
-                updateSelectionSummary(selectedSlots.size() + " slot(s) · " + (minutes / 60.0) + " hours · " + formatPrice(amount));
+                updateSelectionSummary(selectedSlots.size() + " slot(s) · Duration: "
+                        + CustomerUiUtils.durationLabel(minutes) + " · Total price: " + formatPrice(amount));
                 btnProceedToBook.setEnabled(true);
             }
             @Override public void onError(String error) {
@@ -335,7 +336,7 @@ public class SelectDateTimeActivity extends AppCompatActivity {
 
     private static String formatPrice(String raw) {
         try {
-            return java.text.NumberFormat.getInstance(Locale.getDefault()).format(new java.math.BigDecimal(raw)) + " VND";
+            return java.text.NumberFormat.getInstance(Locale.US).format(new java.math.BigDecimal(raw)) + " VND";
         } catch (Exception ignored) { return "Price unavailable"; }
     }
 

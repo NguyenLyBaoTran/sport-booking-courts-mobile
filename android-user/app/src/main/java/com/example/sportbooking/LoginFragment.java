@@ -49,6 +49,7 @@ public class LoginFragment extends Fragment {
     private EditText etPassword;
     private Button btnLogin;
     private Button btnGoogleLogin;
+    private TextView tvGoogleLoginStatus;
     private ImageButton btnTogglePassword;
     private boolean passwordVisible;
     private ProgressBar progressBar;
@@ -69,8 +70,13 @@ public class LoginFragment extends Fragment {
         btnTogglePassword = root.findViewById(R.id.btnTogglePassword);
         btnLogin = root.findViewById(R.id.btnLogin);
         btnGoogleLogin = root.findViewById(R.id.btnGoogleLogin);
+        tvGoogleLoginStatus = root.findViewById(R.id.tvGoogleLoginStatus);
         progressBar = root.findViewById(R.id.progressBar);
         tvError = root.findViewById(R.id.tvError);
+        boolean googleConfigured = BuildConfig.GOOGLE_LOGIN_ENABLED
+                && isGoogleConfigured(BuildConfig.GOOGLE_SERVER_CLIENT_ID);
+        if (btnGoogleLogin != null) btnGoogleLogin.setVisibility(googleConfigured ? View.VISIBLE : View.GONE);
+        if (tvGoogleLoginStatus != null) tvGoogleLoginStatus.setVisibility(googleConfigured ? View.GONE : View.VISIBLE);
         Bundle arguments = getArguments();
         String registeredEmail = arguments == null ? null : arguments.getString("registered_email");
         if (registeredEmail != null) etEmail.setText(registeredEmail);
@@ -199,7 +205,7 @@ public class LoginFragment extends Fragment {
 
     private void handleGoogleLogin() {
         String serverClientId = BuildConfig.GOOGLE_SERVER_CLIENT_ID.trim();
-        if (serverClientId.isEmpty()) {
+        if (!isGoogleConfigured(serverClientId)) {
             showError("Google Sign-In is not configured. Set GOOGLE_SERVER_CLIENT_ID.");
             return;
         }
@@ -239,6 +245,11 @@ public class LoginFragment extends Fragment {
                     }
                 }
         );
+    }
+
+    private boolean isGoogleConfigured(String clientId) {
+        return clientId != null
+                && clientId.matches("^[0-9]+-[A-Za-z0-9_-]+\\.apps\\.googleusercontent\\.com$");
     }
 
     private void handleGoogleCredential(GetCredentialResponse result) {

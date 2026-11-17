@@ -47,9 +47,8 @@ def seed_insert_accounts(path):
 
 
 def test_all_sql_seed_accounts_use_standard_emails_roles_and_password():
-    base = seed_insert_accounts(ROOT / "backend/database/seed.sql")
-    task4 = seed_insert_accounts(ROOT / "backend/database/seed_task4_catalogue.sql")
-    accounts = {**base, **task4}
+    seed = ROOT / "backend/database/seed.sql"
+    accounts = seed_insert_accounts(seed)
 
     assert set(accounts) == set(EXPECTED_ROLES)
     assert all(".demo@" not in email and email.endswith("@example.com") for email in accounts)
@@ -60,28 +59,43 @@ def test_all_sql_seed_accounts_use_standard_emails_roles_and_password():
 
 
 def test_legacy_aliases_are_renamed_in_place_and_conflicts_stop_the_seed():
-    base = (ROOT / "backend/database/seed.sql").read_text(encoding="utf-8")
-    task4 = (ROOT / "backend/database/seed_task4_catalogue.sql").read_text(encoding="utf-8")
-    mappings = {}
-    for source in (base, task4):
-        mappings.update(
-            re.findall(
-                r"WHEN '([^']+\.demo@example\.com)' THEN '([^']+@example\.com)'",
-                source,
-            )
+    source = (ROOT / "backend/database/seed.sql").read_text(encoding="utf-8")
+    mappings = dict(
+        re.findall(
+            r"WHEN '([^']+\.demo@example\.com)' THEN '([^']+@example\.com)'",
+            source,
         )
+    )
 
     expected = {email.replace("@example.com", ".demo@example.com"): email for email in EXPECTED_ROLES}
     assert mappings == expected
-    assert "legacy.id <> standardized.id" in base
-    assert "legacy.id <> standardized.id" in task4
+    assert source.count("legacy.id <> standardized.id") == 2
+    assert "@all_seed_safe = COALESCE(@demo_seed_safe, 0) AND COALESCE(@task4_seed_safe, 0)" in source
+    assert "ck_seed_preflight_pass" in source
+    assert not (ROOT / "backend/database/seed_task4_catalogue.sql").exists()
 
 
-def test_seed_preserves_already_standard_password_hashes():
-    standard_hash = "$argon2id$v=19$m=65536,t=3,p=4$2EwLRj8tbULNdDfRwR7E2w$YCmmQNpMQPkxFEjaOKkn9s/22CVbdDRMts4HEIPzItk"
-    for name in ("seed.sql", "seed_task4_catalogue.sql"):
-        source = (ROOT / "backend/database" / name).read_text(encoding="utf-8")
-        assert f"WHEN password_hash = '{standard_hash}' THEN password_hash" in source
+def test_new_accounts_get_demo_password_and_existing_passwords_are_never_updated():
+    source = (ROOT / "backend/database/seed.sql").read_text(encoding="utf-8")
+    updates = re.findall(
+        r"UPDATE sports_user_db\.users\s+SET\s+(.*?)\s+WHERE @all_seed_safe = 1",
+        source,
+        flags=re.DOTALL,
+    )
+    assert len(updates) == 2
+    assert all("password_hash" not in update for update in updates)
+    assert source.count("INSERT INTO sports_user_db.users (full_name, email, password_hash, phone, role, is_active)") == 17
+    assert "password_hash = CASE" not in source
+
+
+def test_seed_preflights_and_verification_precede_commit():
+    source = (ROOT / "backend/database/seed.sql").read_text(encoding="utf-8")
+    assert source.index("SET @demo_seed_safe") < source.index("SET @task4_seed_safe")
+    assert source.index("SET @task4_seed_safe") < source.index("ck_seed_preflight_pass")
+    assert source.index("ck_seed_preflight_pass") < source.index("START TRANSACTION")
+    assert source.index("@seed_verify_accounts") < source.index("COMMIT;")
+    assert "ck_seed_verification_pass" in source
+    assert "@seed_verify_courts" in source and "@seed_verify_future_slots" in source
 
 
 def test_api_booking_seed_uses_only_standard_customers_and_shared_password():
@@ -104,10 +118,13 @@ def test_api_booking_seed_uses_only_standard_customers_and_shared_password():
 def test_readme_lists_all_seed_logins_with_the_common_password():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     rows = re.findall(
-        r"^\| (?:Admin|Owner|Customer) \| `([^`]+)` \| `([^`]+)` \|$",
+        r"^\| (Admin|Owner|Customer) \| (.+) \|$",
         readme,
         flags=re.MULTILINE,
     )
-    assert len(rows) == len(EXPECTED_ROLES)
-    assert {email for email, _ in rows} == set(EXPECTED_ROLES)
-    assert all(password == "password123" for _, password in rows)
+    assert rows == [
+        ("Admin", "`admin@example.com`"),
+        ("Owner", "`owner1@example.com`, `owner2@example.com`, `owner3@example.com`, `owner4@example.com`"),
+        ("Customer", "`customer1@example.com` đến `customer10@example.com`, `vy.524h0040@example.com`, `tran.524h0130@example.com`"),
+    ]
+    assert "Tài khoản **mới được seed** dùng mật khẩu `password123`." in readme

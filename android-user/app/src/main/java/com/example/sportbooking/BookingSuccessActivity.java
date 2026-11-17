@@ -15,6 +15,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.sportbooking.repository.BookingRepository;
+import com.example.sportbooking.utils.CustomerUiUtils;
 import com.example.sportbooking.utils.QrCodeUtils;
 import com.google.gson.JsonObject;
 
@@ -90,7 +91,7 @@ public class BookingSuccessActivity extends AppCompatActivity {
             tvSuccessVenueName.setText(venueName);
         }
         if (dateStr != null && !dateStr.isEmpty()) {
-            tvTicketDate.setText(dateStr);
+            tvTicketDate.setText(CustomerUiUtils.formatBookingDate(dateStr));
         }
         if (timeSlotStr != null && !timeSlotStr.isEmpty()) {
             tvTicketTime.setText(timeSlotStr);
@@ -228,8 +229,8 @@ public class BookingSuccessActivity extends AppCompatActivity {
             tvSuccessVenueName.setText(currentVenue);
         }
         if (currentDate != null) {
-            tvTicketDate.setText(currentDate);
-            tvSuccessBookingDate.setText(currentDate);
+        tvTicketDate.setText(CustomerUiUtils.formatBookingDate(currentDate));
+        tvSuccessBookingDate.setText(CustomerUiUtils.formatBookingDate(currentDate));
         }
         if (currentTime != null) {
             tvTicketTime.setText(currentTime);

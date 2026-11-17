@@ -92,6 +92,8 @@ android-user/captures/
 android-user/**/*.apk
 android-user/**/*.aab
 android-user/**/output-metadata.json
+android-user/google-oauth.local.properties
+android-user/api.local.properties
 
 # Node package managers and generated web output
 node_modules/
@@ -114,5 +116,4 @@ test-results/
 *.sql
 !backend/migrations/*.sql
 !backend/database/seed.sql
-!backend/database/seed_task4_catalogue.sql
 !backend/scripts/create_databases.sql
