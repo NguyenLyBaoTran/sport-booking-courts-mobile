@@ -1,0 +1,16 @@
+{
+  "venvPath": "backend",
+  "venv": ".venv",
+  "include": [
+    "backend/alembic/env.py"
+  ],
+  "executionEnvironments": [
+    {
+      "root": "backend/alembic",
+      "extraPaths": [
+        "backend/.venv/Lib/site-packages",
+        "backend"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/tvSlotTime"
+    android:layout_width="match_parent"
+    android:layout_height="58dp"
+    android:layout_margin="4dp"
+    android:background="@drawable/bg_card"
+    android:gravity="center"
+    android:textColor="@color/text_primary"
+    android:textSize="13sp"
+    android:maxLines="2"
+    android:padding="6dp"
+    android:textStyle="bold"
+    android:clickable="true"
+    android:focusable="true" />

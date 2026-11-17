@@ -1,0 +1,270 @@
+name: sports-court-booking
+
+services:
+  mysql-dev:
+    image: mysql:8.4
+    profiles: [dev]
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_DEV_ROOT_PASSWORD:?Set MYSQL_DEV_ROOT_PASSWORD in the root .env file}
+      MYSQL_ROOT_HOST: "%"
+    volumes:
+      - mysql-dev-data:/var/lib/mysql
+    networks: [dev]
+    healthcheck:
+      test: [CMD-SHELL, 'mysqladmin ping --host=127.0.0.1 --user=root --password="$${MYSQL_ROOT_PASSWORD}" --silent']
+      interval: 5s
+      timeout: 5s
+      # Align the failed-health window with the setup's 12-minute health wait.
+      retries: 132
+      start_period: 60s
+
+  mailpit-dev:
+    image: axllent/mailpit:v1.33.1
+    profiles: [dev]
+    restart: on-failure:5
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_DISABLE_VERSION_CHECK: "true"
+      MP_LABEL: development
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    volumes:
+      - mailpit-dev-data:/data
+    networks: [dev]
+    healthcheck:
+      test: [CMD, /mailpit, readyz]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  schema-init:
+    image: mysql:8.4
+    profiles: [dev]
+    restart: "no"
+    environment:
+      MYSQL_PWD: ${MYSQL_DEV_ROOT_PASSWORD:?Set MYSQL_DEV_ROOT_PASSWORD in the root .env file}
+    command:
+      - sh
+      - -c
+      - >-
+        mysql --protocol=tcp --host=mysql-dev --user=root --execute="CREATE DATABASE IF NOT EXISTS sports_user_db CHARACTER SET utf8mb4; CREATE DATABASE IF NOT EXISTS sports_court_db CHARACTER SET utf8mb4; CREATE DATABASE IF NOT EXISTS sports_booking_db CHARACTER SET utf8mb4; CREATE DATABASE IF NOT EXISTS sports_payment_db CHARACTER SET utf8mb4"
+    depends_on:
+      mysql-dev:
+        condition: service_healthy
+    networks: [dev]
+
+  user-service:
+    image: sports-court-booking-user-service
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        APP_SOURCE: services/user_service
+    profiles: [dev]
+    restart: on-failure:5
+    working_dir: /opt/sport-booking/services/user_service
+    command: [sh, -c, "python -m alembic -c alembic.ini upgrade head && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment:
+      APP_ENV: development
+      USER_DATABASE_URL: mysql+pymysql://root:${MYSQL_DEV_ROOT_PASSWORD:?Set MYSQL_DEV_ROOT_PASSWORD in the root .env file}@mysql-dev:3306/sports_user_db
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in the root .env file}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      GOOGLE_LOGIN_ENABLED: ${GOOGLE_LOGIN_ENABLED:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      SMTP_HOST: ${SMTP_HOST:-mailpit-dev}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@sport-booking.test}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+    depends_on:
+      mysql-dev:
+        condition: service_healthy
+      mailpit-dev:
+        condition: service_healthy
+      schema-init:
+        condition: service_completed_successfully
+    networks: [dev]
+    healthcheck: &backend-healthcheck
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/db', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  court-service:
+    image: sports-court-booking-court-service
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        APP_SOURCE: services/court_service
+    profiles: [dev]
+    restart: on-failure:5
+    working_dir: /opt/sport-booking/services/court_service
+    command: [sh, -c, "python -m app.init_db && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment:
+      APP_ENV: development
+      COURT_DATABASE_URL: mysql+pymysql://root:${MYSQL_DEV_ROOT_PASSWORD:?Set MYSQL_DEV_ROOT_PASSWORD in the root .env file}@mysql-dev:3306/sports_court_db
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in the root .env file}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set INTERNAL_SERVICE_TOKEN in the root .env file}
+      BOOKING_SERVICE_URL: http://booking-service:8000
+    depends_on:
+      mysql-dev:
+        condition: service_healthy
+      schema-init:
+        condition: service_completed_successfully
+    networks: [dev]
+    healthcheck: *backend-healthcheck
+
+  booking-service:
+    image: sports-court-booking-booking-service
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        APP_SOURCE: services/booking_service
+    profiles: [dev]
+    restart: on-failure:5
+    working_dir: /opt/sport-booking/services/booking_service
+    command: [sh, -c, "python -m app.init_db && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment:
+      APP_ENV: development
+      BOOKING_DATABASE_URL: mysql+pymysql://root:${MYSQL_DEV_ROOT_PASSWORD:?Set MYSQL_DEV_ROOT_PASSWORD in the root .env file}@mysql-dev:3306/sports_booking_db
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in the root .env file}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set INTERNAL_SERVICE_TOKEN in the root .env file}
+      COURT_SERVICE_URL: http://court-service:8000
+      BOOKING_HOLD_MINUTES: ${BOOKING_HOLD_MINUTES:-10}
+    depends_on:
+      mysql-dev:
+        condition: service_healthy
+      schema-init:
+        condition: service_completed_successfully
+    networks: [dev]
+    healthcheck: *backend-healthcheck
+
+  payment-service:
+    image: sports-court-booking-payment-service
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        APP_SOURCE: services/payment_service
+    profiles: [dev]
+    restart: on-failure:5
+    working_dir: /opt/sport-booking/services/payment_service
+    command: [sh, -c, "python -m app.init_db && exec python -m uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment:
+      APP_ENV: development
+      PAYMENT_DATABASE_URL: mysql+pymysql://root:${MYSQL_DEV_ROOT_PASSWORD:?Set MYSQL_DEV_ROOT_PASSWORD in the root .env file}@mysql-dev:3306/sports_payment_db
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in the root .env file}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?Set INTERNAL_SERVICE_TOKEN in the root .env file}
+      BOOKING_SERVICE_URL: http://booking-service:8000
+    depends_on:
+      mysql-dev:
+        condition: service_healthy
+      schema-init:
+        condition: service_completed_successfully
+    networks: [dev]
+    healthcheck: *backend-healthcheck
+
+  seed:
+    image: mysql:8.4
+    profiles: [dev]
+    restart: "no"
+    environment:
+      MYSQL_PWD: ${MYSQL_DEV_ROOT_PASSWORD:?Set MYSQL_DEV_ROOT_PASSWORD in the root .env file}
+    volumes:
+      - ./backend/database/seed.sql:/seed/seed.sql:ro
+    command:
+      - sh
+      - -c
+      - mysql --protocol=tcp --host=mysql-dev --user=root --database=sports_user_db --default-character-set=utf8mb4 --batch < /seed/seed.sql
+    depends_on:
+      mysql-dev:
+        condition: service_healthy
+      schema-init:
+        condition: service_completed_successfully
+      user-service:
+        condition: service_healthy
+      court-service:
+        condition: service_healthy
+      booking-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+    networks: [dev]
+
+  gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        APP_SOURCE: gateway
+    profiles: [dev]
+    restart: on-failure:5
+    working_dir: /opt/sport-booking/gateway
+    command: [python, -m, uvicorn, main:app, --host, 0.0.0.0, --port, "8000"]
+    environment:
+      APP_ENV: development
+      USER_SERVICE_URL: http://user-service:8000
+      COURT_SERVICE_URL: http://court-service:8000
+      BOOKING_SERVICE_URL: http://booking-service:8000
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
+    depends_on:
+      user-service:
+        condition: service_healthy
+      court-service:
+        condition: service_healthy
+      booking-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+    ports:
+      - "${GATEWAY_BIND_ADDRESS:-127.0.0.1}:${GATEWAY_HOST_PORT:-8000}:8000"
+    networks: [dev]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  management-web:
+    image: nginx:alpine
+    profiles: [dev]
+    restart: on-failure:5
+    volumes:
+      - ./management-web:/usr/share/nginx/html:ro
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks: [dev]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+networks:
+  dev:
+    name: sport-court-booking-dev
+
+volumes:
+  mysql-dev-data:
+    name: sport-court-booking-mysql-dev
+  mailpit-dev-data:
+    name: sport-court-booking-mailpit-dev

@@ -1,0 +1,69 @@
+import os
+
+import httpx
+from fastapi import HTTPException
+
+
+def _request(method: str, path: str, **kwargs) -> dict:
+    base_url = os.getenv("COURT_SERVICE_URL", "http://127.0.0.1:8002").rstrip("/")
+    token = os.getenv("INTERNAL_SERVICE_TOKEN", "").strip()
+    if not token:
+        raise HTTPException(status_code=503, detail="Internal service token is not configured")
+    try:
+        response = httpx.request(
+            method,
+            f"{base_url}{path}",
+            headers={"X-Internal-Token": token},
+            timeout=5.0,
+            **kwargs,
+        )
+        if response.status_code >= 400:
+            if response.status_code == 409:
+                raise HTTPException(status_code=409, detail="Time slot is unavailable")
+            raise HTTPException(status_code=503, detail="Court service rejected the request")
+        try:
+            payload = response.json()
+        except ValueError:
+            raise HTTPException(status_code=503, detail="Court service returned an invalid response") from None
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=503, detail="Court service returned an invalid response")
+        return payload
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Court service timed out") from None
+    except httpx.RequestError:
+        raise HTTPException(status_code=503, detail="Court service is unavailable") from None
+    except ValueError:
+        raise HTTPException(status_code=503, detail="Court service returned an invalid response") from None
+
+
+def _slot_path(slot_ids: int | list[int]) -> str:
+    values = [slot_ids] if isinstance(slot_ids, int) else slot_ids
+    return ",".join(str(value) for value in values)
+
+
+def hold_slot(slot_ids: int | list[int], booking_id: int) -> dict:
+    return _request(
+        "POST",
+        f"/api/v1/internal/slots/{_slot_path(slot_ids)}/hold",
+        params={"booking_id": booking_id},
+    )
+
+
+def get_slot_quote(slot_ids: int | list[int]) -> dict:
+    return _request("GET", f"/api/v1/internal/slots/{_slot_path(slot_ids)}/quote")
+
+
+def confirm_slot(slot_ids: int | list[int], booking_id: int) -> dict:
+    return _request(
+        "POST",
+        f"/api/v1/internal/slots/{_slot_path(slot_ids)}/confirm",
+        params={"booking_id": booking_id},
+    )
+
+
+def release_slot(slot_ids: int | list[int], booking_id: int) -> dict:
+    return _request(
+        "POST",
+        f"/api/v1/internal/slots/{_slot_path(slot_ids)}/release",
+        params={"booking_id": booking_id},
+    )

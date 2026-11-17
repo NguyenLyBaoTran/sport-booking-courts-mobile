@@ -1,0 +1,379 @@
+package com.example.sportbooking;
+
+import android.content.Intent;
+import android.os.Bundle;
+import android.text.TextUtils;
+import android.text.method.HideReturnsTransformationMethod;
+import android.text.method.PasswordTransformationMethod;
+import android.util.Patterns;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.ProgressBar;
+import android.widget.TextView;
+
+import androidx.fragment.app.Fragment;
+import android.view.LayoutInflater;
+import android.view.ViewGroup;
+
+import com.example.sportbooking.api.ApiClient;
+import com.example.sportbooking.api.AuthApi;
+import com.example.sportbooking.api.model.GoogleLoginRequest;
+import com.example.sportbooking.api.model.LoginRequest;
+import com.example.sportbooking.api.model.TokenResponse;
+import com.example.sportbooking.api.model.UserResponse;
+import com.example.sportbooking.auth.TokenStore;
+
+import org.json.JSONObject;
+
+import androidx.credentials.CredentialManager;
+import androidx.credentials.CredentialManagerCallback;
+import androidx.credentials.CustomCredential;
+import androidx.credentials.GetCredentialRequest;
+import androidx.credentials.GetCredentialResponse;
+import androidx.credentials.exceptions.GetCredentialCancellationException;
+import androidx.credentials.exceptions.GetCredentialException;
+import androidx.credentials.exceptions.GetCredentialInterruptedException;
+
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption;
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
+
+import retrofit2.Call;
+import retrofit2.Callback;
+import retrofit2.Response;
+
+public class LoginFragment extends Fragment {
+
+    private EditText etEmail;
+    private EditText etPassword;
+    private Button btnLogin;
+    private Button btnGoogleLogin;
+    private TextView tvGoogleLoginStatus;
+    private ImageButton btnTogglePassword;
+    private boolean passwordVisible;
+    private ProgressBar progressBar;
+    private TextView tvError;
+    private AuthApi authApi;
+
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        return inflater.inflate(R.layout.login_screen, container, false);
+    }
+
+    @Override
+    public void onViewCreated(View root, Bundle savedInstanceState) {
+        super.onViewCreated(root, savedInstanceState);
+        authApi = ApiClient.getAuthApi(requireContext());
+        etEmail = root.findViewById(R.id.etEmail);
+        etPassword = root.findViewById(R.id.etPassword);
+        btnTogglePassword = root.findViewById(R.id.btnTogglePassword);
+        btnLogin = root.findViewById(R.id.btnLogin);
+        btnGoogleLogin = root.findViewById(R.id.btnGoogleLogin);
+        tvGoogleLoginStatus = root.findViewById(R.id.tvGoogleLoginStatus);
+        progressBar = root.findViewById(R.id.progressBar);
+        tvError = root.findViewById(R.id.tvError);
+        boolean googleConfigured = BuildConfig.GOOGLE_LOGIN_ENABLED
+                && isGoogleConfigured(BuildConfig.GOOGLE_SERVER_CLIENT_ID);
+        if (btnGoogleLogin != null) btnGoogleLogin.setVisibility(googleConfigured ? View.VISIBLE : View.GONE);
+        if (tvGoogleLoginStatus != null) tvGoogleLoginStatus.setVisibility(googleConfigured ? View.GONE : View.VISIBLE);
+        Bundle arguments = getArguments();
+        String registeredEmail = arguments == null ? null : arguments.getString("registered_email");
+        if (registeredEmail != null) etEmail.setText(registeredEmail);
+        btnLogin.setOnClickListener(v -> login());
+        if (btnTogglePassword != null) btnTogglePassword.setOnClickListener(v -> togglePasswordVisibility());
+        if (btnGoogleLogin != null) btnGoogleLogin.setOnClickListener(v -> handleGoogleLogin());
+        View tabRegister = root.findViewById(R.id.tabRegister);
+        View tvGoRegister = root.findViewById(R.id.tvGoRegister);
+        View tvForgotPassword = root.findViewById(R.id.tvForgotPassword);
+        if (tabRegister != null) tabRegister.setOnClickListener(v -> openRegister());
+        if (tvGoRegister != null) tvGoRegister.setOnClickListener(v -> openRegister());
+        if (tvForgotPassword != null) tvForgotPassword.setOnClickListener(v -> startActivity(new Intent(requireContext(), ForgotPasswordActivity.class)));
+    }
+
+    public void setRegisteredEmail(String email) {
+        if (etEmail != null && email != null) etEmail.setText(email);
+    }
+
+    private void togglePasswordVisibility() {
+        int selectionStart = etPassword.getSelectionStart();
+        int selectionEnd = etPassword.getSelectionEnd();
+        passwordVisible = !passwordVisible;
+        etPassword.setTransformationMethod(passwordVisible
+                ? HideReturnsTransformationMethod.getInstance()
+                : PasswordTransformationMethod.getInstance());
+        int length = etPassword.getText().length();
+        etPassword.setSelection(Math.max(0, Math.min(selectionStart, length)),
+                Math.max(0, Math.min(selectionEnd, length)));
+        btnTogglePassword.setImageResource(passwordVisible ? R.drawable.ic_visibility_off : R.drawable.ic_visibility);
+        btnTogglePassword.setContentDescription(getString(passwordVisible
+                ? R.string.hide_password : R.string.show_password));
+    }
+
+    private void login() {
+        String email = etEmail.getText()
+                .toString()
+                .trim()
+                .toLowerCase();
+
+        String password = etPassword.getText().toString();
+
+        if (TextUtils.isEmpty(email) || TextUtils.isEmpty(password)) {
+            showError(getString(R.string.error_required));
+            return;
+        }
+
+        if (!Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            showError(getString(R.string.error_invalid_email));
+            return;
+        }
+
+        setLoading(true);
+
+        authApi.login(new LoginRequest(email, password))
+                .enqueue(new Callback<TokenResponse>() {
+                    @Override
+                    public void onResponse(
+                            Call<TokenResponse> call,
+                            Response<TokenResponse> response
+                    ) {
+                        setLoading(false);
+
+                        if (!response.isSuccessful()
+                                || response.body() == null) {
+                            showError(getErrorMessage(response));
+                            return;
+                        }
+
+                        String token =
+                                response.body().getAccess_token();
+
+                        if (TextUtils.isEmpty(token)) {
+                            showError(
+                                    "The server did not return an access token."
+                            );
+                            return;
+                        }
+
+                        if (response.body().getUser() == null
+                                || !"USER".equals(response.body().getUser().getRole())) {
+                            showError("This account is not a Customer account.");
+                            return;
+                        }
+
+                        TokenStore.saveToken(
+                                requireContext(),
+                                token
+                        );
+
+                        ((AuthActivity) requireActivity()).onLoginSuccess();
+                    }
+
+                    @Override
+                    public void onFailure(
+                            Call<TokenResponse> call,
+                            Throwable throwable
+                    ) {
+                        setLoading(false);
+
+                        showError(
+                                "Cannot connect to the server. "
+                                        + "Check your network and backend."
+                        );
+                    }
+                });
+    }
+
+    private void openRegister() {
+        ((AuthActivity) requireActivity()).showRegister();
+    }
+
+    private void setLoading(boolean loading) {
+        btnLogin.setEnabled(!loading);
+        if (btnGoogleLogin != null) {
+            btnGoogleLogin.setEnabled(!loading);
+        }
+
+        progressBar.setVisibility(
+                loading ? View.VISIBLE : View.GONE
+        );
+
+        if (loading) {
+            showError("");
+        }
+    }
+
+    private void handleGoogleLogin() {
+        String serverClientId = BuildConfig.GOOGLE_SERVER_CLIENT_ID.trim();
+        if (!isGoogleConfigured(serverClientId)) {
+            showError("Google Sign-In is not configured. Set GOOGLE_SERVER_CLIENT_ID.");
+            return;
+        }
+
+        setLoading(true);
+        GetSignInWithGoogleOption googleOption =
+                new GetSignInWithGoogleOption.Builder(serverClientId).build();
+        GetCredentialRequest request = new GetCredentialRequest.Builder()
+                .addCredentialOption(googleOption)
+                .build();
+
+        CredentialManager credentialManager = CredentialManager.create(requireContext());
+
+        credentialManager.getCredentialAsync(
+                requireActivity(),
+                request,
+                null,
+                androidx.core.content.ContextCompat.getMainExecutor(requireContext()),
+                new CredentialManagerCallback<GetCredentialResponse, GetCredentialException>() {
+                    @Override
+                    public void onResult(GetCredentialResponse result) {
+                        handleGoogleCredential(result);
+                    }
+
+                    @Override
+                    public void onError(GetCredentialException error) {
+                        setLoading(false);
+                        if (error instanceof GetCredentialCancellationException ||
+                                error instanceof GetCredentialInterruptedException) {
+                            showError("Google sign-in was cancelled.");
+                        } else {
+                            String message = error.getMessage();
+                            showError(TextUtils.isEmpty(message)
+                                    ? "Google sign-in failed. Please check Google Play Services and OAuth configuration."
+                                    : "Google sign-in failed: " + message);
+                        }
+                    }
+                }
+        );
+    }
+
+    private boolean isGoogleConfigured(String clientId) {
+        return clientId != null
+                && clientId.matches("^[0-9]+-[A-Za-z0-9_-]+\\.apps\\.googleusercontent\\.com$");
+    }
+
+    private void handleGoogleCredential(GetCredentialResponse result) {
+        androidx.credentials.Credential credential = result.getCredential();
+        if (!(credential instanceof CustomCredential)
+                || !GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(credential.getType())) {
+            setLoading(false);
+            showError("Google did not return a valid ID token.");
+            return;
+        }
+
+        final String idToken;
+        try {
+            GoogleIdTokenCredential googleCredential = GoogleIdTokenCredential.createFrom(
+                    ((CustomCredential) credential).getData()
+            );
+            idToken = googleCredential.getIdToken();
+        } catch (Exception error) {
+            setLoading(false);
+            showError("Google returned an invalid ID token. Please try again.");
+            return;
+        }
+
+        authApi.googleLogin(new GoogleLoginRequest(idToken))
+                .enqueue(new Callback<TokenResponse>() {
+                    @Override
+                    public void onResponse(Call<TokenResponse> call, Response<TokenResponse> response) {
+                        setLoading(false);
+                        if (response.isSuccessful() && response.body() != null) {
+                            completeLogin(response.body());
+                        } else {
+                            showError(getGoogleErrorMessage(response));
+                        }
+                    }
+
+                    @Override
+                    public void onFailure(Call<TokenResponse> call, Throwable error) {
+                        setLoading(false);
+                        showError("Cannot connect to the server. Check your network and backend.");
+                    }
+                });
+    }
+
+    private void completeLogin(TokenResponse tokenResponse) {
+        if (tokenResponse == null || TextUtils.isEmpty(tokenResponse.getAccess_token())) {
+            showError("The server did not return an access token.");
+            return;
+        }
+        if (tokenResponse.getUser() == null || !"USER".equals(tokenResponse.getUser().getRole())) {
+            showError("This account is not a Customer account.");
+            return;
+        }
+
+        TokenStore.saveToken(requireContext(), tokenResponse.getAccess_token());
+
+        UserResponse user = tokenResponse.getUser();
+        requireContext().getSharedPreferences("user_profile_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("saved_full_name", user.getFull_name())
+                .putString("saved_phone", user.getPhone())
+                .apply();
+
+        ((AuthActivity) requireActivity()).onLoginSuccess();
+    }
+
+    private void showError(String message) {
+        tvError.setText(message);
+
+        tvError.setVisibility(
+                TextUtils.isEmpty(message)
+                        ? View.GONE
+                        : View.VISIBLE
+        );
+    }
+
+    private String getErrorMessage(Response<?> response) {
+        if (response.code() == 401) {
+            return "Email or password is incorrect.";
+        }
+
+        if (response.errorBody() == null) {
+            return "Unable to log in. Please try again.";
+        }
+
+        try {
+            String body = response.errorBody().string();
+            JSONObject json = new JSONObject(body);
+            String detail = json.optString("detail", "");
+
+            if (!TextUtils.isEmpty(detail)) {
+                return detail;
+            }
+        } catch (Exception ignored) {
+            return "Unable to log in. Please try again.";
+        }
+
+        return "Unable to log in. Please try again.";
+    }
+
+    private String getGoogleErrorMessage(Response<?> response) {
+        if (response.errorBody() != null) {
+            try {
+                String body = response.errorBody().string();
+                JSONObject json = new JSONObject(body);
+                String detail = json.optString("detail", "");
+                if (!TextUtils.isEmpty(detail)) {
+                    return detail;
+                }
+            } catch (Exception ignored) {
+                // Fall through to an HTTP-specific message.
+            }
+        }
+
+        switch (response.code()) {
+            case 401:
+                return "Google token không hợp lệ hoặc sai OAuth Client ID. Kiểm tra cấu hình Web Client ID.";
+            case 403:
+                return "Tài khoản Google này không được phép đăng nhập vào tài khoản USER.";
+            case 409:
+                return "Email này đã có tài khoản nhưng không thể tự liên kết bằng Google.";
+            case 503:
+                return "Google Sign-In chưa được cấu hình trên backend.";
+            default:
+                return "Google sign-in failed (HTTP " + response.code() + ").";
+        }
+    }
+}

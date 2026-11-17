@@ -1,0 +1,131 @@
+@startuml Booking_Payment_Sequence
+
+title Booking and Payment Sequence Diagram
+
+hide footbox
+autonumber
+
+<style>
+participant {
+    Padding 12
+    FontSize 11
+}
+database {
+    Padding 12
+    FontSize 11
+}
+</style>
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam linetype ortho
+
+skinparam sequence {
+    ArrowColor #475569
+    LifeLineBorderColor #94A3B8
+    LifeLineBackgroundColor white
+    ParticipantBorderColor #64748B
+    ParticipantBackgroundColor #EAF2F8
+    ParticipantFontColor #1E293B
+    ParticipantFontSize 11
+    ActorBorderColor #64748B
+    ActorFontColor #1E293B
+    GroupBorderColor #CBD5E1
+    GroupBackgroundColor white
+}
+
+actor Customer
+participant "Booking UI" as UI
+participant "Booking API" as BA
+participant "Schedule API" as SA
+participant "Payment API" as PA
+participant "Mock Payment Gateway" as MPG
+database "Database" as DB
+
+Customer -> UI: Select court and time slot
+Customer -> UI: Confirm booking
+
+UI -> BA: POST /api/v1/bookings
+activate BA
+
+BA -> SA: Hold available time slot
+activate SA
+SA -> DB: Check and lock slot
+activate DB
+DB --> SA: Slot availability result
+deactivate DB
+
+alt Slot unavailable
+    SA --> BA: Slot unavailable
+    BA --> UI: 409 Conflict
+    UI --> Customer: Show slot unavailable
+    deactivate SA
+    deactivate BA
+
+else Slot held successfully
+    SA --> BA: Slot held
+    deactivate SA
+
+    BA -> DB: Create PENDING booking\nSet expiry to 10 minutes
+    activate DB
+    DB --> BA: Booking ID
+    deactivate DB
+
+    BA --> UI: Booking created
+    deactivate BA
+
+    UI --> Customer: Display booking details
+    Customer -> UI: Confirm payment
+
+    UI -> PA: POST /api/v1/payments/process
+    activate PA
+
+    PA -> MPG: Process mock payment
+    activate MPG
+    MPG --> PA: Payment result
+    deactivate MPG
+
+    alt Payment successful
+        PA -> DB: Save payment as PAID
+        activate DB
+        DB --> PA: Payment saved
+        deactivate DB
+
+        PA -> BA: Confirm booking
+        activate BA
+
+        BA -> SA: Confirm held slot
+        activate SA
+        SA -> DB: Update slot to BOOKED
+        activate DB
+        DB --> SA: Slot updated
+        deactivate DB
+        SA --> BA: Slot confirmed
+        deactivate SA
+
+        BA -> DB: Update booking to CONFIRMED\nGenerate QR token
+        activate DB
+        DB --> BA: Booking updated
+        deactivate DB
+
+        BA --> PA: Booking confirmed
+        deactivate BA
+
+        PA --> UI: Payment and booking successful
+        UI --> Customer: Show confirmation and QR code
+
+    else Payment failed
+        PA -> DB: Save payment as FAILED
+        activate DB
+        DB --> PA: Payment saved
+        deactivate DB
+
+        PA --> UI: Payment failed
+        UI --> Customer: Show failure and retry option
+    end
+
+    deactivate PA
+end
+
+@enduml

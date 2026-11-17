@@ -1,0 +1,161 @@
+package com.example.sportbooking;
+
+import org.junit.Test;
+
+import com.google.gson.JsonObject;
+import com.example.sportbooking.utils.CustomerUiUtils;
+
+import java.util.Arrays;
+import java.util.TimeZone;
+
+import static org.junit.Assert.*;
+
+/**
+ * Example local unit test, which will execute on the development machine (host).
+ *
+ * @see <a href="http://d.android.com/tools/testing">Testing documentation</a>
+ */
+public class ExampleUnitTest {
+    @Test
+    public void addition_isCorrect() {
+        assertEquals(4, 2 + 2);
+    }
+
+    @Test
+    public void availableSlotsAreSelectableButHeldAndBookedSlotsAreNot() {
+        assertTrue(SelectDateTimeActivity.isSelectable(slot(1, 4, "2026-12-01", "08:00:00", "09:00:00", "AVAILABLE", true)));
+        assertFalse(SelectDateTimeActivity.isSelectable(slot(2, 4, "2026-12-01", "09:00:00", "10:00:00", "HELD", false)));
+        assertFalse(SelectDateTimeActivity.isSelectable(slot(3, 4, "2026-12-01", "10:00:00", "11:00:00", "BOOKED", false)));
+    }
+
+    @Test
+    public void selectedSlotsMustBeConsecutiveUniqueAndOnOneCourtAndDate() {
+        JsonObject first = slot(1, 4, "2026-12-01", "08:00:00", "09:00:00", "AVAILABLE", true);
+        JsonObject second = slot(2, 4, "2026-12-01", "09:00:00", "10:00:00", "AVAILABLE", true);
+        JsonObject third = slot(3, 4, "2026-12-01", "10:00:00", "11:00:00", "AVAILABLE", true);
+        assertTrue(SelectDateTimeActivity.areContiguous(Arrays.asList(first, second), 4, "2026-12-01"));
+        assertTrue(SelectDateTimeActivity.areContiguous(Arrays.asList(first, second, third), 4, "2026-12-01"));
+        assertFalse(SelectDateTimeActivity.areContiguous(Arrays.asList(first, third), 4, "2026-12-01"));
+        assertFalse(SelectDateTimeActivity.areContiguous(Arrays.asList(first, first), 4, "2026-12-01"));
+        JsonObject otherCourt = slot(4, 5, "2026-12-01", "09:00:00", "10:00:00", "AVAILABLE", true);
+        JsonObject otherDate = slot(5, 4, "2026-12-02", "09:00:00", "10:00:00", "AVAILABLE", true);
+        assertFalse(SelectDateTimeActivity.areContiguous(Arrays.asList(first, otherCourt), 4, "2026-12-01"));
+        assertFalse(SelectDateTimeActivity.areContiguous(Arrays.asList(first, otherDate), 4, "2026-12-01"));
+    }
+
+    @Test
+    public void customerSlotTimeFormattingOmitsSeconds() {
+        assertEquals("08:00", SelectDateTimeActivity.formatTime("08:00:00"));
+        assertEquals("09:30", SelectDateTimeActivity.formatTime("09:30:59"));
+    }
+
+    @Test
+    public void paymentMethodLabelsUseActualProviderNames() {
+        assertEquals("Mock", CustomerUiUtils.paymentMethodLabel("MOCK"));
+        assertEquals("VNPay", CustomerUiUtils.paymentMethodLabel("vnpay"));
+        assertEquals("MoMo", CustomerUiUtils.paymentMethodLabel("MOMO"));
+        assertEquals("ZaloPay", CustomerUiUtils.paymentMethodLabel("ZALOPAY"));
+        assertEquals("Unknown", CustomerUiUtils.paymentMethodLabel(null));
+    }
+
+    @Test
+    public void receiptDurationUsesBookingTimesAndHandlesMissingValues() {
+        assertEquals("1 hour", CustomerUiUtils.durationLabel("09:00:00", "10:00:00"));
+        assertEquals("1 hr 30 min", CustomerUiUtils.durationLabel("09:00", "10:30"));
+        assertEquals("Unavailable", CustomerUiUtils.durationLabel(null, "10:30"));
+        assertEquals("09:00 - 10:00", CustomerUiUtils.timeSlotLabel("09:00:00", "10:00:00"));
+        assertFalse(CustomerUiUtils.isCompletedBooking("CONFIRMED"));
+        assertTrue(CustomerUiUtils.isCompletedBooking("completed"));
+        assertEquals("15/11/2026", CustomerUiUtils.formatBookingDate("2026-11-15"));
+        assertEquals("2 hours", CustomerUiUtils.durationLabel(120));
+        assertEquals("1 hr 30 min", CustomerUiUtils.durationLabel(90));
+        assertEquals("Unavailable", CustomerUiUtils.durationLabel(0));
+        assertEquals("300,000", CustomerUiUtils.formatAmount("300000.00"));
+        assertEquals("17/11/2026", CustomerUiUtils.formatBookingDate("2026-11-17"));
+    }
+
+    @Test
+    public void utcTimestampsDisplayOnceInVietnamTimeAndDateOnlyDoesNotShift() {
+        assertEquals("17/11/2026 08:00", CustomerUiUtils.formatUtcTimestamp("2026-11-17T01:00:00Z"));
+        assertEquals("17/11/2026 08:00", CustomerUiUtils.formatUtcTimestamp("2026-11-17 01:00:00"));
+        assertEquals("17/11/2026 06:00", CustomerUiUtils.formatUtcTimestamp("2026-11-17T01:00:00+02:00"));
+
+        TimeZone previous = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"));
+            assertEquals("17/11/2026", CustomerUiUtils.formatBookingDate("2026-11-17"));
+        } finally {
+            TimeZone.setDefault(previous);
+        }
+    }
+
+    @Test
+    public void homeCatalogueFiltersUseOnlySelectedVenueSportAndRealTextFields() {
+        assertTrue(CustomerUiUtils.matchesCourtFilters("badminton", "Court A", "Indoor",
+                "Central Arena District 1", "Badminton", 3, 3, 7, 7));
+        assertFalse(CustomerUiUtils.matchesCourtFilters("", "Court A", "Indoor",
+                "Central Arena", "Badminton", 3, 4, 7, null));
+        assertFalse(CustomerUiUtils.matchesCourtFilters("football", "Court A", "Indoor",
+                "Central Arena", "Badminton", 3, null, 7, null));
+    }
+
+    @Test
+    public void homeAddressFilterCombinesWithSportAndHandlesMissingAddresses() {
+        assertTrue(CustomerUiUtils.matchesAddressFilter(" District   1, Ho Chi Minh City ", "district 1, ho chi minh city"));
+        assertFalse(CustomerUiUtils.matchesAddressFilter("District 2", "District 1"));
+        assertFalse(CustomerUiUtils.matchesAddressFilter(null, "District 1"));
+        assertTrue(CustomerUiUtils.matchesAddressFilter("", ""));
+
+        boolean matchingCourt = CustomerUiUtils.matchesCourtFilters("", "Court A", "Indoor",
+                "Central Arena District 1", "Badminton", 3, null, 7, 7)
+                && CustomerUiUtils.matchesAddressFilter("District 1", "District 1");
+        boolean wrongSport = CustomerUiUtils.matchesCourtFilters("", "Court A", "Indoor",
+                "Central Arena District 1", "Badminton", 3, null, 7, 8)
+                && CustomerUiUtils.matchesAddressFilter("District 1", "District 1");
+        boolean wrongAddress = CustomerUiUtils.matchesCourtFilters("", "Court A", "Indoor",
+                "Central Arena District 1", "Badminton", 3, null, 7, 7)
+                && CustomerUiUtils.matchesAddressFilter("District 1", "District 2");
+        assertTrue(matchingCourt);
+        assertFalse(wrongSport);
+        assertFalse(wrongAddress);
+    }
+
+    @Test
+    public void checkInSuccessRequiresConfirmedBackendStatus() {
+        assertTrue(BookingSuccessActivity.isCheckInConfirmed("CHECKED_IN"));
+        assertFalse(BookingSuccessActivity.isCheckInConfirmed("CONFIRMED"));
+        assertFalse(BookingSuccessActivity.isCheckInConfirmed("CANCELLED"));
+        assertFalse(BookingSuccessActivity.isCheckInConfirmed("EXPIRED"));
+        assertFalse(BookingSuccessActivity.isCheckInConfirmed("COMPLETED"));
+    }
+
+    @Test
+    public void onlyConfirmedBookingsKeepAnActiveQrScreen() {
+        assertTrue(BookingSuccessActivity.isActiveQrStatus("CONFIRMED"));
+        assertFalse(BookingSuccessActivity.isActiveQrStatus("CHECKED_IN"));
+        assertFalse(BookingSuccessActivity.isActiveQrStatus("CANCELLED"));
+        assertFalse(BookingSuccessActivity.isActiveQrStatus("EXPIRED"));
+        assertFalse(BookingSuccessActivity.isActiveQrStatus(null));
+    }
+
+    @Test
+    public void pollingRequiresResumedScreenAndNoTerminalOrInflightRequest() {
+        assertTrue(BookingSuccessActivity.shouldPoll(true, false, false));
+        assertFalse(BookingSuccessActivity.shouldPoll(false, false, false));
+        assertFalse(BookingSuccessActivity.shouldPoll(true, true, false));
+        assertFalse(BookingSuccessActivity.shouldPoll(true, false, true));
+    }
+
+    private static JsonObject slot(int id, int courtId, String date, String start, String end, String status, boolean selectable) {
+        JsonObject value = new JsonObject();
+        value.addProperty("id", id);
+        value.addProperty("court_id", courtId);
+        value.addProperty("slot_date", date);
+        value.addProperty("start_time", start);
+        value.addProperty("end_time", end);
+        value.addProperty("reservation_status", status);
+        value.addProperty("is_active", true);
+        value.addProperty("is_selectable", selectable);
+        return value;
+    }
+}

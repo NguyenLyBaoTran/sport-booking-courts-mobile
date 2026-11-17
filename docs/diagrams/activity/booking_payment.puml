@@ -1,0 +1,76 @@
+@startuml
+title Booking and Payment Activity Diagram
+
+skinparam shadowing false
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam linetype ortho
+skinparam nodesep 55
+skinparam ranksep 45
+
+skinparam activity {
+    BackgroundColor #F7F7F7
+    BorderColor #888888
+    DiamondBackgroundColor white
+    DiamondBorderColor #888888
+    ArrowColor #555555
+    FontColor #222222
+}
+
+|Customer|
+start
+:Select court and time slot;
+
+|System|
+:Check slot availability;
+
+if (Slot available?) then (Yes)
+    :Hold slot temporarily;
+    :Create booking;
+    :Set status to PENDING;
+
+    |Customer|
+    :Review booking details;
+    :Proceed to payment;
+
+    |Payment|
+    :Process mock payment;
+
+    if (Payment successful?) then (Yes)
+        :Record payment SUCCESS;
+
+        |System|
+        :Confirm slot reservation;
+
+        if (Slot confirmed?) then (Yes)
+            :Update booking to CONFIRMED;
+
+            |Customer|
+            :View booking confirmation;
+            stop
+        else (No)
+            :View booking failure;
+            stop
+        endif
+
+    else (No)
+        :Record payment FAILED;
+
+        |System|
+        :Cancel pending booking;
+        :Release slot hold;
+
+        |Customer|
+        :View payment failure;
+        stop
+    endif
+
+else (No)
+    :Show slot unavailable message;
+
+    |Customer|
+    :Select another time slot;
+    stop
+endif
+
+@enduml
