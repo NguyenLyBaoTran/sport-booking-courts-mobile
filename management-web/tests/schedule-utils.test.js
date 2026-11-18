@@ -139,7 +139,7 @@ test("calendar assets and the updated app use cache versions", () => {
   assert.match(htmlSource, /assets\/js\/schedule-utils\.js\?v=20261025-shared-calendar-1/);
   assert.match(htmlSource, /assets\/js\/datetime-utils\.js\?v=20261117-vn-time-1/);
   assert.match(htmlSource, /assets\/js\/qr-scan-gate\.js\?v=20261030-owner-qr-state-1/);
-  assert.match(htmlSource, /assets\/js\/app\.js\?v=20261117-booking-payment-time-1/);
+  assert.match(htmlSource, /assets\/js\/app\.js\?v=20261117-created-vn-time-1/);
 });
 
 test("Schedule Date, Venue, Court, Status and date Search filters combine", () => {
