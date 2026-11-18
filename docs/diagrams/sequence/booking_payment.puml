@@ -1,131 +1,115 @@
-@startuml Booking_Payment_Sequence
 
+@startuml
 title Booking and Payment Sequence Diagram
 
-hide footbox
 autonumber
 
-<style>
-participant {
-    Padding 12
-    FontSize 11
-}
-database {
-    Padding 12
-    FontSize 11
-}
-</style>
-
+skinparam backgroundColor white
 skinparam shadowing false
+skinparam roundcorner 8
 skinparam defaultFontName Arial
 skinparam defaultFontSize 12
-skinparam linetype ortho
 
 skinparam sequence {
-    ArrowColor #475569
-    LifeLineBorderColor #94A3B8
+    ArrowColor #526477
+    ArrowThickness 1.2
+    LifeLineBorderColor #B8C7D9
     LifeLineBackgroundColor white
-    ParticipantBorderColor #64748B
-    ParticipantBackgroundColor #EAF2F8
-    ParticipantFontColor #1E293B
-    ParticipantFontSize 11
-    ActorBorderColor #64748B
-    ActorFontColor #1E293B
-    GroupBorderColor #CBD5E1
-    GroupBackgroundColor white
+    ParticipantBorderColor #AABBD0
+    ParticipantBackgroundColor #EAF1F8
+    ParticipantFontColor #34465A
+    ActorBorderColor #AABBD0
+    ActorBackgroundColor #EAF1F8
+    ActorFontColor #34465A
+    ActivationBorderColor #526477
+    ActivationBackgroundColor #E8EEF5
+    GroupBorderColor #C6D4E3
+    GroupBackgroundColor #F8FAFC
+    GroupHeaderFontColor #34465A
+    GroupHeaderFontStyle bold
+    DatabaseBorderColor #AABBD0
+    DatabaseBackgroundColor #F1F5F9
 }
 
 actor Customer
-participant "Booking UI" as UI
-participant "Booking API" as BA
-participant "Schedule API" as SA
-participant "Payment API" as PA
-participant "Mock Payment Gateway" as MPG
-database "Database" as DB
+participant "Android App" as App
+participant "API Gateway" as Gateway
+participant "Booking Service" as Booking
+participant "Court Service" as Court
+participant "Payment Service" as Payment
+database Database as DB
 
-Customer -> UI: Select court and time slot
-Customer -> UI: Confirm booking
+Customer -> App: Select court and one or more time slots
+Customer -> App: Confirm booking
 
-UI -> BA: POST /api/v1/bookings
-activate BA
+App -> Gateway: POST /api/v1/bookings
+Gateway -> Booking: Forward booking request
 
-BA -> SA: Hold available time slot
-activate SA
-SA -> DB: Check and lock slot
-activate DB
-DB --> SA: Slot availability result
-deactivate DB
+Booking -> Court: Get slot quote
+Court -> DB: Check slot availability
+DB --> Court: Slot information
+Court --> Booking: Quote and availability result
 
-alt Slot unavailable
-    SA --> BA: Slot unavailable
-    BA --> UI: 409 Conflict
-    UI --> Customer: Show slot unavailable
-    deactivate SA
-    deactivate BA
+Booking -> Court: Hold selected slots
+Court -> DB: Hold selected slots
+DB --> Court: Hold result
 
-else Slot held successfully
-    SA --> BA: Slot held
-    deactivate SA
+alt Slots unavailable
+    Court --> Booking: Hold rejected
+    Booking --> Gateway: 409 Conflict
+    Gateway --> App: Booking failed
+    App --> Customer: Display unavailable slots
 
-    BA -> DB: Create PENDING booking\nSet expiry to 10 minutes
-    activate DB
-    DB --> BA: Booking ID
-    deactivate DB
+else Slots held successfully
+    Court --> Booking: Slots held successfully
+    Booking -> DB: Create PENDING booking\nSet default expiry to 10 minutes
+    DB --> Booking: Booking ID and details
 
-    BA --> UI: Booking created
-    deactivate BA
+    Booking --> Gateway: Booking created
+    Gateway --> App: Return booking details
+    App --> Customer: Display booking information
 
-    UI --> Customer: Display booking details
-    Customer -> UI: Confirm payment
+    Customer -> App: Confirm payment
+    App -> Gateway: POST /api/v1/payments/process\n(Idempotency-Key)
+    Gateway -> Payment: Forward payment request
 
-    UI -> PA: POST /api/v1/payments/process
-    activate PA
+    Payment -> Booking: GET internal payment-context
+    Booking --> Payment: Booking and payment information
 
-    PA -> MPG: Process mock payment
-    activate MPG
-    MPG --> PA: Payment result
-    deactivate MPG
+    Payment -> DB: Save payment result
 
     alt Payment successful
-        PA -> DB: Save payment as PAID
-        activate DB
-        DB --> PA: Payment saved
-        deactivate DB
+        DB --> Payment: Payment saved as PAID
 
-        PA -> BA: Confirm booking
-        activate BA
+        Payment -> Booking: POST internal /confirm
+        Booking -> Court: Confirm held slots
+        Court -> DB: Update slots to BOOKED
+        DB --> Court: Slots updated
+        Court --> Booking: Slots confirmed
 
-        BA -> SA: Confirm held slot
-        activate SA
-        SA -> DB: Update slot to BOOKED
-        activate DB
-        DB --> SA: Slot updated
-        deactivate DB
-        SA --> BA: Slot confirmed
-        deactivate SA
+        Booking -> DB: Update booking to CONFIRMED\nGenerate QR token
+        DB --> Booking: Booking updated
 
-        BA -> DB: Update booking to CONFIRMED\nGenerate QR token
-        activate DB
-        DB --> BA: Booking updated
-        deactivate DB
-
-        BA --> PA: Booking confirmed
-        deactivate BA
-
-        PA --> UI: Payment and booking successful
-        UI --> Customer: Show confirmation and QR code
+        Booking --> Payment: Booking confirmed
+        Payment --> Gateway: Payment successful
+        Gateway --> App: Return payment and booking result
+        App --> Customer: Display confirmation and QR code
 
     else Payment failed
-        PA -> DB: Save payment as FAILED
-        activate DB
-        DB --> PA: Payment saved
-        deactivate DB
+        DB --> Payment: Payment saved as FAILED
 
-        PA --> UI: Payment failed
-        UI --> Customer: Show failure and retry option
+        Payment -> Booking: POST internal /fail
+        Booking -> DB: Update booking to FAILED
+        Booking -> Court: Release held slots
+        Court -> DB: Release selected slots
+        DB --> Court: Slots released
+        Court --> Booking: Release completed
+
+        Booking --> Payment: Booking failure processed
+        Payment --> Gateway: Payment failed
+        Gateway --> App: Return failure result
+        App --> Customer: Display payment failure
     end
-
-    deactivate PA
 end
 
 @enduml
